@@ -1,0 +1,34 @@
+# الاعتماديات
+/node_modules
+/.pnp
+.pnp.js
+
+# بناء Next.js
+/.next/
+/out/
+/build
+
+# متغيرات البيئة — سرية تمامًا ولا تُرفع أبدًا
+.env
+.env.local
+.env.production
+.env.development
+
+# ملفات السجلات
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+*.log
+
+# أنظمة التشغيل والمحررات
+.DS_Store
+Thumbs.db
+.idea
+.vscode
+*.swp
+
+# Vercel
+.vercel
+
+# TypeScript
+*.tsbuildinfo

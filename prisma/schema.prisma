@@ -1,0 +1,303 @@
+// =====================================================================
+// «كلام له لازمة» — المخطط النهائي الموحّد لقاعدة البيانات PostgreSQL
+// يستخدمه المشروعان معًا: المنصة العامة + لوحة التحكم السيادية
+// =====================================================================
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ============================ المقالات ============================
+
+enum ArticleStatus {
+  DRAFT
+  SCHEDULED
+  PUBLISHED
+  ARCHIVED
+}
+
+model Section {
+  id          String    @id @default(cuid())
+  slug        String    @unique
+  name        String
+  description String?
+  sortOrder   Int       @default(0)
+  active      Boolean   @default(true)
+  articles    Article[]
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+}
+
+model Article {
+  id                  String        @id @default(cuid())
+  title               String
+  slug                String        @unique
+  summary             String        @db.Text
+  content             String        @db.Text
+  contentWithTashkeel String        @db.Text
+  coverImage          String?
+  audioUrl            String?
+  audioDurationSec    Float?
+  audioCues           Json?
+  readingTimeSec      Int           @default(60)
+  status              ArticleStatus @default(DRAFT)
+  checklistPassed     Boolean       @default(false)
+  checklistData       Json?
+  views               Int           @default(0)
+  completedReads      Int           @default(0)
+  publishedAt         DateTime?
+  scheduledAt         DateTime?
+  createdAt           DateTime      @default(now())
+  updatedAt           DateTime      @updatedAt
+
+  sectionId    String?
+  section      Section?      @relation(fields: [sectionId], references: [id])
+  comments     Comment[]
+  interactions Interaction[]
+  pageViews    PageView[]
+  shares       SocialShare[]
+
+  @@index([status, publishedAt(sort: Desc)])
+  @@index([sectionId])
+}
+
+// ============================ المجتمع ============================
+
+enum CommentStatus {
+  PENDING
+  APPROVED
+  REJECTED
+}
+
+model User {
+  id            String    @id @default(cuid())
+  googleId      String?   @unique
+  name          String?
+  email         String?   @unique
+  emailVerified DateTime?
+  image         String?
+  banned        Boolean   @default(false)
+  banReason     String?
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+
+  accounts     Account[]
+  sessions     Session[]
+  comments     Comment[]
+  interactions Interaction[]
+}
+
+model Comment {
+  id            String        @id @default(cuid())
+  articleId     String
+  article       Article       @relation(fields: [articleId], references: [id], onDelete: Cascade)
+  userId        String?
+  user          User?         @relation(fields: [userId], references: [id])
+  guestName     String?
+  guestFp       String?
+  content       String        @db.Text
+  status        CommentStatus @default(PENDING)
+  flagged       Boolean       @default(false)
+  flagReasons   String[]
+  riskScore     Float         @default(0)
+  reportCount   Int           @default(0)
+  editedByAdmin Boolean       @default(false)
+  createdAt     DateTime      @default(now())
+  updatedAt     DateTime      @updatedAt
+  reports       CommentReport[]
+
+  @@index([articleId, status])
+  @@index([status, createdAt(sort: Desc)])
+}
+
+model CommentReport {
+  id         String   @id @default(cuid())
+  commentId  String
+  comment    Comment  @relation(fields: [commentId], references: [id], onDelete: Cascade)
+  reason     String
+  details    String?
+  reporterFp String?
+  createdAt  DateTime @default(now())
+
+  @@index([commentId])
+}
+
+model Interaction {
+  id        String   @id @default(cuid())
+  articleId String
+  article   Article  @relation(fields: [articleId], references: [id], onDelete: Cascade)
+  userId    String?
+  user      User?    @relation(fields: [userId], references: [id])
+  visitorFp String?
+  value     Int // 1 = إعجاب ، -1 = عدم إعجاب
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([articleId, visitorFp])
+  @@unique([articleId, userId])
+}
+
+model SocialShare {
+  id        String   @id @default(cuid())
+  articleId String
+  article   Article  @relation(fields: [articleId], references: [id], onDelete: Cascade)
+  platform  String
+  quoteLen  Int?
+  createdAt DateTime @default(now())
+
+  @@index([articleId, platform])
+}
+
+model PageView {
+  id          String   @id @default(cuid())
+  articleId   String?
+  article     Article? @relation(fields: [articleId], references: [id], onDelete: Cascade)
+  path        String
+  sessionId   String
+  visitorFp   String?
+  referrer    String?
+  device      String?
+  readSeconds Int?
+  completed   Boolean  @default(false)
+  createdAt   DateTime @default(now())
+
+  @@index([articleId, createdAt(sort: Desc)])
+  @@index([createdAt(sort: Desc)])
+}
+
+// ==================== الأمن والإدارة (لوحة التحكم) ====================
+
+model AdminUser {
+  id            String    @id @default(cuid())
+  username      String    @unique
+  passwordHash  String
+  totpSecretEnc String? // مشفّر AES-256-GCM
+  totpEnabled   Boolean   @default(false)
+  lastLoginAt   DateTime?
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+
+  sessions  AdminSession[]
+  devices   TrustedDevice[]
+  auditLogs AuditLog[]
+}
+
+model AdminSession {
+  id         String    @id @default(cuid())
+  adminId    String
+  admin      AdminUser @relation(fields: [adminId], references: [id], onDelete: Cascade)
+  tokenHash  String    @unique
+  ip         String?
+  userAgent  String?
+  deviceHash String?
+  trusted    Boolean   @default(false)
+  expiresAt  DateTime
+  createdAt  DateTime  @default(now())
+
+  @@index([adminId])
+}
+
+model TrustedDevice {
+  id         String    @id @default(cuid())
+  adminId    String
+  admin      AdminUser @relation(fields: [adminId], references: [id], onDelete: Cascade)
+  deviceHash String
+  label      String?
+  lastIp     String?
+  lastSeenAt DateTime  @default(now())
+  createdAt  DateTime  @default(now())
+
+  @@unique([adminId, deviceHash])
+}
+
+model LoginAttempt {
+  id        String   @id @default(cuid())
+  username  String
+  ip        String
+  success   Boolean
+  reason    String?
+  createdAt DateTime @default(now())
+
+  @@index([username, createdAt])
+  @@index([ip, createdAt])
+}
+
+model IpRule {
+  id        String   @id @default(cuid())
+  ip        String   @unique
+  mode      String // ALLOW | DENY
+  note      String?
+  createdAt DateTime @default(now())
+}
+
+model SecurityAlert {
+  id        String   @id @default(cuid())
+  type      String
+  severity  String   @default("INFO") // INFO | WARN | CRITICAL
+  message   String
+  meta      Json?
+  resolved  Boolean  @default(false)
+  createdAt DateTime @default(now())
+
+  @@index([resolved, createdAt(sort: Desc)])
+}
+
+model AuditLog {
+  id        String     @id @default(cuid())
+  adminId   String?
+  admin     AdminUser? @relation(fields: [adminId], references: [id])
+  action    String
+  entity    String?
+  entityId  String?
+  meta      Json?
+  ip        String?
+  createdAt DateTime   @default(now())
+
+  @@index([createdAt(sort: Desc)])
+}
+
+model SystemSetting {
+  id        String   @id @default(cuid())
+  key       String   @unique
+  value     Json
+  updatedAt DateTime @updatedAt
+}
+
+// ===================== جداول Auth.js القياسية =====================
+
+model Account {
+  userId            String
+  type              String
+  provider          String
+  providerAccountId String
+  refresh_token     String?
+  access_token      String?
+  expires_at        Int?
+  token_type        String?
+  scope             String?
+  id_token          String?
+  session_state     String?
+  user              User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@id([provider, providerAccountId])
+}
+
+model Session {
+  sessionToken String   @unique
+  userId       String
+  expires      DateTime
+  user         User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+model VerificationToken {
+  identifier String
+  token      String
+  expires    DateTime
+
+  @@id([identifier, token])
+}
