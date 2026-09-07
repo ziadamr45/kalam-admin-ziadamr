@@ -19,6 +19,7 @@ const EVENT_LABEL: Record<string, { text: string; tone: "success" | "warn" | "da
   AUTH_LOGIN_SUCCESS: { text: "دخول Google", tone: "success" },
   AUTH_LOGIN_BLOCKED: { text: "محاولة محظور", tone: "danger" },
   AUTH_SIGNOUT: { text: "خروج", tone: "neutral" },
+  ACCOUNT_SELF_DELETED: { text: "حذف حساب ذاتي", tone: "warn" },
   COMMENT_SUBMITTED: { text: "تعليق جديد", tone: "copper" },
   COMMENT_REJECTED: { text: "تعليق مرفوض", tone: "warn" },
   VOTE: { text: "تصويت", tone: "neutral" },

@@ -19,6 +19,13 @@ export function LegalPagesEditor() {
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
   const [saved, setSaved] = useState<Partial<Record<PageKey, boolean>>>({});
+  /* تاريخ آخر تحديث الفعلي لكل صفحة — من قاعدة البيانات (يتجدد مع كل حفظ) أو تاريخ آخر تدقيق للنص الافتراضي */
+  const [updatedAt, setUpdatedAt] = useState<Partial<Record<PageKey, string>>>({});
+
+  const fmtDate = (iso?: string | null) =>
+    iso
+      ? new Intl.DateTimeFormat("ar-EG", { day: "numeric", month: "long", year: "numeric" }).format(new Date(iso))
+      : "";
 
   const load = useCallback(async (key: PageKey) => {
     setLoading(true);
@@ -28,6 +35,7 @@ export function LegalPagesEditor() {
       const page = (data.pages ?? []).find((p: { slug: string }) => p.slug === key);
       setTitle(page?.title ?? PAGES.find((p) => p.key === key)!.label);
       setContent(page?.content ?? "");
+      setUpdatedAt((prev) => ({ ...prev, [key]: page?.updatedAt ?? null }));
     } catch {}
     setLoading(false);
   }, []);
@@ -50,7 +58,11 @@ export function LegalPagesEditor() {
         return;
       }
       setSaved((s) => ({ ...s, [active]: true }));
-      toast("حُفظ النص وصار حيًّا على صفحة المنصة فورًا", "success");
+      /* التاريخ الديناميكي يُجدد فورًا من استجابة الخادم — ينعكس أسفل صفحة المنصة لحظةً */
+      if (data.page?.updatedAt) {
+        setUpdatedAt((prev) => ({ ...prev, [active]: data.page.updatedAt }));
+      }
+      toast("حُفظ النص وصار حيًّا على صفحة المنصة فورًا وتحدّث تاريخ الصفحة تلقائيًا", "success");
     } finally {
       setBusy(false);
     }
@@ -83,7 +95,15 @@ export function LegalPagesEditor() {
       </div>
 
       <Card className="space-y-4 p-6">
-        <p className="text-xs leading-6 text-steel-400">{PAGES.find((p) => p.key === active)?.hint}</p>
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <p className="text-xs leading-6 text-steel-400">{PAGES.find((p) => p.key === active)?.hint}</p>
+          {/* التاريخ الفعلي — نفس المصدر الذي يُعرض أسفل صفحة المنصة */}
+          <p className="rounded-lg bg-steel-50 px-2.5 py-1 text-[11px] font-bold text-steel-500">
+            {updatedAt[active]
+              ? `آخر تحديث فعلي: ${fmtDate(updatedAt[active])}`
+              : "النص الافتراضي معروض — عند أول حفظ يبدأ التاريخ بالتسجيل تلقائيًا"}
+          </p>
+        </div>
 
         {loading ? (
           <p className="py-10 text-center text-sm text-steel-400">جارٍ التحميل..</p>
