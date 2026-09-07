@@ -197,13 +197,13 @@ export function ErrorsPanel() {
       ) : (
         <ul className="max-h-[520px] space-y-2 overflow-y-auto pe-1">
           {errors.map((e) => (
-            <li key={e.id} className="rounded-xl border border-steel-100 p-3">
+            <li key={e.id} className="min-w-0 rounded-xl border border-steel-100 p-3">
               <button
                 onClick={() => setExpanded(expanded === e.id ? null : e.id)}
                 className="w-full text-right"
               >
-                <div className="flex items-start justify-between gap-3">
-                  <p className="text-xs font-bold text-danger-600">{e.message}</p>
+                <div className="flex min-w-0 items-start justify-between gap-3">
+                  <p className="min-w-0 break-words text-xs font-bold text-danger-600">{e.message}</p>
                   <span className="shrink-0 rounded-full bg-danger-400/15 px-2 py-0.5 text-[10px] font-bold text-danger-600">
                     ×{e.count}
                   </span>
@@ -214,7 +214,7 @@ export function ErrorsPanel() {
               </button>
               {expanded === e.id && e.stack && (
                 <pre
-                  className="mt-2 max-h-40 overflow-auto rounded-lg bg-steel-900 p-3 text-[10px] leading-5 text-steel-200"
+                  className="mt-2 max-h-40 overflow-auto whitespace-pre-wrap break-all rounded-lg bg-steel-900 p-3 text-[10px] leading-5 text-steel-200"
                   dir="ltr"
                 >
                   {e.stack.slice(0, 2000)}

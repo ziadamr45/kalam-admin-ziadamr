@@ -66,7 +66,7 @@ export function DashboardShell({
 
   return (
     <ToastProvider>
-      <div className="flex min-h-screen bg-steel-50">
+      <div className="flex min-h-screen overflow-x-clip bg-steel-50">
         {/* الشريط الجانبي الكحلي */}
         <aside
           className={`fixed inset-y-0 right-0 z-40 w-64 transform bg-steel-900 transition-transform duration-300 ease-fluid lg:static lg:translate-x-0 ${
