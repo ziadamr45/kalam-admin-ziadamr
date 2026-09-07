@@ -12,6 +12,8 @@ type UserRow = {
   banned: boolean;
   banReason: string | null;
   commentsCount: number;
+  interactionsCount: number;
+  savedCount: number;
   createdAt: string;
 };
 
@@ -62,6 +64,8 @@ export function UsersTable({ users }: { users: UserRow[] }) {
               <th>المستخدم</th>
               <th>البريد</th>
               <th>التعليقات</th>
+              <th>التفاعلات</th>
+              <th>المكتبة</th>
               <th>الحالة</th>
               <th>انضم في</th>
               <th>إجراء</th>
@@ -70,7 +74,7 @@ export function UsersTable({ users }: { users: UserRow[] }) {
           <tbody>
             {users.length === 0 ? (
               <tr>
-                <td colSpan={6} className="py-14 text-center text-sm text-steel-400">
+                <td colSpan={8} className="py-14 text-center text-sm text-steel-400">
                   لا مستخدمين بعد
                 </td>
               </tr>
@@ -92,6 +96,8 @@ export function UsersTable({ users }: { users: UserRow[] }) {
                   </td>
                   <td className="text-xs text-steel-500" dir="ltr">{u.email}</td>
                   <td className="font-bold text-steel-700">{fmt(u.commentsCount)}</td>
+                  <td className="text-steel-600">{fmt(u.interactionsCount)}</td>
+                  <td className="text-steel-600">{fmt(u.savedCount)}</td>
                   <td>
                     {u.banned ? (
                       <div>

@@ -30,6 +30,11 @@ type OverviewData = {
   sharesTotal: number;
   publishedCount: number;
   scheduledCount: number;
+  usersTotal: number;
+  usersThisWeek: number;
+  engagedUsers: number;
+  bannedUsers: number;
+  usersWithLibrary: number;
   dailyViews: { day: string; count: number }[];
   topArticles: { id: string; title: string; views: number; completedReads: number; likes: number }[];
   sharesByPlatform: { platform: string; count: number }[];
@@ -87,6 +92,36 @@ export function OverviewStats({ data }: { data: OverviewData }) {
         <StatCard title="مقالات منشورة" value={fmt(data.publishedCount)} sub="منشورة حاليًا" tone="steel" action={{ label: "إدارة", href: "/articles" }} />
         <StatCard title="مقالات مجدولة" value={fmt(data.scheduledCount)} sub="ستنشر تلقائيًا" tone="steel" />
         <StatCard title="تنبيهات أمنية" value={fmt(data.recentAlerts.length)} sub="غير معالجة (آخر 4)" tone={data.recentAlerts.length > 0 ? "danger" : "steel"} action={{ label: "الأمان", href: "/security" }} />
+      </div>
+
+      {/* صف القراء المسجلين — حسابات Google الحقيقية */}
+      <div className="grid grid-cols-2 gap-4 lg:grid-cols-4">
+        <StatCard
+          title="قراء مسجلون"
+          value={fmt(data.usersTotal)}
+          sub={`جديد هذا الأسبوع: ${fmt(data.usersThisWeek)}`}
+          tone="copper"
+          action={{ label: "المستخدمون", href: "/users" }}
+        />
+        <StatCard
+          title="مشاركون فعليًا"
+          value={fmt(data.engagedUsers)}
+          sub={data.usersTotal > 0 ? `نسبة المشاركة: ${Math.round((data.engagedUsers / data.usersTotal) * 100)}%` : "لا مسجلون بعد"}
+          tone="steel"
+        />
+        <StatCard
+          title="حسابات محظورة"
+          value={fmt(data.bannedUsers)}
+          sub="موقوعة عن المشاركة"
+          tone={data.bannedUsers > 0 ? "danger" : "steel"}
+          action={{ label: "إدارة", href: "/users" }}
+        />
+        <StatCard
+          title="مكتبات متزامنة"
+          value={fmt(data.usersWithLibrary)}
+          sub="قراء حفظوا مقالات بحسابهم"
+          tone="steel"
+        />
       </div>
 
       {/* المخططات */}

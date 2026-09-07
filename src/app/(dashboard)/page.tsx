@@ -31,6 +31,11 @@ export default async function DashboardPage() {
     recentAlerts,
     scheduledSoon,
     recentComments,
+    usersTotal,
+    usersThisWeek,
+    engagedUsers,
+    bannedUsers,
+    usersWithLibrary,
   ] = await Promise.all([
     prisma.pageView.count({ where: { createdAt: { gte: todayStart } } }),
     prisma.pageView.count({ where: { createdAt: { gte: weekAgo } } }),
@@ -77,6 +82,14 @@ export default async function DashboardPage() {
       take: 4,
       include: { article: { select: { title: true } }, user: { select: { name: true } } },
     }),
+    /* إحصاءات القراء المسجلين — حسابات Google */
+    prisma.user.count(),
+    prisma.user.count({ where: { createdAt: { gte: weekAgo } } }),
+    prisma.user.count({
+      where: { OR: [{ comments: { some: {} } }, { interactions: { some: {} } }] },
+    }).catch(() => 0),
+    prisma.user.count({ where: { banned: true } }),
+    prisma.user.count({ where: { savedArticles: { some: {} } } }).catch(() => 0),
   ]);
 
   /* إعجابات لكل مقال منشور (للمخطط) */
@@ -115,6 +128,11 @@ export default async function DashboardPage() {
         sharesTotal,
         publishedCount,
         scheduledCount,
+        usersTotal,
+        usersThisWeek,
+        engagedUsers,
+        bannedUsers,
+        usersWithLibrary,
         dailyViews: dailyViews.map((d) => ({
           day: d.day.toISOString(),
           count: Number(d.count),
