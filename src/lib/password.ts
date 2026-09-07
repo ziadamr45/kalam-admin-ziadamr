@@ -29,10 +29,10 @@ export async function constantTimeDummyVerify(): Promise<void> {
   await verify(dummy, "dummy-password-attempt").catch(() => {});
 }
 
-/** فحص قوة كلمة المرور */
+/** فحص قوة كلمة المرور — الحد الأدنى 8 أحرف (تعويضه: 2FA إلزامي + حد معدل المحاولات + بصمة الأجهزة) */
 export function validatePasswordStrength(password: string): { ok: boolean; message?: string } {
-  if (password.length < 12) {
-    return { ok: false, message: "كلمة المرور يجب أن تكون 12 حرفًا على الأقل" };
+  if (password.length < 8) {
+    return { ok: false, message: "كلمة المرور يجب أن تكون 8 أحرف على الأقل" };
   }
   if (!/[a-z]/.test(password) || !/[A-Z]/.test(password)) {
     return { ok: false, message: "يجب أن تحتوي على أحرف كبيرة وصغيرة" };

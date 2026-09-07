@@ -94,3 +94,103 @@ body {
     transition-duration: 0.01ms !important;
   }
 }
+
+/* =====================================================================
+   معاينة الآيات القرآنية والأحاديث النبوية داخل المحرر
+   ===================================================================== */
+
+.quran-block {
+  position: relative;
+  margin: 1.6rem auto;
+  max-width: 100%;
+  padding: 1.8rem 1.4rem 1rem;
+  text-align: center;
+  border-radius: 1.2rem;
+  background: radial-gradient(120% 90% at 50% 0%, rgba(161, 106, 31, 0.08) 0%, rgba(245, 235, 211, 0.45) 55%, transparent 100%);
+  border: 1px solid rgba(161, 106, 31, 0.24);
+}
+
+.quran-ornament {
+  position: absolute;
+  top: 0.5rem;
+  right: 1rem;
+  font-size: 1rem;
+  line-height: 1;
+  color: rgba(161, 106, 31, 0.65);
+  user-select: none;
+}
+
+.quran-text {
+  font-family: var(--font-quran), "Amiri Quran", "Amiri", serif;
+  font-size: 1.5rem;
+  line-height: 2.45;
+  color: var(--ink);
+  margin: 0;
+}
+
+.quran-bracket { color: var(--accent); font-size: 1.25em; user-select: none; }
+
+.quran-ref {
+  margin-top: 0.8rem;
+  padding-top: 0.6rem;
+  border-top: 1px dashed rgba(161, 106, 31, 0.28);
+  font-family: var(--font-ui), sans-serif;
+  font-size: 0.78rem;
+  font-weight: 600;
+  color: var(--ink-muted);
+}
+
+.quran-ref-dot { margin: 0 0.5rem; color: var(--accent); }
+
+.hadith-block {
+  margin: 1.6rem 0;
+  padding: 1.2rem 1.5rem 0.9rem;
+  border-radius: 1rem;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-inline-start: 4px solid var(--accent);
+}
+
+.hadith-text {
+  font-family: var(--font-naskh), "Amiri", serif;
+  font-size: 1.25rem;
+  line-height: 2.15;
+  color: var(--ink);
+  margin: 0;
+}
+
+.hadith-bracket { color: var(--accent); font-size: 1.3em; user-select: none; }
+
+.hadith-ref {
+  margin-top: 0.7rem;
+  font-family: var(--font-ui), sans-serif;
+  font-size: 0.8rem;
+  font-weight: 600;
+  color: var(--ink-muted);
+}
+
+.hadith-ref::before {
+  content: "";
+  display: inline-block;
+  width: 1.6rem;
+  height: 1px;
+  vertical-align: middle;
+  margin-inline-end: 0.6rem;
+  background: var(--accent);
+  opacity: 0.55;
+}
+
+/* أدوات إدراج الآيات والأحاديث في المحرر */
+.insert-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  margin-bottom: 0.75rem;
+}
+
+.insert-panel {
+  border: 1px dashed var(--border);
+  border-radius: 1rem;
+  padding: 1rem;
+  background: var(--bg);
+}

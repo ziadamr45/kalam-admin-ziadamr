@@ -2,7 +2,17 @@
 
 import { useRouter } from "next/navigation";
 import { useMemo, useRef, useState } from "react";
-import { Badge, Button, Card, Modal, previewReadingTime, previewWordCount, useToast } from "@/components/ui";
+import {
+  Badge,
+  Button,
+  Card,
+  Modal,
+  previewReadingTime,
+  previewWordCount,
+  useToast,
+} from "@/components/ui";
+import { ContentPreview } from "@/components/content-preview";
+import { HADITH_TEMPLATE, QURAN_TEMPLATE } from "@/lib/content-blocks";
 
 type ArticleStatus = "DRAFT" | "SCHEDULED" | "PUBLISHED" | "ARCHIVED";
 
@@ -55,6 +65,19 @@ export function ArticleEditor({
   const [status, setStatus] = useState<ArticleStatus>(initial?.status ?? "DRAFT");
   const [syncTashkeel, setSyncTashkeel] = useState(mode === "new");
 
+  /* أدوات إدراج الآيات والأحاديث + المعاينة الحية */
+  const contentRef = useRef<HTMLTextAreaElement | null>(null);
+  const tashkeelRef = useRef<HTMLTextAreaElement | null>(null);
+  const [insertTarget, setInsertTarget] = useState<"content" | "tashkeel">("content");
+  const [quranPanel, setQuranPanel] = useState(false);
+  const [quranSura, setQuranSura] = useState("");
+  const [quranAyah, setQuranAyah] = useState("");
+  const [quranText, setQuranText] = useState("");
+  const [hadithPanel, setHadithPanel] = useState(false);
+  const [hadithNarrator, setHadithNarrator] = useState("");
+  const [hadithText, setHadithText] = useState("");
+  const [previewOpen, setPreviewOpen] = useState(false);
+
   const [busy, setBusy] = useState(false);
   const [checklistOpen, setChecklistOpen] = useState(false);
   const [checks, setChecks] = useState<boolean[]>(() => {
@@ -93,6 +116,62 @@ export function ArticleEditor({
   const onContentChange = (value: string) => {
     setContent(value);
     if (syncTashkeel && tashkeel.trim() === "") setTashkeel(value);
+  };
+
+  /* إدراج كتلة آية/حديث في موضع المؤشر داخل الحقل النشط */
+  const insertBlock = (markup: string) => {
+    const isTashkeel = insertTarget === "tashkeel";
+    const ref = isTashkeel ? tashkeelRef : contentRef;
+    const setter = isTashkeel ? setTashkeel : setContent;
+    const value = isTashkeel ? tashkeel : content;
+    const el = ref.current;
+
+    if (!el) {
+      setter(value ? `${value}\n\n${markup}` : markup);
+      return;
+    }
+
+    const start = el.selectionStart ?? value.length;
+    const end = el.selectionEnd ?? start;
+    const before = value.slice(0, start);
+    const after = value.slice(end);
+    const padBefore = before
+      ? before.endsWith("\n\n")
+        ? ""
+        : before.endsWith("\n")
+          ? "\n"
+          : "\n\n"
+      : "";
+    const padAfter = after.startsWith("\n") ? "\n" : "\n\n";
+    const inserted = padBefore + markup + padAfter;
+    setter(before + inserted + after);
+
+    requestAnimationFrame(() => {
+      el.focus();
+      const pos = (before + padBefore + markup).length;
+      el.setSelectionRange(pos, pos);
+    });
+  };
+
+  const insertQuran = () => {
+    if (!quranSura.trim() || !quranText.trim()) return;
+    insertBlock(QURAN_TEMPLATE(quranSura.trim(), quranAyah.trim() || "—", quranText.trim()));
+    setQuranPanel(false);
+    setQuranSura("");
+    setQuranAyah("");
+    setQuranText("");
+    toast("أُدرجت الآية بتنسيق الرسم العثماني المخصص", "success");
+  };
+
+  const insertHadith = () => {
+    if (!hadithText.trim()) return;
+    insertBlock(
+      HADITH_TEMPLATE(hadithNarrator.trim() || "حديث شريف", hadithText.trim()),
+    );
+    setHadithPanel(false);
+    setHadithNarrator("");
+    setHadithText("");
+    toast("أُدرج الحديث بتنسيق النسخ الكلاسيكي المخصص", "success");
   };
 
   const buildPayload = () => ({
@@ -220,6 +299,114 @@ export function ArticleEditor({
         </div>
       </Card>
 
+      {/* أدوات التنسيق القرآني والنبوي */}
+      <Card className="p-4">
+        <div className="flex flex-wrap items-center gap-2">
+          <span className="text-xs font-bold text-steel-600">أدوات التنسيق المخصص:</span>
+          <Button
+            size="sm"
+            variant={quranPanel ? "primary" : "outline"}
+            onClick={() => {
+              setQuranPanel((v) => !v);
+              setHadithPanel(false);
+            }}
+          >
+            ﴿ إدراج آية قرآنية
+          </Button>
+          <Button
+            size="sm"
+            variant={hadithPanel ? "primary" : "outline"}
+            onClick={() => {
+              setHadithPanel((v) => !v);
+              setQuranPanel(false);
+            }}
+          >
+            « إدراج حديث نبوي
+          </Button>
+          <span className="ms-auto text-[11px] text-steel-400">
+            الإدراج في: {insertTarget === "tashkeel" ? "النسخة المشكولة" : "النسخة القياسية"}
+          </span>
+        </div>
+
+        {quranPanel && (
+          <div className="insert-panel mt-3 space-y-3">
+            <div className="grid gap-3 sm:grid-cols-3">
+              <input
+                className="field"
+                placeholder="اسم السورة — مثال: الكهف"
+                value={quranSura}
+                onChange={(e) => setQuranSura(e.target.value)}
+              />
+              <input
+                className="field"
+                placeholder="رقم الآية — مثال: 10"
+                value={quranAyah}
+                onChange={(e) => setQuranAyah(e.target.value)}
+              />
+              <div className="flex items-center text-[11px] leading-5 text-steel-400">
+                ستُعرض داخل أقواس قرآنية ﴿ ﴾ بخط الرسم العثماني
+                مع توثيق السورة والآية
+              </div>
+            </div>
+            <textarea
+              className="field resize-y font-body leading-9"
+              rows={3}
+              placeholder="نص الآية الكريمة بالرسم العثماني مع التشكيل.."
+              value={quranText}
+              onChange={(e) => setQuranText(e.target.value)}
+            />
+            <div className="flex gap-2">
+              <Button
+                size="sm"
+                disabled={!quranSura.trim() || !quranText.trim()}
+                onClick={insertQuran}
+              >
+                إدراج الآية
+              </Button>
+              <Button size="sm" variant="ghost" onClick={() => setQuranPanel(false)}>
+                إلغاء
+              </Button>
+            </div>
+          </div>
+        )}
+
+        {hadithPanel && (
+          <div className="insert-panel mt-3 space-y-3">
+            <div className="grid gap-3 sm:grid-cols-3">
+              <input
+                className="field sm:col-span-2"
+                placeholder="الراوي والتخريج — مثال: رواه البخاري"
+                value={hadithNarrator}
+                onChange={(e) => setHadithNarrator(e.target.value)}
+              />
+              <div className="flex items-center text-[11px] leading-5 text-steel-400">
+                ستُعرض داخل أقواس اقتباس راقية بخط النسخ
+                الكلاسيكي الرصين
+              </div>
+            </div>
+            <textarea
+              className="field resize-y font-body leading-9"
+              rows={3}
+              placeholder="نص الحديث الشريف.."
+              value={hadithText}
+              onChange={(e) => setHadithText(e.target.value)}
+            />
+            <div className="flex gap-2">
+              <Button
+                size="sm"
+                disabled={!hadithText.trim()}
+                onClick={insertHadith}
+              >
+                إدراج الحديث
+              </Button>
+              <Button size="sm" variant="ghost" onClick={() => setHadithPanel(false)}>
+                إلغاء
+              </Button>
+            </div>
+          </div>
+        )}
+      </Card>
+
       {/* المحرر الثنائي المتزامن */}
       <div className="grid gap-6 lg:grid-cols-2">
         <Card className="p-5">
@@ -228,11 +415,13 @@ export function ArticleEditor({
             <Badge tone="steel">سلسة للقراءة السريعة</Badge>
           </div>
           <p className="mb-3 text-[11px] leading-5 text-steel-400">
-            نص عادي. الفقرات بسطر فارغ، «## » عنوان فرعي، «&gt; » اقتباس، «- » قائمة.
+            نص عادي. الفقرات بسطر فارغ، «## » عنوان فرعي، «&gt; » اقتباس، «- » قائمة، والآيات والأحاديث من أزرار التنسيق أعلاه.
           </p>
           <textarea
+            ref={contentRef}
             value={content}
             onChange={(e) => onContentChange(e.target.value)}
+            onFocus={() => setInsertTarget("content")}
             rows={14}
             className="field resize-y font-body leading-9"
             placeholder="اكتب الفكرة بسلام.. بلا تشكيل، بلا ثقل."
@@ -248,8 +437,10 @@ export function ArticleEditor({
             الكامل الحركات الإعرابية والتشكيلية — للدارسين والمعلمين.
           </p>
           <textarea
+            ref={tashkeelRef}
             value={tashkeel}
             onChange={(e) => setTashkeel(e.target.value)}
+            onFocus={() => setInsertTarget("tashkeel")}
             rows={14}
             className="field tashkeel-editor resize-y font-body"
             placeholder="وَالْكَلَامُ الْمُشَكَّلُ هُنَا بِكَامِلِ حَرَكَاتِهِ.."
@@ -260,6 +451,23 @@ export function ArticleEditor({
           </label>
         </Card>
       </div>
+
+      {/* المعاينة الحية للتنسيق النهائي */}
+      <Card className="p-5">
+        <div className="flex items-center justify-between">
+          <h3 className="text-sm font-bold text-steel-800">
+            معاينة التنسيق النهائي <span className="font-normal text-steel-400">(كما سيظهر للقرّاء)</span>
+          </h3>
+          <Button size="sm" variant="ghost" onClick={() => setPreviewOpen((v) => !v)}>
+            {previewOpen ? "إخفاء المعاينة" : "إظهار المعاينة"}
+          </Button>
+        </div>
+        {previewOpen && (
+          <div className="mt-4 rounded-2xl border border-steel-100 p-5">
+            <ContentPreview raw={content} />
+          </div>
+        )}
+      </Card>
 
       {/* الوسائط */}
       <Card className="space-y-4 p-6">
