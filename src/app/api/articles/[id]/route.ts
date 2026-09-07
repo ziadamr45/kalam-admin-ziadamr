@@ -5,6 +5,7 @@ import { slugify } from "@/lib/slugify";
 import { readingSeconds } from "@/lib/readingTime";
 import { getSystemSettings } from "@/lib/settings";
 import { articleRevalidatePaths, revalidatePublicPaths } from "@/lib/revalidate";
+import { fixNunation } from "@/lib/nunation";
 
 type Params = { params: Promise<{ id: string }> };
 
@@ -44,6 +45,7 @@ export async function PATCH(request: Request, { params }: Params) {
       status?: "DRAFT" | "SCHEDULED" | "PUBLISHED" | "ARCHIVED";
       scheduledAt?: string | null;
       checklistData?: { items: { text: string; checked: boolean }[] };
+      tashkeelEnabled?: boolean;
     };
 
     const existing = await prisma.article.findUnique({ where: { id } });
@@ -66,16 +68,18 @@ export async function PATCH(request: Request, { params }: Params) {
 
     const data: Record<string, unknown> = {};
 
-    if (body.title !== undefined) data.title = body.title.trim();
-    if (body.summary !== undefined) data.summary = body.summary.trim();
-    if (body.content !== undefined) data.content = body.content;
+    /* قاعدة ضبط التنوين الصارمة — تصحيح إلزامي على مستوى الخادم أيضًا */
+    if (body.title !== undefined) data.title = fixNunation(body.title.trim());
+    if (body.summary !== undefined) data.summary = fixNunation(body.summary.trim());
+    if (body.content !== undefined) data.content = fixNunation(body.content);
     if (body.contentWithTashkeel !== undefined)
-      data.contentWithTashkeel = body.contentWithTashkeel.trim() || body.content || existing.content;
+      data.contentWithTashkeel = fixNunation(body.contentWithTashkeel.trim() || body.content || existing.content);
     if (body.sectionId !== undefined) data.sectionId = body.sectionId || null;
     if (body.coverImage !== undefined) data.coverImage = body.coverImage || null;
     if (body.audioUrl !== undefined) data.audioUrl = body.audioUrl || null;
     if (body.audioDurationSec !== undefined) data.audioDurationSec = body.audioDurationSec;
     if (body.audioCues !== undefined) data.audioCues = body.audioCues as never;
+    if (typeof body.tashkeelEnabled === "boolean") data.tashkeelEnabled = body.tashkeelEnabled;
 
     if (body.slug !== undefined && body.slug.trim()) {
       const newSlug = slugify(body.slug);

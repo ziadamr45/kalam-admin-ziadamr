@@ -27,6 +27,8 @@ model Section {
   slug        String    @unique
   name        String
   description String?
+  color       String? // لون هوية القسم — hex مثل #A16A1F
+  icon        String? // أيقونة القسم — إيموجي أو رمز نصي
   sortOrder   Int       @default(0)
   active      Boolean   @default(true)
   articles    Article[]
@@ -47,6 +49,7 @@ model Article {
   audioCues           Json?
   readingTimeSec      Int           @default(60)
   status              ArticleStatus @default(DRAFT)
+  tashkeelEnabled     Boolean       @default(true)
   checklistPassed     Boolean       @default(false)
   checklistData       Json?
   views               Int           @default(0)
@@ -283,6 +286,68 @@ model SystemSetting {
   key       String   @unique
   value     Json
   updatedAt DateTime @updatedAt
+}
+
+// ==================== المحتوى القانوني والرسائل ====================
+
+/* الصفحات القانونية — نصوصها قابلة للتحرير من لوحة التحكم دون تعديل أكواد */
+model LegalPage {
+  id        String   @id @default(cuid())
+  slug      String   @unique // privacy | terms | dialogue-ethics
+  title     String
+  content   String   @db.Text
+  updatedAt DateTime @updatedAt
+}
+
+/* رسائل صفحة «اتصل بنا» — تصل مباشرة إلى لوحة التحكم */
+model ContactMessage {
+  id        String   @id @default(cuid())
+  name      String
+  email     String?
+  subject   String?
+  body      String   @db.Text
+  ip        String?
+  userAgent String?
+  read      Boolean  @default(false)
+  archived  Boolean  @default(false)
+  createdAt DateTime @default(now())
+
+  @@index([read, createdAt(sort: Desc)])
+}
+
+// ==================== سجلات الشفافية الرقابية ====================
+
+/* أحداث المنصة الحية: دخول Google، تعليقات، تصويتات، حفظ.. كل حركة مرئية للأدمن */
+model AuditEvent {
+  id         String   @id @default(cuid())
+  type       String // AUTH_LOGIN_SUCCESS | AUTH_LOGIN_BLOCKED | COMMENT_SUBMITTED | VOTE | SAVE | CONTACT | ...
+  actorType  String   @default("GUEST") // USER | GUEST | SYSTEM
+  actorId    String?
+  actorLabel String?
+  message    String?
+  meta       Json?
+  path       String?
+  ip         String?
+  userAgent  String?
+  createdAt  DateTime @default(now())
+
+  @@index([type, createdAt(sort: Desc)])
+  @@index([createdAt(sort: Desc)])
+}
+
+/* أخطاء برمجية لحظية يرفعها المتصفح — يعلم الأدمن بأي عطَل فورًا */
+model ErrorReport {
+  id         String   @id @default(cuid())
+  digest     String   @unique // تجميع الأخطاء المتطابقة
+  message    String
+  stack      String?  @db.Text
+  path       String?
+  userAgent  String?
+  count      Int      @default(1)
+  lastSeenAt DateTime @default(now())
+  createdAt  DateTime @default(now())
+
+  @@index([lastSeenAt(sort: Desc)])
 }
 
 // ===================== جداول Auth.js القياسية =====================

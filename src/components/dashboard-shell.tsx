@@ -8,10 +8,15 @@ import { ToastProvider } from "@/components/ui";
 const NAV = [
   { href: "/", label: "التحليلات الحية", icon: "chart" },
   { href: "/articles", label: "المقالات", icon: "doc" },
+  { href: "/sections", label: "الأقسام والتصنيفات", icon: "tag" },
   { href: "/comments", label: "مركز التعليقات", icon: "chat" },
   { href: "/users", label: "المستخدمون", icon: "users" },
+  { href: "/audit", label: "النشاط والشفافية", icon: "activity" },
+  { href: "/messages", label: "رسائل التواصل", icon: "mail" },
+  { href: "/legal-pages", label: "الصفحات القانونية", icon: "scroll" },
+  { href: "/site-settings", label: "إعدادات الموقع", icon: "sliders" },
   { href: "/checklist", label: "معايير النشر", icon: "check" },
-  { href: "/security", label: "الأمن والإعدادات", icon: "shield" },
+  { href: "/security", label: "الأمن والحماية", icon: "shield" },
 ] as const;
 
 function NavIcon({ name }: { name: (typeof NAV)[number]["icon"] }) {
@@ -21,10 +26,20 @@ function NavIcon({ name }: { name: (typeof NAV)[number]["icon"] }) {
       return <svg {...common}><path d="M3 3v18h18" /><path d="M7 15l4-6 4 3 5-8" /></svg>;
     case "doc":
       return <svg {...common}><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" /><path d="M14 2v6h6M9 13h6M9 17h6" /></svg>;
+    case "tag":
+      return <svg {...common}><path d="M20.6 13.4 12 22 2 12V2h10l8.6 8.6a2 2 0 0 1 0 2.8Z" /><circle cx="7.5" cy="7.5" r="1" fill="currentColor" /></svg>;
     case "chat":
       return <svg {...common}><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" /></svg>;
     case "users":
       return <svg {...common}><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2" /><circle cx="9" cy="7" r="4" /><path d="M23 21v-2a4 4 0 0 0-3-3.87M16 3.13a4 4 0 0 1 0 7.75" /></svg>;
+    case "activity":
+      return <svg {...common}><path d="M22 12h-4l-3 9L9 3l-3 9H2" /></svg>;
+    case "mail":
+      return <svg {...common}><rect x="2" y="4" width="20" height="16" rx="2" /><path d="m22 7-10 6L2 7" /></svg>;
+    case "scroll":
+      return <svg {...common}><path d="M8 21h12a2 2 0 0 0 2-2v-2H10v2a2 2 0 1 1-4 0V5a2 2 0 1 0-4 0v3h4" /><path d="M19 17V5a2 2 0 0 0-2-2H4" /></svg>;
+    case "sliders":
+      return <svg {...common}><path d="M4 21v-7M4 10V3M12 21v-9M12 8V3M20 21v-5M20 12V3M1 14h6M9 8h6M17 16h6" /></svg>;
     case "check":
       return <svg {...common}><path d="M9 11l3 3L22 4" /><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11" /></svg>;
     case "shield":

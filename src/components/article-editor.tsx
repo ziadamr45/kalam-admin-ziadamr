@@ -12,7 +12,9 @@ import {
   useToast,
 } from "@/components/ui";
 import { ContentPreview } from "@/components/content-preview";
+import { ImageUploader } from "@/components/image-uploader";
 import { HADITH_TEMPLATE, QURAN_TEMPLATE } from "@/lib/content-blocks";
+import { fixNunation, countNunationIssues } from "@/lib/nunation";
 
 type ArticleStatus = "DRAFT" | "SCHEDULED" | "PUBLISHED" | "ARCHIVED";
 
@@ -29,6 +31,7 @@ type EditorArticle = {
   audioDurationSec: number | null;
   audioCues: { t: number; id: string }[] | null;
   status: ArticleStatus;
+  tashkeelEnabled?: boolean;
   scheduledAt: string | null;
   checklistData: { items: { text: string; checked: boolean }[] } | null;
 };
@@ -64,6 +67,8 @@ export function ArticleEditor({
   );
   const [status, setStatus] = useState<ArticleStatus>(initial?.status ?? "DRAFT");
   const [syncTashkeel, setSyncTashkeel] = useState(mode === "new");
+  /* سيطرة الأدمن على التشكيل لكل مقال على حدة (إضافة للإعداد العام) */
+  const [tashkeelEnabled, setTashkeelEnabled] = useState<boolean>(initial?.tashkeelEnabled ?? true);
 
   /* أدوات إدراج الآيات والأحاديث + المعاينة الحية */
   const contentRef = useRef<HTMLTextAreaElement | null>(null);
@@ -175,17 +180,30 @@ export function ArticleEditor({
   };
 
   const buildPayload = () => ({
-    title: title.trim(),
+    /* قاعدة ضبط التنوين الصارمة — تصحيح إلزامي تلقائي عند كل حفظ:
+       التنوين فوق الحرف السابق لألف التنوين، لا فوق الألف نفسها */
+    title: fixNunation(title.trim()),
     slug: slug.trim(),
-    summary,
-    content,
-    contentWithTashkeel: tashkeel.trim() || content,
+    summary: fixNunation(summary),
+    content: fixNunation(content),
+    contentWithTashkeel: fixNunation(tashkeel.trim() || content),
     sectionId,
     coverImage: coverImage.trim() || null,
     audioUrl: audioUrl.trim() || null,
     audioDurationSec,
+    tashkeelEnabled,
     status,
   });
+
+  /* زر التصحيح اليدوي — يعمل على النصين فورًا مع تقرير واضح */
+  const fixNunationNow = () => {
+    const n = countNunationIssues(content) + countNunationIssues(tashkeel) + countNunationIssues(title) + countNunationIssues(summary);
+    setContent((c) => fixNunation(c));
+    setTashkeel((t) => fixNunation(t));
+    setTitle((t) => fixNunation(t));
+    setSummary((s) => fixNunation(s));
+    toast(n > 0 ? `صُحّح ${n} موضعًا من مواضع التنوين — اللغة الآن رصينة` : "النص سليم — لا مواضع تنوين خاطئة", n > 0 ? "success" : "info");
+  };
 
   /* حفظ (مسودة أو أي حالة) */
   const save = async (targetStatus: ArticleStatus, withChecklist = false) => {
@@ -291,6 +309,24 @@ export function ArticleEditor({
           </div>
         </div>
 
+        {/* سيطرة التشكيل لهذا المقال تحديدًا — فوق الإعداد العام */}
+        <div className="flex items-center justify-between rounded-xl border border-steel-100 px-4 py-3">
+          <div>
+            <p className="text-xs font-bold text-steel-700">التشكيل لهذا المقال</p>
+            <p className="mt-0.5 text-[11px] text-steel-400">
+              يختفي زر التشكيل من صفحة المقال عند الإيقاف — إضافة للإعداد العام في إعدادات الموقع
+            </p>
+          </div>
+          <select
+            value={tashkeelEnabled ? "on" : "off"}
+            onChange={(e) => setTashkeelEnabled(e.target.value === "on")}
+            className="field max-w-40"
+          >
+            <option value="on">متاح للقرّاء</option>
+            <option value="off">معطّل لهذا المقال</option>
+          </select>
+        </div>
+
         <div>
           <label className="mb-1.5 block text-xs font-bold text-steel-700">
             المختصر المفيد * <span className="font-normal text-steel-400">(نقاط مفصولة بأسطر — يظهر للقارئ كخلاصة فائقة التركيز)</span>
@@ -299,10 +335,10 @@ export function ArticleEditor({
         </div>
       </Card>
 
-      {/* أدوات التنسيق القرآني والنبوي */}
+      {/* أدوات التنسيق القرآني والنبوي + ضبط التنوين */}
       <Card className="p-4">
         <div className="flex flex-wrap items-center gap-2">
-          <span className="text-xs font-bold text-steel-600">أدوات التنسيق المخصص:</span>
+          <span className="text-xs font-bold text-steel-600">أدوات التنسيق واللغة:</span>
           <Button
             size="sm"
             variant={quranPanel ? "primary" : "outline"}
@@ -322,6 +358,10 @@ export function ArticleEditor({
             }}
           >
             « إدراج حديث نبوي
+          </Button>
+          {/* قاعدة ضبط التنوين الصارمة */}
+          <Button size="sm" variant="outline" onClick={fixNunationNow} title="التنوين فوق الحرف السابق لألف التنوين — لا فوق الألف">
+            َّ تصحيح التنوين تلقائيًا
           </Button>
           <span className="ms-auto text-[11px] text-steel-400">
             الإدراج في: {insertTarget === "tashkeel" ? "النسخة المشكولة" : "النسخة القياسية"}
@@ -470,14 +510,17 @@ export function ArticleEditor({
       </Card>
 
       {/* الوسائط */}
-      <Card className="space-y-4 p-6">
+      <Card className="space-y-5 p-6">
         <h3 className="text-sm font-bold text-steel-800">الوسائط والملحقات</h3>
 
-        <div className="grid gap-4 sm:grid-cols-2">
-          <div>
-            <label className="mb-1.5 block text-xs font-bold text-steel-700">صورة الغلاف (رابط)</label>
-            <input value={coverImage} onChange={(e) => setCoverImage(e.target.value)} className="field" dir="ltr" placeholder="https://.." />
-          </div>
+        <div className="grid gap-5 lg:grid-cols-2">
+          {/* الرفع السحابي الذكي — بدل إدخال الروابط يدويًا */}
+          <ImageUploader
+            value={coverImage}
+            onChange={setCoverImage}
+            folder="articles"
+            label="صورة الغلاف — رفع سحابي مباشر"
+          />
           <div>
             <label className="mb-1.5 block text-xs font-bold text-steel-700">
               الملف الصوتي للقراءة <span className="font-normal text-steel-400">(رابط مباشر mp3 أو رفعه عبر Vercel Blob)</span>

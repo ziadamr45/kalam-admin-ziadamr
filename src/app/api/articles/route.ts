@@ -3,6 +3,7 @@ import { prisma } from "@/lib/prisma";
 import { requireSession, isRejected, writeAudit, getClientIp } from "@/lib/guard";
 import { slugify } from "@/lib/slugify";
 import { readingSeconds } from "@/lib/readingTime";
+import { fixNunation } from "@/lib/nunation";
 
 /** قائمة المقالات + إنشاء جديد */
 export async function GET(request: Request) {
@@ -50,6 +51,7 @@ export async function POST(request: Request) {
       audioUrl?: string | null;
       audioDurationSec?: number | null;
       audioCues?: { t: number; id: string }[] | null;
+      tashkeelEnabled?: boolean;
     };
 
     if (!body.title?.trim() || !body.content?.trim() || !body.summary?.trim()) {
@@ -72,16 +74,18 @@ export async function POST(request: Request) {
 
     const article = await prisma.article.create({
       data: {
-        title: body.title.trim(),
+        /* تصحيح التنوين الإلزامي على الخادم — لا كلمة تُنشر بتنوين خاطئ */
+        title: fixNunation(body.title.trim()),
         slug: finalSlug,
-        summary: body.summary.trim(),
-        content: body.content,
-        contentWithTashkeel: body.contentWithTashkeel?.trim() || body.content,
+        summary: fixNunation(body.summary.trim()),
+        content: fixNunation(body.content),
+        contentWithTashkeel: fixNunation(body.contentWithTashkeel?.trim() || body.content),
         sectionId: body.sectionId || null,
         coverImage: body.coverImage || null,
         audioUrl: body.audioUrl || null,
         audioDurationSec: body.audioDurationSec ?? null,
         audioCues: (body.audioCues ?? undefined) as never,
+        tashkeelEnabled: typeof body.tashkeelEnabled === "boolean" ? body.tashkeelEnabled : true,
         readingTimeSec,
         status: "DRAFT",
       },

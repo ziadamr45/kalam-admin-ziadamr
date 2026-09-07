@@ -39,6 +39,7 @@ export default async function EditArticlePage({
         audioDurationSec: article.audioDurationSec,
         audioCues: (article.audioCues as { t: number; id: string }[] | null) ?? null,
         status: article.status,
+        tashkeelEnabled: article.tashkeelEnabled,
         scheduledAt: article.scheduledAt?.toISOString() ?? null,
         checklistData: (article.checklistData as { items: { text: string; checked: boolean }[] } | null) ?? null,
       }}
