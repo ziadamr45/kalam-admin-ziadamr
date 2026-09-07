@@ -37,6 +37,7 @@ type OverviewData = {
   usersWithLibrary: number;
   dailyViews: { day: string; count: number }[];
   topArticles: { id: string; title: string; views: number; completedReads: number; likes: number }[];
+  mostSaved: { id: string; title: string; saves: number }[];
   sharesByPlatform: { platform: string; count: number }[];
   recentAlerts: { id: string; type: string; severity: string; message: string; createdAt: string }[];
   scheduledSoon: { id: string; title: string; scheduledAt: string | null }[];
@@ -209,6 +210,30 @@ export function OverviewStats({ data }: { data: OverviewData }) {
         </Card>
 
         <div className="space-y-6">
+          {/* الأكثر حفظًا في مكتبات القراء */}
+          <Card className="p-5">
+            <h3 className="mb-3 text-sm font-bold text-steel-800">الأكثر حفظًا في مكتبات القراء</h3>
+            {data.mostSaved.length === 0 ? (
+              <p className="py-6 text-center text-xs text-steel-400">لا حفظات بعد — بانتظار أول قارئ يسجل</p>
+            ) : (
+              <ul className="space-y-2.5">
+                {data.mostSaved.map((a, i) => (
+                  <li key={a.id} className="flex items-center justify-between gap-3 text-sm">
+                    <span className="flex min-w-0 items-center gap-2">
+                      <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-copper-100 text-[10px] font-bold text-copper-700">
+                        {i + 1}
+                      </span>
+                      <span className="truncate text-steel-700">{a.title}</span>
+                    </span>
+                    <span className="shrink-0 rounded-full bg-steel-100 px-2.5 py-0.5 text-[11px] font-bold text-steel-600">
+                      {fmt(a.saves)} حفظ
+                    </span>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </Card>
+
           {/* جدولة النشر القادمة */}
           <Card className="p-5">
             <h3 className="mb-3 text-sm font-bold text-steel-800">جدول النشر القادم</h3>

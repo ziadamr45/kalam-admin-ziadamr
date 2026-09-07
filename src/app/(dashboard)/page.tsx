@@ -104,6 +104,24 @@ export default async function DashboardPage() {
     ),
   );
 
+  /* المقالات الأكثر حفظًا في مكتبات القراء المسجلين */
+  const mostSaved = await prisma.savedArticle
+    .groupBy({ by: ["articleId"], _count: { articleId: true }, orderBy: { _count: { articleId: "desc" } }, take: 5 })
+    .then(async (groups) => {
+      const ids = groups.map((g) => g.articleId);
+      const arts = await prisma.article.findMany({
+        where: { id: { in: ids } },
+        select: { id: true, title: true, slug: true },
+      });
+      const titleOf = new Map(arts.map((a) => [a.id, a]));
+      return groups.map((g) => ({
+        id: g.articleId,
+        title: titleOf.get(g.articleId)?.title ?? "مقال محذوف",
+        saves: g._count.articleId,
+      }));
+    })
+    .catch(() => [] as { id: string; title: string; saves: number }[]);
+
   const completionRate =
     visitsThisWeek > 0 ? Math.round((completedToday / Math.max(visitsToday, 1)) * 100) : 0;
 
@@ -133,6 +151,7 @@ export default async function DashboardPage() {
         engagedUsers,
         bannedUsers,
         usersWithLibrary,
+        mostSaved,
         dailyViews: dailyViews.map((d) => ({
           day: d.day.toISOString(),
           count: Number(d.count),
