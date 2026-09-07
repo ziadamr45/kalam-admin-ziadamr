@@ -40,6 +40,7 @@ export default async function EditArticlePage({
         audioCues: (article.audioCues as { t: number; id: string }[] | null) ?? null,
         audioVoice: article.audioVoice,
         audioGeneratedAt: article.audioGeneratedAt?.toISOString() ?? null,
+        authorIntent: article.authorIntent,
         audioWordsCount: Array.isArray(article.audioWords)
           ? (article.audioWords as unknown[]).length
           : 0,

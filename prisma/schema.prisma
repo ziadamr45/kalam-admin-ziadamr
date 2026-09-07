@@ -53,6 +53,7 @@ model Article {
   audioGeneratedAt    DateTime?  // وقت التوليد الآلي
   readingTimeSec      Int           @default(60)
   status              ArticleStatus @default(DRAFT)
+  authorIntent        String?       @db.Text // التغذية الفكرية السرية لمساعد النقاش — لا تُعرض للجمهور إطلاقًا، تُحقن في System Prompt حصريًا
   tashkeelEnabled     Boolean       @default(true)
   checklistPassed     Boolean       @default(false)
   checklistData       Json?

@@ -12,6 +12,7 @@ const API_ROOT = "https://generativelanguage.googleapis.com/v1beta/models";
 /* أسماء موديلات TTS بالترتيب — الأولى قابلة للتجاوز بمتغير البيئة */
 const MODEL_CANDIDATES = [
   process.env.GEMINI_TTS_MODEL,
+  "gemini-3.1-flash-tts-preview", // النموذج المعتمد رسميًا للقراءة الصوتية المتزامنة كلمة بكلمة
   "gemini-2.5-flash-tts",
   "gemini-2.5-flash-preview-tts",
   "gemini-2.5-pro-preview-tts",

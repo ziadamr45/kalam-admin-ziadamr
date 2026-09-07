@@ -46,6 +46,7 @@ export async function PATCH(request: Request, { params }: Params) {
       scheduledAt?: string | null;
       checklistData?: { items: { text: string; checked: boolean }[] };
       tashkeelEnabled?: boolean;
+      authorIntent?: string | null;
     };
 
     const existing = await prisma.article.findUnique({ where: { id } });
@@ -80,6 +81,9 @@ export async function PATCH(request: Request, { params }: Params) {
     if (body.audioDurationSec !== undefined) data.audioDurationSec = body.audioDurationSec;
     if (body.audioCues !== undefined) data.audioCues = body.audioCues as never;
     if (typeof body.tashkeelEnabled === "boolean") data.tashkeelEnabled = body.tashkeelEnabled;
+    /* التغذية الفكرية السرية — سرّية على مستوى الخادم أيضًا: لا تُعاد في أي استجابة عامة */
+    if (body.authorIntent !== undefined)
+      data.authorIntent = body.authorIntent?.trim() ? fixNunation(body.authorIntent.trim()) : null;
 
     if (body.slug !== undefined && body.slug.trim()) {
       const newSlug = slugify(body.slug);

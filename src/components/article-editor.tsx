@@ -34,6 +34,7 @@ type EditorArticle = {
   audioVoice?: string | null;
   audioGeneratedAt?: string | null;
   audioWordsCount?: number;
+  authorIntent?: string | null;
   status: ArticleStatus;
   tashkeelEnabled?: boolean;
   scheduledAt: string | null;
@@ -73,6 +74,14 @@ export function ArticleEditor({
   const [syncTashkeel, setSyncTashkeel] = useState(mode === "new");
   /* سيطرة الأدمن على التشكيل لكل مقال على حدة (إضافة للإعداد العام) */
   const [tashkeelEnabled, setTashkeelEnabled] = useState<boolean>(initial?.tashkeelEnabled ?? true);
+
+  /* التغذية الفكرية السرية — تُحقن في System Prompt لمساعد النقاش ولا تُعرض للجمهور إطلاقًا */
+  const [authorIntent, setAuthorIntent] = useState(initial?.authorIntent ?? "");
+
+  /* مولّد الغلاف الذكي */
+  const [coverBusy, setCoverBusy] = useState<"generate" | "adopt" | null>(null);
+  const [coverPreview, setCoverPreview] = useState<string>("");
+  const [coverError, setCoverError] = useState<string>("");
 
   /* أدوات إدراج الآيات والأحاديث + المعاينة الحية */
   const contentRef = useRef<HTMLTextAreaElement | null>(null);
@@ -194,6 +203,7 @@ export function ArticleEditor({
     coverImage: coverImage.trim() || null,
     audioUrl: audioUrl.trim() || null,
     audioDurationSec,
+    authorIntent: authorIntent.trim() || null,
     tashkeelEnabled,
     status,
   });
@@ -260,6 +270,56 @@ export function ArticleEditor({
       return;
     }
     save("PUBLISHED", true);
+  };
+
+  /* ============ مولّد الغلاف التجريدي الذكي (Nano Banana 2 Lite) ============ */
+  const generateCover = async () => {
+    if (!initial?.id) return;
+    setCoverBusy("generate");
+    setCoverError("");
+    setCoverPreview("");
+    try {
+      const res = await fetch(`/api/articles/${initial.id}/cover`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "generate" }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        setCoverError(data.error || "تعذر توليد الغلاف — أعد المحاولة");
+        return;
+      }
+      setCoverPreview(data.image || "");
+      toast("صُنع الغلاف من مضمون المقال — اعتمده أو ولّد بديلًا", "success");
+    } catch {
+      setCoverError("انقطع الاتصال أثناء التوليد — أعد المحاولة");
+    } finally {
+      setCoverBusy(null);
+    }
+  };
+
+  const adoptCover = async () => {
+    if (!initial?.id || !coverPreview) return;
+    setCoverBusy("adopt");
+    try {
+      const res = await fetch(`/api/articles/${initial.id}/cover`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "adopt", image: coverPreview }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        toast(data.error || "تعذر اعتماد الغلاف", "error");
+        return;
+      }
+      setCoverImage(data.url);
+      setCoverPreview("");
+      toast("اعُتمد الغلاف ورُفع سحابيًا وارتبط بالمقال", "success");
+    } catch {
+      toast("انقطع الاتصال أثناء الاعتماد — أعد المحاولة", "error");
+    } finally {
+      setCoverBusy(null);
+    }
   };
 
   return (
@@ -485,6 +545,34 @@ export function ArticleEditor({
         </Card>
       </div>
 
+      {/* التغذية الفكرية السرية — عقل مساعد النقاش (سرّي تمامًا، لا يظهر للجمهور إطلاقًا) */}
+      <Card className="space-y-3 border-dashed border-copper-300 p-6">
+        <div className="flex items-center justify-between gap-3">
+          <h3 className="text-sm font-bold text-steel-800">
+            التغذية الفكرية لمساعد النقاش
+            <span className="mr-2 rounded-full bg-copper-100 px-2.5 py-0.5 text-[10px] font-bold text-copper-700">
+              خاص بالذكاء الاصطناعي — لا يظهر للجمهور
+            </span>
+          </h3>
+          <Badge tone="steel">سرّي 🔒</Badge>
+        </div>
+        <p className="text-[11px] leading-5 text-steel-400">
+          اكتب هنا ما وراء السطور: الهدف الحقيقي من المقال، الرسالة غير المباشرة المراد إيصالها،
+          الردود المسبقة على الانتقادات المحتملة، والمفاهيم التي يجب على المساعد التركيز عليها والدفاع عنها
+          أثناء نقاش القرّاء. يُحقن هذا الحقل حصريًا في توجيهات مساعد النقاش — لن يراه القارئ في الواجهة الأمامية مطلقًا.
+        </p>
+        <textarea
+          value={authorIntent}
+          onChange={(e) => setAuthorIntent(e.target.value)}
+          rows={5}
+          className="field resize-y leading-8"
+          placeholder={"مثال: هدف المقال الحقيقي دفع القارئ لمراجعة علاقته بالوقت لا الشكوى من ضيقها..\nالرسالة غير المباشرة: النقد اللاذع للمشغولية البلا معنى يجب أن يصل بتغليف لطيف لا جارح..\nإذا انتقد القارئ الأسلوب، فالرد المسبق: الأسلوب المتعمد مأخوذ من بيت المفكرين المصريين في الستينات.."}
+        />
+        <p className="text-[10px] text-steel-400">
+          اتركه فارغًا ليعتمد المساعد على متن المقال وحده.
+        </p>
+      </Card>
+
       {/* المعاينة الحية للتنسيق النهائي */}
       <Card className="p-5">
         <div className="flex items-center justify-between">
@@ -505,6 +593,56 @@ export function ArticleEditor({
       {/* الوسائط */}
       <Card className="space-y-5 p-6">
         <h3 className="text-sm font-bold text-steel-800">الوسائط والملحقات</h3>
+
+        {/* مولّد الغلاف التجريدي الذكي — من مضمون المقال بأسلوب فلسفي هادئ */}
+        <div className="rounded-2xl border border-steel-100 p-4">
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <div>
+              <p className="text-xs font-bold text-steel-700">مولّد الغلاف الذكي</p>
+              <p className="mt-0.5 text-[11px] text-steel-400">
+                يصيغ فنًا تجريديًا فلسفيًا هادئًا يعبّر عن فكرة المقال — بلا أي نصوص مكتوبة
+              </p>
+            </div>
+            <Button
+              size="sm"
+              variant="outline"
+              onClick={generateCover}
+              disabled={coverBusy !== null || !initial?.id}
+              title={!initial?.id ? "احفظ المقال كمسودة أولًا ليتاح التوليد" : ""}
+            >
+              {coverBusy === "generate"
+                ? "جارٍ التوليد.. (قد يستغرق حتى دقيقة)"
+                : "توليد غلاف تجريدي ذكي من مضمون المقال"}
+            </Button>
+          </div>
+          {!initial?.id && (
+            <p className="mt-2 text-[11px] text-copper-700">
+              احفظ المقال كمسودة أولًا (زر «حفظ كمسودة» أدناه) ثم عُد ليتاح التوليد.
+            </p>
+          )}
+          {coverError && <p className="mt-2 text-xs font-semibold text-red-600">{coverError}</p>}
+          {coverPreview && (
+            <div className="mt-4 space-y-3">
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              <img
+                src={coverPreview}
+                alt="معاينة الغلاف المولّد"
+                className="max-h-72 w-full rounded-xl border border-steel-100 object-cover"
+              />
+              <div className="flex flex-wrap gap-2">
+                <Button size="sm" onClick={adoptCover} disabled={coverBusy !== null}>
+                  {coverBusy === "adopt" ? "جارٍ الاعتماد والرفع.." : "اعتماد الغلاف ورفعه وربطه بالمقال"}
+                </Button>
+                <Button size="sm" variant="outline" onClick={generateCover} disabled={coverBusy !== null}>
+                  توليد بديل
+                </Button>
+                <Button size="sm" variant="ghost" onClick={() => setCoverPreview("")} disabled={coverBusy !== null}>
+                  تجاهل
+                </Button>
+              </div>
+            </div>
+          )}
+        </div>
 
         <div className="grid gap-5 lg:grid-cols-2">
           {/* الرفع السحابي الذكي — بدل إدخال الروابط يدويًا */}

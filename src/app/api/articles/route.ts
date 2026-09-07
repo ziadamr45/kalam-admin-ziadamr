@@ -52,6 +52,7 @@ export async function POST(request: Request) {
       audioDurationSec?: number | null;
       audioCues?: { t: number; id: string }[] | null;
       tashkeelEnabled?: boolean;
+      authorIntent?: string | null;
     };
 
     if (!body.title?.trim() || !body.content?.trim() || !body.summary?.trim()) {
@@ -85,6 +86,7 @@ export async function POST(request: Request) {
         audioUrl: body.audioUrl || null,
         audioDurationSec: body.audioDurationSec ?? null,
         audioCues: (body.audioCues ?? undefined) as never,
+        authorIntent: body.authorIntent?.trim() ? fixNunation(body.authorIntent.trim()) : null,
         tashkeelEnabled: typeof body.tashkeelEnabled === "boolean" ? body.tashkeelEnabled : true,
         readingTimeSec,
         status: "DRAFT",
