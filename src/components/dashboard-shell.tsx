@@ -134,13 +134,13 @@ export function DashboardShell({
               <span className="text-xs text-steel-400">الوضع: أمن مشدد — تحقق بخطوتين إلزامي</span>
             </div>
             <div className="flex items-center gap-2">
-              <Link
-                href={process.env.NEXT_PUBLIC_ADMIN_URL?.includes("admin") ? "/" : "/"}
-                className="rounded-xl border border-steel-200 px-3 py-1.5 text-xs font-bold text-steel-600 transition-colors hover:border-copper-500 hover:text-copper-700"
-                onClick={(e) => e.preventDefault()}
+              <span
+                className="flex items-center gap-2 rounded-xl border border-success-400/30 bg-success-400/10 px-3 py-1.5 text-xs font-bold text-success-600"
+                title="جلسة JWT محصنة — HttpOnly + Secure + SameSite=Strict"
               >
+                <span className="h-2 w-2 rounded-full bg-success-500" />
                 جلسة آمنة نشطة
-              </Link>
+              </span>
             </div>
           </header>
 
