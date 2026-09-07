@@ -13,6 +13,7 @@ import {
 } from "@/components/ui";
 import { ContentPreview } from "@/components/content-preview";
 import { ImageUploader } from "@/components/image-uploader";
+import { AudioStudio } from "@/components/audio-studio";
 import { HADITH_TEMPLATE, QURAN_TEMPLATE } from "@/lib/content-blocks";
 import { fixNunation, countNunationIssues } from "@/lib/nunation";
 
@@ -30,6 +31,9 @@ type EditorArticle = {
   audioUrl: string | null;
   audioDurationSec: number | null;
   audioCues: { t: number; id: string }[] | null;
+  audioVoice?: string | null;
+  audioGeneratedAt?: string | null;
+  audioWordsCount?: number;
   status: ArticleStatus;
   tashkeelEnabled?: boolean;
   scheduledAt: string | null;
@@ -90,7 +94,6 @@ export function ArticleEditor({
     if (saved) return checklist.map((c) => saved.find((s) => s.text === c.text)?.checked ?? false);
     return checklist.map(() => false);
   });
-  const audioRef = useRef<HTMLAudioElement | null>(null);
 
   /* توليد slug تلقائي من العنوان ما لم يحرره المالك يدويًا */
   const onTitleChange = (value: string) => {
@@ -257,16 +260,6 @@ export function ArticleEditor({
       return;
     }
     save("PUBLISHED", true);
-  };
-
-  /* قراءة مدة الصوت تلقائيًا عند إدخال الرابط */
-  const onAudioUrlBlur = () => {
-    if (!audioUrl.trim()) return;
-    const audio = audioRef.current;
-    if (audio) {
-      audio.src = audioUrl;
-      audio.load();
-    }
   };
 
   return (
@@ -522,20 +515,15 @@ export function ArticleEditor({
             label="صورة الغلاف — رفع سحابي مباشر"
           />
           <div>
-            <label className="mb-1.5 block text-xs font-bold text-steel-700">
-              الملف الصوتي للقراءة <span className="font-normal text-steel-400">(رابط مباشر mp3 أو رفعه عبر Vercel Blob)</span>
-            </label>
-            <input value={audioUrl} onChange={(e) => setAudioUrl(e.target.value)} onBlur={onAudioUrlBlur} className="field" dir="ltr" placeholder="https://..audio.mp3" />
-            {audioDurationSec && (
-              <p className="mt-1 text-[11px] text-success-600">المدة المكتشفة: {Math.round(audioDurationSec)} ثانية</p>
-            )}
-            <audio
-              ref={audioRef}
-              className="hidden"
-              onLoadedMetadata={(e) => {
-                const d = e.currentTarget.duration;
-                if (isFinite(d) && d > 0) setAudioDurationSec(d);
-              }}
+            <AudioStudio
+              articleId={initial?.id}
+              audioUrl={audioUrl}
+              durationSec={audioDurationSec}
+              audioVoice={initial?.audioVoice}
+              audioGeneratedAt={initial?.audioGeneratedAt}
+              audioWordsCount={initial?.audioWordsCount}
+              onAudioChange={setAudioUrl}
+              onDurationChange={setAudioDurationSec}
             />
           </div>
         </div>

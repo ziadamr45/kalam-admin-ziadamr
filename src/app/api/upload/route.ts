@@ -1,10 +1,11 @@
 import { NextResponse } from "next/server";
 import { requireSession, isRejected, writeAudit, getClientIp } from "@/lib/guard";
-import { uploadImage, cloudinaryConfigured } from "@/lib/cloudinary";
+import { uploadImage, uploadAudio, cloudinaryConfigured } from "@/lib/cloudinary";
 
 /**
- * رفع الصور السحابي — سيرفر فقط، سرّ Cloudinary لا يظهر للعميل أبدًا.
- * الصور تُقدَّم بصيغ الويب الحديثة (WebP/AVIF) عبر f_auto,q_auto تلقائيًا.
+ * الرفع السحابي الموحد — سيرفر فقط، سرّ Cloudinary لا يظهر للعميل أبدًا.
+ * - الصور: تُقدَّم بصيغ الويب الحديثة (WebP/AVIF) عبر f_auto,q_auto تلقائيًا.
+ * - الصوت: مسار الرفع اليدوي الاستثنائي للقراءة الصوتية (MP3/WAV ≤ 20MB).
  */
 export async function POST(request: Request) {
   const guard = await requireSession(request);
@@ -28,8 +29,33 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: "الصورة أكبر من 8MB — اختر صورة أخف" }, { status: 413 });
     }
     const type = file.type || "";
+
+    /* ===== مسار الصوت اليدوي الاستثنائي ===== */
+    if (type.startsWith("audio/")) {
+      if (file.size > 20 * 1024 * 1024) {
+        return NextResponse.json({ error: "الملف الصوتي أكبر من 20MB" }, { status: 413 });
+      }
+      const okAudio = /^(audio\/(mpeg|mp3|wav|x-wav|ogg|mp4))$/.test(type);
+      if (!okAudio) {
+        return NextResponse.json({ error: "صيغ الصوت المدعومة: MP3 / WAV / OGG" }, { status: 415 });
+      }
+      const audioResult = await uploadAudio(
+        file,
+        (form.get("filename") as string) || "narration.mp3",
+        "kalam/audio",
+      );
+      await writeAudit({
+        adminId: guard.adminId,
+        action: "media.audio_uploaded",
+        entity: "Cloudinary",
+        meta: { bytes: audioResult.bytes, manual: true },
+        ip: getClientIp(request),
+      });
+      return NextResponse.json(audioResult);
+    }
+
     if (!type.startsWith("image/")) {
-      return NextResponse.json({ error: "تُقبل الصور فقط (JPG / PNG / WebP)" }, { status: 415 });
+      return NextResponse.json({ error: "تُقبل الصور (JPG / PNG / WebP) أو ملفات الصوت (MP3 / WAV)" }, { status: 415 });
     }
 
     const filename = (form.get("filename") as string) || "image";

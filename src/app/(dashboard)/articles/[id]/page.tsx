@@ -38,6 +38,11 @@ export default async function EditArticlePage({
         audioUrl: article.audioUrl,
         audioDurationSec: article.audioDurationSec,
         audioCues: (article.audioCues as { t: number; id: string }[] | null) ?? null,
+        audioVoice: article.audioVoice,
+        audioGeneratedAt: article.audioGeneratedAt?.toISOString() ?? null,
+        audioWordsCount: Array.isArray(article.audioWords)
+          ? (article.audioWords as unknown[]).length
+          : 0,
         status: article.status,
         tashkeelEnabled: article.tashkeelEnabled,
         scheduledAt: article.scheduledAt?.toISOString() ?? null,

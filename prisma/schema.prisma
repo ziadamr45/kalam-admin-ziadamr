@@ -47,6 +47,10 @@ model Article {
   audioUrl            String?
   audioDurationSec    Float?
   audioCues           Json?
+  audioWords          Json?      // مصفوفة الطوابع الزمنية للكلمات [{w, s, e}] لمزامنة التظليل اللحظي
+  audioVoice          String?    // صوت Gemini المستخدم في التوليد
+  audioPublicId       String?    // معرف Cloudinary للحذف والاستبدال الآمن
+  audioGeneratedAt    DateTime?  // وقت التوليد الآلي
   readingTimeSec      Int           @default(60)
   status              ArticleStatus @default(DRAFT)
   tashkeelEnabled     Boolean       @default(true)
