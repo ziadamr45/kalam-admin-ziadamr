@@ -43,6 +43,15 @@ export const metadata: Metadata = {
   },
   description: "لوحة التحكم السيادية لمنصة كلام له لازمة",
   robots: { index: false, follow: false },
+  /* PWA — شرط إشعارات iOS Safari: إضافة اللوحة للشاشة الرئيسية */
+  manifest: "/manifest.json",
+  icons: {
+    icon: [
+      { url: "/icons/icon-192.png", sizes: "192x192", type: "image/png" },
+      { url: "/icons/icon-512.png", sizes: "512x512", type: "image/png" },
+    ],
+    apple: "/icons/icon-192.png",
+  },
 };
 
 export const viewport: Viewport = {

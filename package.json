@@ -24,13 +24,15 @@
     "react": "19.1.0",
     "react-dom": "19.1.0",
     "recharts": "2.15.0",
-    "sharp": "0.35.3"
+    "sharp": "0.35.3",
+    "web-push": "^3.6.7"
   },
   "devDependencies": {
     "@types/node": "22.10.5",
     "@types/qrcode": "1.5.5",
     "@types/react": "19.1.0",
     "@types/react-dom": "19.1.0",
+    "@types/web-push": "^3.6.4",
     "autoprefixer": "10.4.20",
     "postcss": "8.5.23",
     "prisma": "6.19.3",

@@ -4,6 +4,7 @@ import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { useState } from "react";
 import { ToastProvider } from "@/components/ui";
+import { PushToggle } from "@/components/push-toggle";
 
 const NAV = [
   { href: "/", label: "التحليلات الحية", icon: "chart" },
@@ -13,6 +14,7 @@ const NAV = [
   { href: "/users", label: "المستخدمون", icon: "users" },
   { href: "/audit", label: "النشاط والشفافية", icon: "activity" },
   { href: "/messages", label: "رسائل التواصل", icon: "mail" },
+  { href: "/notifications", label: "مركز الإشعارات الجماهيرية", icon: "bell" },
   { href: "/legal-pages", label: "الصفحات القانونية", icon: "scroll" },
   { href: "/site-settings", label: "إعدادات الموقع", icon: "sliders" },
   { href: "/checklist", label: "معايير النشر", icon: "check" },
@@ -36,6 +38,8 @@ function NavIcon({ name }: { name: (typeof NAV)[number]["icon"] }) {
       return <svg {...common}><path d="M22 12h-4l-3 9L9 3l-3 9H2" /></svg>;
     case "mail":
       return <svg {...common}><rect x="2" y="4" width="20" height="16" rx="2" /><path d="m22 7-10 6L2 7" /></svg>;
+    case "bell":
+      return <svg {...common}><path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9" /><path d="M13.73 21a2 2 0 0 1-3.46 0" /></svg>;
     case "scroll":
       return <svg {...common}><path d="M8 21h12a2 2 0 0 0 2-2v-2H10v2a2 2 0 1 1-4 0V5a2 2 0 1 0-4 0v3h4" /><path d="M19 17V5a2 2 0 0 0-2-2H4" /></svg>;
     case "sliders":
@@ -149,6 +153,8 @@ export function DashboardShell({
               <span className="text-xs text-steel-400">الوضع: أمن مشدد — تحقق بخطوتين إلزامي</span>
             </div>
             <div className="flex items-center gap-2">
+              {/* تفعيل الإشعارات الفورية — هاتف الأدمن وحاسوبه (المحور الأول) */}
+              <PushToggle />
               <span
                 className="flex items-center gap-2 rounded-xl border border-success-400/30 bg-success-400/10 px-3 py-1.5 text-xs font-bold text-success-600"
                 title="جلسة JWT محصنة — HttpOnly + Secure + SameSite=Strict"

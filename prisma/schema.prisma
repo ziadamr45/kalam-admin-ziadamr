@@ -101,6 +101,8 @@ model User {
   comments     Comment[]
   interactions Interaction[]
   savedArticles SavedArticle[]
+  pushSubscriptions UserPushSubscription[]
+  notifications     UserNotification[]
 }
 
 /* مكتبة القارئ المتزامنة — محفوظات الحساب عبر كل الأجهزة */
@@ -353,6 +355,66 @@ model ErrorReport {
   createdAt  DateTime @default(now())
 
   @@index([lastSeenAt(sort: Desc)])
+}
+
+// ==================== إشعارات الويب الفورية (Web Push) ====================
+
+/* اشتراكات إشعارات الأدمن الفورية — هاتفه وحاسوبه (معيار Web Push + VAPID) */
+model AdminPushSubscription {
+  id          String   @id @default(cuid())
+  endpoint    String   @unique // رابط قناة الإشعار من مزود المتصفح (FCM/Apple)
+  p256dh      String // مفتاح التشفير العام للاشتراك
+  auth        String // سر المصادقة للاشتراك
+  userAgent   String?
+  deviceLabel String? // وصف اختياري للجهاز (هاتف أندرويد، حاسوب العمل..)
+  lastSeenAt  DateTime @default(now()) @updatedAt
+  createdAt   DateTime @default(now())
+
+  @@index([lastSeenAt(sort: Desc)])
+}
+
+/* اشتراكات إشعارات الويب للمستخدمين المسجلين بجوجل — مربوطة بحسابهم */
+model UserPushSubscription {
+  id         String   @id @default(cuid())
+  userId     String
+  user       User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  endpoint   String   @unique
+  p256dh     String
+  auth       String
+  userAgent  String?
+  lastSeenAt DateTime @default(now()) @updatedAt
+  createdAt  DateTime @default(now())
+
+  @@index([userId])
+  @@index([lastSeenAt(sort: Desc)])
+}
+
+/* سجل تحديثات المنصة — يُوثَّق من لوحة التحكم ويُبث للمستخدمين تلقائيًا */
+model PlatformUpdate {
+  id          String   @id @default(cuid())
+  title       String // عنوان التحديث
+  details     String   @db.Text // ما تم إنجازه بالتحديد
+  kind        String   @default("FEATURE") // FEATURE | MAINTENANCE | INTELLECTUAL
+  createdAt   DateTime @default(now())
+
+  @@index([createdAt(sort: Desc)])
+}
+
+/* الإشعارات الداخلية لجرس المستخدم — تُنشأ عند البث الجماهيري أو الإشعار المخصص */
+model UserNotification {
+  id        String    @id @default(cuid())
+  userId    String
+  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  title     String
+  body      String    @db.Text
+  url       String? // مسار المنصة الذي يفتح عند النقر
+  kind      String    @default("BROADCAST") // UPDATE | BROADCAST | TARGETED
+  updateId  String? // ربط اختياري بسجل PlatformUpdate
+  readAt    DateTime?
+  createdAt DateTime  @default(now())
+
+  @@index([userId, createdAt(sort: Desc)])
+  @@index([userId, readAt])
 }
 
 // ===================== جداول Auth.js القياسية =====================

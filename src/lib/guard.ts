@@ -1,6 +1,12 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { getSession } from "@/lib/session";
+import { pushAdmins } from "@/lib/push";
+
+/* خنق الإشعارات الأمنية الفورية: كل نوع تنبيه مرة كل دقيقتين كحد أقصى،
+   والحالات الحرجة (CRITICAL) تُبث دائمًا دون خنق */
+const alertPushAt = new Map<string, number>();
+const ALERT_PUSH_THROTTLE_MS = 2 * 60_000;
 
 /**
  * حرس المسارات والـ API — طبقة الدفاع الثانية (بعد الـ middleware)
@@ -88,7 +94,7 @@ export async function writeAudit(entry: {
     .catch(() => {});
 }
 
-/** تنبيه أمني */
+/** تنبيه أمني — يُسجَّل في القاعدة ثم يُبث فورًا لهاتف صاحب المنصة وحاسوبه */
 export async function raiseAlert(alert: {
   type: string;
   severity?: "INFO" | "WARN" | "CRITICAL";
@@ -105,4 +111,20 @@ export async function raiseAlert(alert: {
       },
     })
     .catch(() => {});
+
+  /* الإشعار الفوري — طبقة تزيين لا تعطل مسار الأمن أبدًا */
+  try {
+    const now = Date.now();
+    const critical = (alert.severity ?? "INFO") === "CRITICAL";
+    if (!critical && (alertPushAt.get(alert.type) ?? 0) > now - ALERT_PUSH_THROTTLE_MS) return;
+    alertPushAt.set(alert.type, now);
+    void pushAdmins({
+      title: "تنبيه أمني: رصد محاولة دخول غير مصرح بها",
+      body: alert.message.slice(0, 160),
+      url: "/security",
+      tag: `security-${alert.type}`,
+    });
+  } catch {
+    /* صامت */
+  }
 }
