@@ -5,7 +5,7 @@ export const dynamic = "force-dynamic";
 
 export default async function UsersPage() {
   const users = await prisma.user.findMany({
-    orderBy: { createdAt: "desc" },
+    orderBy: [{ impactScore: "desc" }, { createdAt: "desc" }],
     include: {
       _count: { select: { comments: true, interactions: true, savedArticles: true } },
     },
@@ -18,6 +18,11 @@ export default async function UsersPage() {
         name: u.name || "قارئ",
         email: u.email || "",
         image: u.image,
+        customName: u.customName,
+        customImage: u.customImage,
+        bio: u.bio,
+        impactScore: u.impactScore,
+        intellectualRank: u.intellectualRank,
         banned: u.banned,
         banReason: u.banReason,
         commentsCount: u._count.comments,

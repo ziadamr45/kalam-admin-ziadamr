@@ -100,11 +100,16 @@ function LoginForm() {
   return (
     <main className="flex min-h-screen items-center justify-center bg-gradient-to-b from-steel-900 via-steel-800 to-steel-950 p-4">
       <div className="w-full max-w-sm">
-        {/* الهوية */}
+        {/* الهوية — شعار اللوحة المولَّد فوق النموذج: طابع أمان واحترافية */}
         <div className="mb-8 text-center">
-          <div className="mx-auto mb-4 flex h-14 w-14 items-center justify-center rounded-2xl bg-copper-500/15 text-2xl font-bold text-copper-400 shadow-lift">
-            ك
-          </div>
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img
+            src="/icons/icon-192.png"
+            alt="شعار لوحة التحكم"
+            width={56}
+            height={56}
+            className="mx-auto mb-4 h-14 w-14 rounded-2xl shadow-lift"
+          />
           <h1 className="text-xl font-bold text-white">لوحة التحكم السيادية</h1>
           <p className="mt-1 text-xs text-steel-300">كلام له لازمة — دخول محمي بطبقتين</p>
         </div>

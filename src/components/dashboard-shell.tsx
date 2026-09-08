@@ -14,6 +14,7 @@ const NAV = [
   { href: "/users", label: "المستخدمون", icon: "users" },
   { href: "/audit", label: "النشاط والشفافية", icon: "activity" },
   { href: "/messages", label: "رسائل التواصل", icon: "mail" },
+  { href: "/proposals", label: "المقترحات الفكرية", icon: "star" },
   { href: "/notifications", label: "مركز الإشعارات الجماهيرية", icon: "bell" },
   { href: "/legal-pages", label: "الصفحات القانونية", icon: "scroll" },
   { href: "/site-settings", label: "إعدادات الموقع", icon: "sliders" },
@@ -38,6 +39,8 @@ function NavIcon({ name }: { name: (typeof NAV)[number]["icon"] }) {
       return <svg {...common}><path d="M22 12h-4l-3 9L9 3l-3 9H2" /></svg>;
     case "mail":
       return <svg {...common}><rect x="2" y="4" width="20" height="16" rx="2" /><path d="m22 7-10 6L2 7" /></svg>;
+    case "star":
+      return <svg {...common}><path d="M12 2l2.6 6.2L21 9l-4.9 4.3L17.5 20 12 16.6 6.5 20l1.4-6.7L3 9l6.4-.8L12 2z" /></svg>;
     case "bell":
       return <svg {...common}><path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9" /><path d="M13.73 21a2 2 0 0 1-3.46 0" /></svg>;
     case "scroll":
@@ -80,9 +83,15 @@ export function DashboardShell({
           <div className="flex h-full flex-col">
             <div className="border-b border-steel-800 p-5">
               <div className="flex items-center gap-3">
-                <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-copper-500/15 text-lg font-bold text-copper-400">
-                  ك
-                </div>
+                {/* هوية اللوحة — حجم ناعم يندمج مع صفة الحساب دون حشو */}
+                {/* eslint-disable-next-line @next/next/no-img-element */}
+                <img
+                  src="/icons/icon-192.png"
+                  alt=""
+                  width={40}
+                  height={40}
+                  className="h-10 w-10 rounded-xl"
+                />
                 <div>
                   <p className="text-sm font-bold text-white">لوحة التحكم</p>
                   <p className="text-[10px] text-steel-300">كلام له لازمة</p>

@@ -13,12 +13,16 @@ type CommentRow = {
   riskScore: number;
   reportCount: number;
   editedByAdmin: boolean;
+  isInspiring: boolean;
   createdAt: string;
   articleTitle: string;
   articleSlug: string;
   authorName: string;
   authorEmail: string | null;
   authorBanned: boolean;
+  authorCustomName: string | null;
+  authorRank: string | null;
+  authorScore: number | null;
   isGuest: boolean;
   userId: string | null;
 };
@@ -73,6 +77,10 @@ export function CommentsManager() {
           authorName: (c.user as { name?: string } | null)?.name || "قارئ مسجل",
           authorEmail: (c.user as { email?: string } | null)?.email ?? null,
           authorBanned: (c.user as { banned?: boolean } | null)?.banned ?? false,
+          authorCustomName: (c.user as { customName?: string } | null)?.customName ?? null,
+          authorRank: (c.user as { intellectualRank?: string } | null)?.intellectualRank ?? null,
+          authorScore: (c.user as { impactScore?: number } | null)?.impactScore ?? null,
+          isInspiring: (c.isInspiring as boolean) ?? false,
           isGuest: !c.userId,
           userId: (c.userId as string) ?? null,
         })),
@@ -126,6 +134,27 @@ export function CommentsManager() {
     }
   };
 
+  const toggleInspiring = async (c: CommentRow) => {
+    const res = await fetch(`/api/comments/${c.id}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ isInspiring: !c.isInspiring }),
+    });
+    const data = await res.json().catch(() => ({}));
+    if (res.ok) {
+      toast(
+        data?.inspiring
+          ? data?.awarded
+            ? "ميّزت التعليق — +30 نقطة أثر للمعلّق وتثبيت أعلى المقال"
+            : "أُعيد تثبيت التعليق (النقاط ممنوحة سلفًا)"
+          : "أُلغيت صفة «فكري ملهم»",
+      );
+      load();
+    } else {
+      toast(data?.error || "تعذر تنفيذ التمييز", "error");
+    }
+  };
+
   const riskTone = (score: number) =>
     score >= 0.7 ? "danger" : score >= 0.4 ? "warn" : "neutral";
 
@@ -171,11 +200,18 @@ export function CommentsManager() {
                 <div className="min-w-0 flex-1">
                   <p className="text-sm font-bold text-steel-900">
                     {c.authorName}
+                    {c.authorCustomName && (
+                      <span className="mr-2 text-[11px] font-bold text-copper-600">يعرض باسم: {c.authorCustomName}</span>
+                    )}
                     {c.authorBanned && <span className="mr-2 text-[10px] text-danger-600">(محظور)</span>}
                   </p>
-                  {c.authorEmail && <p className="text-[11px] text-steel-400" dir="ltr">{c.authorEmail}</p>}
+                  <p className="text-[11px] text-steel-400">
+                    {c.authorEmail && <span dir="ltr">{c.authorEmail}</span>}
+                    {c.authorRank && ` · ${c.authorRank}${c.authorScore !== null ? ` · رصيد ${new Intl.NumberFormat("ar-EG").format(c.authorScore)}` : ""}`}
+                  </p>
                 </div>
                 <div className="flex flex-wrap items-center gap-2">
+                  {c.isInspiring && <Badge tone="success">✦ فكري ملهم</Badge>}
                   <Badge tone={c.status === "APPROVED" ? "success" : c.status === "REJECTED" ? "danger" : "warn"}>
                     {c.status === "APPROVED" ? "معتمد" : c.status === "REJECTED" ? "مرفوض" : "قيد المراجعة"}
                   </Badge>
@@ -227,6 +263,16 @@ export function CommentsManager() {
                   {c.status !== "REJECTED" && (
                     <Button size="sm" variant="outline" onClick={() => act(c.id, { status: "REJECTED" })}>
                       رفض
+                    </Button>
+                  )}
+                  {c.status === "APPROVED" && !c.isGuest && c.userId && !c.authorBanned && (
+                    <Button
+                      size="sm"
+                      variant={c.isInspiring ? "outline" : "success"}
+                      onClick={() => toggleInspiring(c)}
+                      title="منح +30 رصيد أثر للمعلّق وتثبيت تعليقه أعلى المقال"
+                    >
+                      {c.isInspiring ? "إلغاء التمييز" : "✦ تعيين كتعليق ملهم"}
                     </Button>
                   )}
                   <Button

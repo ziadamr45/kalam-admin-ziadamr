@@ -620,7 +620,23 @@ export function ArticleEditor({
               احفظ المقال كمسودة أولًا (زر «حفظ كمسودة» أدناه) ثم عُد ليتاح التوليد.
             </p>
           )}
-          {coverError && <p className="mt-2 text-xs font-semibold text-red-600">{coverError}</p>}
+          {coverError && (
+            <div
+              className="mt-3 rounded-xl border p-3 text-xs font-semibold leading-6"
+              style={{ borderColor: "#fecaca", background: "#fef2f2", color: "#b91c1c" }}
+              role="alert"
+            >
+              <p className="mb-1 font-bold">لم يتم التوليد — السبب بدقة:</p>
+              {coverError}
+              {coverError.includes("فوترة") && (
+                <p className="mt-2 rounded-lg bg-white/70 p-2 text-[11px] leading-5 text-steel-600">
+                  الخطوات: ai.google.dev → اضغط مفتاحك → Billing → فعّل الفوترة المجانية
+                  (تظل الحصة المجانية كما هي ولا يُخصم شيء إلا عند تجاوزها) —
+                  بعدها سيعمل الزر هنا مباشرة بلا أي تعديل كود.
+                </p>
+              )}
+            </div>
+          )}
           {coverPreview && (
             <div className="mt-4 space-y-3">
               {/* eslint-disable-next-line @next/next/no-img-element */}

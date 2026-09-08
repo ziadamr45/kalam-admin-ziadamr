@@ -28,9 +28,37 @@ const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
 export class GeminiError extends Error {
   status: number;
-  constructor(message: string, status = 500) {
+  /** هل الحصة المجانية لهذا النموذج صفرية (تحتاج فعّال فوترة لا إعادة محاولة)؟ */
+  quotaZero: boolean;
+  /** مهلة الانتظار المقترحة من جوجل بالمللي ثانية إن وُجدت */
+  retryAfterMs: number | null;
+  constructor(message: string, status = 500, extra?: { quotaZero?: boolean; retryAfterMs?: number | null }) {
     super(message);
     this.status = status;
+    this.quotaZero = extra?.quotaZero ?? false;
+    this.retryAfterMs = extra?.retryAfterMs ?? null;
+  }
+}
+
+/**
+ * تحليل خطأ 429 الخام: استخراج مهلة إعادة المحاولة وكشف الحصة الصفرية
+ * (limit: 0 على الحصتين اليومية والدقيقة = النموذج يحتاج فوترة مفعلة لا انتظارًا).
+ */
+function parseQuotaError(raw: string): { retryAfterMs: number | null; quotaZero: boolean } {
+  let retryAfterMs: number | null = null;
+  try {
+    const json = JSON.parse(raw) as {
+      error?: { message?: string; details?: { '@type'?: string; retryDelay?: string }[] };
+    };
+    const m = json.error?.message?.match(/retry in ([\d.]+)s/i);
+    if (m) retryAfterMs = Math.round(parseFloat(m[1]) * 1000);
+    const rd = json.error?.details?.find((d) => typeof d.retryDelay === "string")?.retryDelay;
+    if (rd) retryAfterMs = Math.round(parseFloat(rd) * 1000);
+    /* كشف الحصة الصفرية: limit: 0 على المتريات اليومية/الدقيقة لنفس النموذج */
+    const zeroLimits = (json.error?.message?.match(/limit: 0/g) ?? []).length;
+    return { retryAfterMs, quotaZero: zeroLimits >= 2 };
+  } catch {
+    return { retryAfterMs, quotaZero: false };
   }
 }
 
@@ -92,6 +120,13 @@ async function callModel(
     } catch {}
 
     if (!res.ok) {
+      if (res.status === 429) {
+        const q = parseQuotaError(raw);
+        const msg = q.quotaZero
+          ? "حصة توليد الصور المجانية لهذا المفتاح صفرية حاليًا (حد 0/دقيقة و0/يوم لنماذج الصور) — لا تنفع إعادة المحاولة: فعّل الفوترة المجانية لمشروعك في Google AI Studio (لا تُحاسَب إلا على ما يتجاوز الحصة) من ai.google.dev ثم راقب الاستهلاك على ai.dev/rate-limit"
+          : "استُنفدت حصة توليد الصور اللحظية" + (q.retryAfterMs ? ` — أعد المحاولة بعد ${Math.ceil(q.retryAfterMs / 1000)} ثانية` : " — انتظر قليلًا ثم أعد المحاولة");
+        throw new GeminiError(msg, 429, { quotaZero: q.quotaZero, retryAfterMs: q.retryAfterMs });
+      }
       throw new GeminiError(friendlyError(res.status, raw), res.status);
     }
     return json;
@@ -130,7 +165,14 @@ async function withCandidates(
         const status = err instanceof GeminiError ? err.status : 0;
         if (status === 404) break; // جرّب الموديل التالي فورًا
         if (status === 400 || status === 401 || status === 403) throw err;
-        if (attempt < 3) await sleep(900 * Math.pow(2, attempt - 1) + Math.random() * 300);
+        /* حصة صفرية → إعادة المحاولة عبث، لكن قد يكون النموذج البديل له حصة */
+        if (err instanceof GeminiError && err.quotaZero) break;
+        /* احترام مهلة إعادة المحاولة المقترحة من جوجل إن كانت معقولة */
+        if (attempt < 3) {
+          const suggested = err instanceof GeminiError ? err.retryAfterMs : null;
+          const backoff = 900 * Math.pow(2, attempt - 1) + Math.random() * 300;
+          await sleep(suggested && suggested <= 12_000 ? suggested + 500 : backoff);
+        }
       }
     }
   }
@@ -179,7 +221,13 @@ export async function geminiChat(opts: {
   return text;
 }
 
-/* ==================== الصور — مولّد الأغلفة ==================== */
+/* ==================== الصور — مولّد الأغلفة ====================
+
+   المعتمد رسميًا: gemini-3.1-flash-lite-image (Nano Banana 2 Lite).
+   ملاحظة تشغيلية مؤكدة اختبارًا حيًا: حصة المجانية لنماذج الصور
+   صفرية لهذا المفتاح (limit: 0) — التوليد لن يعمل إلا بعد تفعيل
+   الفوترة المجانية من Google AI Studio، والرسالة العربية الدقيقة
+   تشرح ذلك للأدمن بدل صمت الزر. */
 
 export async function geminiImage(prompt: string): Promise<{ base64: string; mimeType: string }> {
   /* بعض الإصدارات ترفض ["IMAGE"] وحدها — نبدأ بها ثم نتراجع إلى ["TEXT","IMAGE"] */

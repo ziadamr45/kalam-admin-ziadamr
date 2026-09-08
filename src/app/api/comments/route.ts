@@ -19,10 +19,21 @@ export async function GET(request: Request) {
           : {}),
         ...(flagged ? { flagged: true } : {}),
       },
-      orderBy: { createdAt: "desc" },
+      orderBy: [{ isInspiring: "desc" }, { createdAt: "desc" }],
       take: 150,
       include: {
-        user: { select: { name: true, email: true, image: true, banned: true } },
+        user: {
+          select: {
+            name: true,
+            email: true,
+            image: true,
+            banned: true,
+            customName: true,
+            customImage: true,
+            impactScore: true,
+            intellectualRank: true,
+          },
+        },
         article: { select: { title: true, slug: true } },
       },
     });
