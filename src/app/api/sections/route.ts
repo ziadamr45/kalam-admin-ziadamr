@@ -69,8 +69,8 @@ export async function POST(request: Request) {
       ip: getClientIp(request),
     });
 
-    /* انعكاس فوري على المنصة العامة */
-    revalidatePublicPaths(["/"]);
+    /* انعكاس فوري على المنصة العامة — layout: القائمة الجانبية الحية في كل الصفحات */
+    revalidatePublicPaths(["/"], undefined, true);
 
     return NextResponse.json({ section });
   } catch {

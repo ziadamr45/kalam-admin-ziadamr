@@ -62,7 +62,7 @@ export async function PATCH(
       ip: getClientIp(request),
     });
 
-    /* انعكاس فوري: الرئيسية + صفحة القسم + صفحات مقالاته */
+    /* انعكاس فوري: الرئيسية + صفحة القسم + صفحات مقالاته — layout: القائمة الحية */
     const paths = ["/", `/section/${section.slug}`];
     const arts = await prisma.article.findMany({
       where: { sectionId: id },
@@ -70,7 +70,7 @@ export async function PATCH(
       take: 100,
     });
     for (const a of arts) paths.push(`/article/${a.slug}`);
-    revalidatePublicPaths(paths);
+    revalidatePublicPaths(paths, undefined, true);
 
     return NextResponse.json({ section });
   } catch {
@@ -126,7 +126,7 @@ export async function DELETE(
       ip: getClientIp(request),
     });
 
-    revalidatePublicPaths(["/", `/section/${existing.slug}`]);
+    revalidatePublicPaths(["/", `/section/${existing.slug}`], undefined, true);
 
     return NextResponse.json({ ok: true, movedCount });
   } catch {
