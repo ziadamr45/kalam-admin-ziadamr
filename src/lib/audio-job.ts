@@ -260,7 +260,9 @@ export async function runAudioJobStep(job: AudioJob): Promise<boolean> {
     const offset = chunks.slice(0, idx).reduce((a, c) => a + c.durationSec, 0);
 
     try {
-      const { pcm, sampleRate } = await synthesizeChunk(rec.text);
+      /* attempts: 2 — ضغط داخلي مقتصد؛ التراجع الصبور على 429 يعيش فوق
+         سجل المقطع عبر الاستدعاءات (20ث ثم 40ث ثم 60ث) لا داخل هذه الدالة */
+      const { pcm, sampleRate } = await synthesizeChunk(rec.text, { attempts: 2 });
       const duration = Math.round(pcmDurationSec(pcm, sampleRate) * 100) / 100;
       const encoded = encodeNarration(pcm);
       const timings = allocateWordTimings(rec.words, offset, duration);

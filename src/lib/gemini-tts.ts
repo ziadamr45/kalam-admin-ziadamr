@@ -102,17 +102,23 @@ async function callOnce(model: string, text: string): Promise<{ pcm: Buffer; sam
   return { pcm: Buffer.from(b64, "base64"), sampleRate };
 }
 
-/** توليد صوت مقطع واحد مع إعادة المحاولة وبدائل الموديلات */
-export async function synthesizeChunk(text: string): Promise<{ pcm: Buffer; sampleRate: number; model: string }> {
+/** توليد صوت مقطع واحد مع إعادة المحاولة وبدائل الموديلات
+ *  opts.attempts: سقف المحاولات لكل موديل (الافتراضي 4 — العامل الخلفي يمرر 2
+ *  لأن التراجع الصبور على 429 يعيش في طبقة المهمة الخلفية لا هنا) */
+export async function synthesizeChunk(
+  text: string,
+  opts?: { attempts?: number },
+): Promise<{ pcm: Buffer; sampleRate: number; model: string }> {
   if (!process.env.GEMINI_API_KEY || process.env.GEMINI_API_KEY.startsWith("PLACEHOLDER")) {
     throw new TtsError("خدمة التوليد الصوتي غير مهيأة — أضف GEMINI_API_KEY إلى متغيرات البيئة", 503);
   }
 
+  const maxAttempts = Math.max(1, Math.min(4, opts?.attempts ?? 4));
   const models = workingModel ? [workingModel] : MODEL_CANDIDATES;
   let lastErr: unknown = null;
 
   for (const model of models) {
-    for (let attempt = 1; attempt <= 4; attempt++) {
+    for (let attempt = 1; attempt <= maxAttempts; attempt++) {
       try {
         const out = await callOnce(model, text);
         workingModel = model; // تثبيت الموديل العامل لهذه العملية
@@ -123,7 +129,10 @@ export async function synthesizeChunk(text: string): Promise<{ pcm: Buffer; samp
         /* 404: جرّب الموديل التالي فورًا | الحظر الجغرافي/المفتاح: لا فائدة من التكرار */
         if (status === 404) break;
         if (status === 400 || status === 401 || status === 403) throw err;
-        if (attempt < 4) {
+        /* 429: الحصة مفتاحية لا موديلية — تبديل الموديل أو الضغط المتلاحق
+           يفاقمها فقط؛ تُرمى فورًا لطبقة التراجع الأُسّي الصبورة فوقها */
+        if (status === 429) throw err;
+        if (attempt < maxAttempts) {
           const backoff = 1200 * Math.pow(2, attempt - 1) + Math.random() * 400;
           await sleep(backoff);
         }
