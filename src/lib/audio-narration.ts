@@ -64,9 +64,10 @@ export type SegmentPlan = {
 };
 
 /**
- * تقسيم النص إلى مقاطع توليد (≤ ~600 حرف عند حدود الجمل).
- * حتمي 100%: نفس المدخل يعطي نفس التقسيم دائمًا —
- * وهو ما يسمح للعميل بطلب مقطع index معين بأمان وإعادة المحاولة.
+ * تقسيم النص إلى مقاطع توليد كبيرة (‎~800–1200 حرف عند حدود الجمل).
+ * المقاطع الكبيرة تقلّص عدد النداءات على Gemini TTS إلى قطعتين أو ثلاث
+ * لمعظم المقالات — وهذا هو القاتل الأول لخطأ 429 (تجاوز الطلبات/الدقيقة)
+ * في الباقة المجانية. حتمي 100%: نفس المدخل يعطي نفس التقسيم دائمًا.
  */
 export function buildSegmentPlan(raw: string): SegmentPlan[] {
   const blocks = parseBlocks(raw);
@@ -89,7 +90,7 @@ export function buildSegmentPlan(raw: string): SegmentPlan[] {
   };
 
   for (const s of sentences) {
-    if (buf && (buf + " " + s).length > 600) {
+    if (buf && (buf + " " + s).length > 1100) {
       flush();
       buf = s;
     } else {

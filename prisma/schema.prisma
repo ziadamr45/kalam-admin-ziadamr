@@ -51,6 +51,14 @@ model Article {
   audioVoice          String?    // صوت Gemini المستخدم في التوليد
   audioPublicId       String?    // معرف Cloudinary للحذف والاستبدال الآمن
   audioGeneratedAt    DateTime?  // وقت التوليد الآلي
+  /* دورة حياة التوليد الخلفي غير المتزامن — المهمة تعيش في الخادم لا في المتصفح */
+  audioStatus         String     @default("NONE") // NONE | PROCESSING | READY | FAILED
+  audioProgress       Int        @default(0)      // المقاطع المكتملة
+  audioTotal          Int        @default(0)      // إجمالي مقاطع المهمة الحالية
+  audioChunks         Json?      // سجل المقاطع المؤقت [{text, words, url, publicId, durationSec, timings, attempts, notBefore, mime}]
+  audioError          String?    // ملاحظة/خطأ آخر خطوة (تُمسح عند النجاح)
+  audioJobId          String?    // معرف المهمة الحالية — يحرس سلاسل المعالجة اليتيمة ويقتل التسابق
+  audioUpdatedAt      DateTime?  // نبض آخر خطوة معالجة — لكشف التعليق وعرض stale
   readingTimeSec      Int           @default(60)
   status              ArticleStatus @default(DRAFT)
   authorIntent        String?       @db.Text // التغذية الفكرية السرية لمساعد النقاش — لا تُعرض للجمهور إطلاقًا، تُحقن في System Prompt حصريًا
@@ -72,6 +80,7 @@ model Article {
   shares       SocialShare[]
   savedBy      SavedArticle[]
   impactLogs   ImpactLog[]
+  aiDiscussions AiDiscussionUsage[]
 
   @@index([status, publishedAt(sort: Desc)])
   @@index([sectionId])
@@ -115,6 +124,23 @@ model User {
   notifications     UserNotification[]
   impactLogs        ImpactLog[]
   proposals         UserProposal[]
+  aiDiscussions     AiDiscussionUsage[]
+}
+
+/* حصة نقاش الذكاء الاصطناعي الدائمة — سجل استهلاك صارم لكل قارئ مسجل
+   في كل مقال: يتحقق منه الخادم قبل أي نداء لـ Gemini ولا يُصفّر بالتحديث */
+model AiDiscussionUsage {
+  id            String   @id @default(cuid())
+  userId        String
+  articleId     String
+  messageCount  Int      @default(0)
+  lastMessageAt DateTime @default(now())
+
+  user    User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+  article Article @relation(fields: [articleId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, articleId])
+  @@index([articleId])
 }
 
 /* مكتبة القارئ المتزامنة — محفوظات الحساب عبر كل الأجهزة */
