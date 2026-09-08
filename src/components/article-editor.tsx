@@ -14,7 +14,12 @@ import {
 import { ContentPreview } from "@/components/content-preview";
 import { ImageUploader } from "@/components/image-uploader";
 import { AudioStudio } from "@/components/audio-studio";
-import { HADITH_TEMPLATE, QURAN_TEMPLATE } from "@/lib/content-blocks";
+import {
+  HADITH_TEMPLATE,
+  NOTE_TEMPLATE,
+  QURAN_TEMPLATE,
+  QUESTION_TEMPLATE,
+} from "@/lib/content-blocks";
 import { fixNunation, countNunationIssues } from "@/lib/nunation";
 
 type ArticleStatus = "DRAFT" | "SCHEDULED" | "PUBLISHED" | "ARCHIVED";
@@ -411,6 +416,26 @@ export function ArticleEditor({
             }}
           >
             « إدراج حديث نبوي
+          </Button>
+          <Button
+            size="sm"
+            variant="outline"
+            onClick={() => {
+              insertBlock(NOTE_TEMPLATE("نص الملاحظة الجانبية هنا.."));
+              toast("أُدرجت بطاقة ملاحظة جانبية :::", "success");
+            }}
+          >
+            ◌ ملاحظة جانبية
+          </Button>
+          <Button
+            size="sm"
+            variant="outline"
+            onClick={() => {
+              insertBlock(QUESTION_TEMPLATE("اكتب تساؤلك التأملي هنا.."));
+              toast("أُدرجت بطاقة تساؤل تأملي :::", "success");
+            }}
+          >
+            ؟ تساؤل تأملي
           </Button>
           {/* قاعدة ضبط التنوين الصارمة */}
           <Button size="sm" variant="outline" onClick={fixNunationNow} title="التنوين فوق الحرف السابق لألف التنوين — لا فوق الألف">

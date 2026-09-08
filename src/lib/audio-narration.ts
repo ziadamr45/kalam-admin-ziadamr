@@ -6,16 +6,18 @@
  * القاعدة الذهبية: كلمات الإلقاء = كلمات العرض بترتيبها نفسه.
  */
 
-import { parseBlocks, type Block } from "@/lib/content-blocks";
+import {
+  parseBlocks,
+  blockPlainWords,
+  blockSpokenLine,
+  type Block,
+} from "@/lib/content-blocks";
 
 export type WordTiming = { w: string; s: number; e: number };
 
-/** كلمات كتلة واحدة بنفس مُجزّئ العرض */
+/** كلمات كتلة واحدة بنفس مُجزّئ العرض (عبر blockPlainWords الموحّد) */
 export function blockWords(block: Block): string[] {
-  if (block.kind === "list") {
-    return block.items.map((t) => t.split(/\s+/).filter(Boolean)).flat();
-  }
-  return block.text.split(/\s+/).filter(Boolean);
+  return blockPlainWords(block);
 }
 
 /** النص الذي سيتلقّاه محرك الصوت: النسخة المشكولة أولوية لضمان النطق السليم */
@@ -69,11 +71,11 @@ export type SegmentPlan = {
 export function buildSegmentPlan(raw: string): SegmentPlan[] {
   const blocks = parseBlocks(raw);
 
-  /* كتلة النص الصوتي: نصوص الكتل (بدون وسوم الفقرات) كسطور */
+  /* كتلة النص الصوتي: نصوص الكتل (بلا وسوم ولا فواصل بصرية) كسطور */
   const lines: string[] = [];
   for (const b of blocks) {
-    if (b.kind === "list") lines.push(b.items.join(". "));
-    else lines.push(b.text);
+    const line = blockSpokenLine(b);
+    if (line.trim()) lines.push(line);
   }
   const sentences = splitSentences(lines.join(" "));
 

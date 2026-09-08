@@ -194,3 +194,54 @@ body {
   padding: 1rem;
   background: var(--bg);
 }
+
+/* =====================================================================
+   محرك التنسيق الموسع — أنماط المعاينة الحية (متطابقة روحًا مع المنصة)
+   ===================================================================== */
+
+/* بادئة الحديث التوجيهي :::hadith */
+.hadith-prefix {
+  display: block;
+  font-family: var(--font-ui), sans-serif;
+  font-weight: 700;
+  font-size: 0.9rem;
+  color: var(--accent-strong);
+  margin-bottom: 0.5rem;
+}
+.hadith-saw {
+  font-family: var(--font-naskh), "Amiri", serif;
+  font-size: 1.1em;
+}
+
+/* التنسيق المضمن داخل المعاينة */
+.md-preview .md-code {
+  font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
+  font-size: 0.82em;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 0.45em;
+  padding: 0.12em 0.45em;
+  color: var(--accent-strong);
+  direction: ltr;
+  unicode-bidi: embed;
+}
+.md-preview del {
+  text-decoration-thickness: 1.5px;
+  text-decoration-color: color-mix(in srgb, var(--accent) 60%, transparent);
+}
+.md-preview strong {
+  font-weight: 800;
+}
+.md-preview em {
+  font-style: italic;
+}
+
+/* الجداول والملاحظات والتساؤلات — توازن الهوامش في المعاينة الضيقة */
+.md-preview ol li::marker {
+  color: var(--accent-strong);
+  font-weight: 700;
+  font-family: var(--font-ui), sans-serif;
+}
+.md-preview ul li::marker {
+  color: var(--accent);
+}
