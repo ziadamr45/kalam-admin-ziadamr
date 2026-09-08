@@ -120,12 +120,12 @@ async function touchJob(
  * Protection) فيسقط كل نداء داخلي بـ 401 — لذا النطاق العام للوحة هو
  * القاعدة، مع باب ADMIN_URL لأي نطاق مخصص مستقبلًا.
  */
-function workerBase(): string {
+export function workerBase(): string {
   if (process.env.ADMIN_URL) return process.env.ADMIN_URL;
   return "https://kalam-admin-ziadamr.vercel.app";
 }
 
-/** نداء العامل الذاتي — يحمل سرّه الخاص ولا يعتمد على أي جلسة */
+/** نداء العامل الذاتي الأول (من مسار البدء) — العامل يرد فورًا ويعالج داخل after */
 export async function kickWorker(job: AudioJob): Promise<void> {
   const base = workerBase();
   /* أثر تشخيصي مؤقت: رصد محاولة الإطلاق الذاتي ونتيجتها في سجل التدقيق */
