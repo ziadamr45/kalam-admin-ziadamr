@@ -30,7 +30,7 @@ export async function POST(request: Request) {
   };
 
   /* أثر تشخيصي: هل وصل النداء الذاتي إلى العامل أصلًا؟ */
-  await writeAudit({ adminId: null, action: "audio_worker_entry", entity: "Article", entityId: job.articleId, meta: { jobId } });
+  await writeAudit({ adminId: null, action: "audio_worker_entry", entity: "Article", entityId: job.articleId, meta: { jobId: job.jobId } });
 
   let needsNext = false;
   try {
