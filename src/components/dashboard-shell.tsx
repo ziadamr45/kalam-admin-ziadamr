@@ -2,9 +2,16 @@
 
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
-import { useState } from "react";
+import { createContext, useContext, useState } from "react";
 import { ToastProvider } from "@/components/ui";
 import { PushToggle } from "@/components/push-toggle";
+
+/**
+ * حالة فتح القائمة الجانبية — يقرأها أي مكوّن داخل الغلاف
+ * (كشريط إجراءات محرر المقال) ليخفي نفسه حين ينزلق الدرج فوقه.
+ */
+const SidebarOpenContext = createContext(false);
+export const useSidebarOpen = () => useContext(SidebarOpenContext);
 
 const NAV = [
   { href: "/", label: "التحليلات الحية", icon: "chart" },
@@ -73,10 +80,11 @@ export function DashboardShell({
 
   return (
     <ToastProvider>
+      <SidebarOpenContext.Provider value={sidebarOpen}>
       <div className="flex min-h-screen overflow-x-clip bg-steel-50">
-        {/* الشريط الجانبي الكحلي */}
+        {/* الشريط الجانبي الكحلي — أعلى طبقة على الإطلاق (z-[60]) ينزلق فوق كل عناصر الصفحة */}
         <aside
-          className={`fixed inset-y-0 right-0 z-40 w-64 transform bg-steel-900 transition-transform duration-300 ease-fluid lg:static lg:translate-x-0 ${
+          className={`fixed inset-y-0 right-0 z-[60] w-64 transform bg-steel-900 transition-transform duration-300 ease-fluid lg:static lg:translate-x-0 ${
             sidebarOpen ? "translate-x-0" : "translate-x-full lg:translate-x-0"
           }`}
         >
@@ -143,7 +151,7 @@ export function DashboardShell({
 
         {sidebarOpen && (
           <div
-            className="fixed inset-0 z-30 bg-steel-950/60 lg:hidden"
+            className="fixed inset-0 z-[55] bg-steel-950/60 lg:hidden"
             onClick={() => setSidebarOpen(false)}
           />
         )}
@@ -177,6 +185,7 @@ export function DashboardShell({
           <main className="flex-1 p-4 lg:p-8">{children}</main>
         </div>
       </div>
+      </SidebarOpenContext.Provider>
     </ToastProvider>
   );
 }

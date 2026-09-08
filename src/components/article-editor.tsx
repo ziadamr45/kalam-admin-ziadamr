@@ -2,6 +2,7 @@
 
 import { useRouter } from "next/navigation";
 import { useMemo, useRef, useState } from "react";
+import { useSidebarOpen } from "@/components/dashboard-shell";
 import {
   Badge,
   Button,
@@ -61,6 +62,8 @@ export function ArticleEditor({
 }) {
   const router = useRouter();
   const { toast } = useToast();
+  /* حالة الدرج الجانبي — الشريط السفلي يخفي نفسه حين تنزلق القائمة فوقه */
+  const sidebarOpen = useSidebarOpen();
 
   const [title, setTitle] = useState(initial?.title ?? "");
   const [slug, setSlug] = useState(initial?.slug ?? "");
@@ -709,8 +712,14 @@ export function ArticleEditor({
       </Card>
 
       {/* شريط الإجراءات — شريط سفلي ثابت ملتصق بأسفل الشاشة
-          (كان صندوقًا عائمًا يغطي حقول الإدخال والنسخة المشكولة) */}
-      <div className="fixed inset-x-0 bottom-0 z-50 border-t border-steel-100 bg-white/95 p-3 backdrop-blur dark:border-zinc-800 dark:bg-zinc-900/95 lg:pr-64">
+          (كان صندوقًا عائمًا يغطي حقول الإدخال والنسخة المشكولة)
+          الطبقة z-30 تحت الدرج (z-[60]) والـ Backdrop (z-[55])،
+          ويختفي تمامًا مع تعطيل تفاعله لحظة فتح القائمة الجانبية */}
+      <div
+        className={`fixed inset-x-0 bottom-0 z-30 border-t border-steel-100 bg-white/95 p-3 backdrop-blur transition-opacity duration-200 dark:border-zinc-800 dark:bg-zinc-900/95 lg:pr-64 ${
+          sidebarOpen ? "pointer-events-none opacity-0" : "opacity-100"
+        }`}
+      >
         <div className="mx-auto flex max-w-4xl flex-wrap items-center justify-center gap-2.5 sm:justify-start">
           <Button variant="outline" onClick={() => save("DRAFT")} disabled={busy}>
             حفظ كمسودة
