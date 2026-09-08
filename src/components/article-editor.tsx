@@ -750,6 +750,17 @@ export function ArticleEditor({
         }`}
       >
         <div className="mx-auto flex max-w-4xl flex-wrap items-center justify-center gap-2.5 sm:justify-start">
+          {/* زر حفظ التغييرات — يحفظ التعديلات مع بقاء حالة المقال كما هي
+              (منشور يبقى منشورًا، مؤرشف يبقى مؤرشفًا) دون أي تحويل أو مطالبة بقائمة الفحص */}
+          {(status === "PUBLISHED" || status === "ARCHIVED") && (
+            <Button
+              onClick={() => save(status)}
+              disabled={busy}
+              title="يحفظ تعديلاتك ويُحدّث الموقع فورًا مع بقاء حالة المقال كما هي"
+            >
+              {busy ? "جارٍ الحفظ.." : "حفظ التغييرات"}
+            </Button>
+          )}
           <Button variant="outline" onClick={() => save("DRAFT")} disabled={busy}>
             حفظ كمسودة
           </Button>

@@ -52,8 +52,9 @@ export async function PATCH(request: Request, { params }: Params) {
     const existing = await prisma.article.findUnique({ where: { id } });
     if (!existing) return NextResponse.json({ error: "غير موجود" }, { status: 404 });
 
-    /* فرض قائمة الفحص الأخلاقي قبل النشر */
-    if (body.status === "PUBLISHED") {
+    /* فرض قائمة الفحص الأخلاقي قبل النشر — عند الانتقال من حالة أخرى إلى منشور فقط.
+       إعادة حفظ مقال منشور أصلًا (زر «حفظ التغييرات») لا تطالب بقائمة الفحص من جديد */
+    if (body.status === "PUBLISHED" && existing.status !== "PUBLISHED") {
       const settings = await getSystemSettings();
       if (settings.REQUIRE_CHECKLIST) {
         const items = body.checklistData?.items ?? [];

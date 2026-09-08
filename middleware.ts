@@ -15,7 +15,16 @@ const SESSION_COOKIE = "kalam_admin_session";
 const SETUP_COOKIE = "kalam_admin_setup";
 
 /** المسارات العامة الوحيدة */
-const PUBLIC_PATHS = ["/login", "/api/auth/login", "/api/auth/logout", "/api/health", "/api/cron"];
+const PUBLIC_PATHS = [
+  "/login",
+  "/api/auth/login",
+  "/api/auth/logout",
+  "/api/health",
+  "/api/cron",
+  /* بوابة MCP + طبقة OAuth القياسية (ليجرب Gemini الاكتشاف والتسجيل والتفويض) */
+  "/api/mcp",
+  "/.well-known",
+];
 
 async function verifySessionToken(token: string): Promise<boolean> {
   try {

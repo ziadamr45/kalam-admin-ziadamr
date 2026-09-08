@@ -7,6 +7,7 @@ import {
 } from "@/lib/mcp/schemas";
 import { executeMcpTool, McpToolError, type McpArgs } from "@/lib/mcp/executors";
 import { getClientIp } from "@/lib/guard";
+import { getOrigin, verifyOAuthToken } from "@/lib/mcp/oauth";
 
 /**
  * ============================================================
@@ -20,9 +21,14 @@ import { getClientIp } from "@/lib/guard";
  *   GET   /api/mcp   — 405 (لا توجد قناة SSE — استجابات JSON نقية)
  *   OPTIONS /api/mcp — فحص CORS المسبق للعملاء المتصفحية
  *
- * الأمان: لا يُقبل أي طلب دون ترويسة
- *   Authorization: Bearer <GEMINI_SPARK_MCP_SECRET>
- * بمقارنة زمنية ثابتة تمنع هجمات قياس التوقيت. الخادم عديم الحالة (Stateless)
+ * الأمان — ممرّان متكافئان:
+ *   1. الوضع الساكن: Authorization: Bearer <GEMINI_SPARK_MCP_SECRET>
+ *      بمقارنة زمنية ثابتة تمنع هجمات قياس التوقيت (للاختبارات والاتصال المباشر)
+ *   2. بروتوكول OAuth 2.0 القياسي (المطلوب لـ Gemini Connected Apps):
+ *      رمز وصول JWT صادر عن /api/mcp/oauth/token عبر تدفق رمز التفويض + PKCE
+ *      — الاكتشاف من /.well-known/oauth-protected-resource
+ * 401 تعيد ترويسة WWW-Authenticate مع resource_metadata ليربدأ العميل
+ * رقصة الاكتشاف القياسية تلقائيًا. الخادم عديم الحالة (Stateless)
  * — صالح تمامًا لبيئة Vercel Serverless.
  */
 
@@ -43,21 +49,25 @@ const CORS_HEADERS = {
 
 /* ============================ الأمان ============================ */
 
-function authorized(request: Request): boolean {
-  const secret = process.env.GEMINI_SPARK_MCP_SECRET;
-  if (!secret || secret.length < 16) return false;
-
+async function authorized(request: Request): Promise<boolean> {
   const header = request.headers.get("authorization") ?? "";
   if (!header.startsWith("Bearer ")) return false;
   const token = header.slice(7).trim();
-  if (!token || token.length !== secret.length) return false;
+  if (!token) return false;
 
-  /* مقارنة زمنية ثابتة — لا تسرّب طول أو موضع الاختلاف */
-  try {
-    return timingSafeEqual(Buffer.from(token, "utf8"), Buffer.from(secret, "utf8"));
-  } catch {
-    return false;
+  /* الممر 1: السرّ الساكن — مقارنة زمنية ثابتة */
+  const secret = process.env.GEMINI_SPARK_MCP_SECRET;
+  if (secret && secret.length >= 16 && token.length === secret.length) {
+    try {
+      if (timingSafeEqual(Buffer.from(token, "utf8"), Buffer.from(secret, "utf8"))) return true;
+    } catch {
+      /* تُواصل فحص رمز OAuth */
+    }
   }
+
+  /* الممر 2: رمز وصول OAuth 2.0 صادر عن نقطة /token */
+  const payload = await verifyOAuthToken(token, "at");
+  return Boolean(payload);
 }
 
 /* ============================ أدوات JSON-RPC ============================ */
@@ -171,18 +181,29 @@ export async function GET() {
 }
 
 export async function POST(request: Request) {
-  /* بوابة الأمان أولًا — لا استثناء لأي طلب */
-  if (!authorized(request)) {
+  /* بوابة الأمان أولًا — لا استثناء لأي طلب
+     ترويسة WWW-Authenticate مع resource_metadata هي التي تشعل رقصة
+     الاكتشاف القياسية عند Gemini: 401 ← اكتشاف ← تسجيل ← تفويض ← توكن */
+  if (!(await authorized(request))) {
+    const origin = getOrigin(request);
     return new Response(
       JSON.stringify({
         jsonrpc: "2.0",
         id: null,
         error: {
           code: -32001,
-          message: "غير مصرح — يلزم ترويسة Authorization: Bearer <GEMINI_SPARK_MCP_SECRET>",
+          message:
+            "غير مصرح — مرّر Authorization: Bearer إما بسرّ المنصة أو برمز وصول OAuth صادر من /api/mcp/oauth/token",
         },
       }),
-      { status: 401, headers: { ...JSON_HEADERS, ...CORS_HEADERS } },
+      {
+        status: 401,
+        headers: {
+          ...JSON_HEADERS,
+          ...CORS_HEADERS,
+          "WWW-Authenticate": `Bearer error="invalid_token", resource_metadata="${origin}/.well-known/oauth-protected-resource"`,
+        },
+      },
     );
   }
 
