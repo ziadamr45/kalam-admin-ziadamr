@@ -328,7 +328,7 @@ export function ArticleEditor({
   };
 
   return (
-    <div className="mx-auto max-w-4xl space-y-6">
+    <div className="mx-auto max-w-4xl space-y-6 pb-32">
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-2xl font-bold text-steel-900">
@@ -708,37 +708,40 @@ export function ArticleEditor({
         </div>
       </Card>
 
-      {/* شريط الإجراءات */}
-      <Card className="sticky bottom-4 flex flex-wrap items-center gap-3 p-4">
-        <Button variant="outline" onClick={() => save("DRAFT")} disabled={busy}>
-          حفظ كمسودة
-        </Button>
-        <Button variant="outline" onClick={() => save("SCHEDULED")} disabled={busy}>
-          جدولة النشر
-        </Button>
-        {status !== "PUBLISHED" ? (
-          <Button onClick={tryPublish} disabled={busy}>
-            نشر الآن {requireChecklist ? "(بعد قائمة الفحص)" : ""}
+      {/* شريط الإجراءات — شريط سفلي ثابت ملتصق بأسفل الشاشة
+          (كان صندوقًا عائمًا يغطي حقول الإدخال والنسخة المشكولة) */}
+      <div className="fixed inset-x-0 bottom-0 z-50 border-t border-steel-100 bg-white/95 p-3 backdrop-blur dark:border-zinc-800 dark:bg-zinc-900/95 lg:pr-64">
+        <div className="mx-auto flex max-w-4xl flex-wrap items-center justify-center gap-2.5 sm:justify-start">
+          <Button variant="outline" onClick={() => save("DRAFT")} disabled={busy}>
+            حفظ كمسودة
           </Button>
-        ) : (
-          <Button variant="danger" onClick={() => save("ARCHIVED")} disabled={busy}>
-            أرشفة المقال
+          <Button variant="outline" onClick={() => save("SCHEDULED")} disabled={busy}>
+            جدولة النشر
           </Button>
-        )}
-        {status !== "PUBLISHED" && (
-          <div className="flex items-center gap-2">
-            <input
-              type="datetime-local"
-              value={scheduledAt}
-              onChange={(e) => setScheduledAt(e.target.value)}
-              className="field max-w-[220px] text-xs"
-            />
-            <Button size="sm" variant="ghost" onClick={() => save("SCHEDULED")} disabled={busy || !scheduledAt}>
-              اعتماد الموعد
+          {status !== "PUBLISHED" ? (
+            <Button onClick={tryPublish} disabled={busy}>
+              نشر الآن {requireChecklist ? "(بعد قائمة الفحص)" : ""}
             </Button>
-          </div>
-        )}
-      </Card>
+          ) : (
+            <Button variant="danger" onClick={() => save("ARCHIVED")} disabled={busy}>
+              أرشفة المقال
+            </Button>
+          )}
+          {status !== "PUBLISHED" && (
+            <div className="flex items-center gap-2">
+              <input
+                type="datetime-local"
+                value={scheduledAt}
+                onChange={(e) => setScheduledAt(e.target.value)}
+                className="field max-w-[220px] text-xs"
+              />
+              <Button size="sm" variant="ghost" onClick={() => save("SCHEDULED")} disabled={busy || !scheduledAt}>
+                اعتماد الموعد
+              </Button>
+            </div>
+          )}
+        </div>
+      </div>
 
       {/* مودال قائمة الفحص الأخلاقي */}
       <Modal open={checklistOpen} onClose={() => setChecklistOpen(false)} title="قائمة الفحص الأخلاقي قبل النشر">
