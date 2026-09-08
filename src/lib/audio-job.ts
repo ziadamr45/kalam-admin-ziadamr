@@ -113,14 +113,21 @@ async function touchJob(
 
 /* ============================ إطلاق العامل ============================ */
 
+/**
+ * عنوان تطبيق اللوحة نفسه — نداء العامل الذاتي يجب أن يعود إلى هذا التطبيق
+ * لا إلى المنصة العامة (PUBLIC_URL هناك يشير للمنصة القارئة).
+ * VERCEL_URL توفّره Vercel تلقائيًا لكل دالة (رابط النشر الفعلي — أدق خيار:
+ * السلسلة تعود لنفس نسخة الكود التي بدأتها حتى أثناء نشر نسخة جديدة).
+ */
+function workerBase(): string {
+  if (process.env.ADMIN_URL) return process.env.ADMIN_URL;
+  if (process.env.VERCEL_URL) return `https://${process.env.VERCEL_URL}`;
+  return "https://kalam-admin-ziadamr.vercel.app";
+}
+
 /** نداء العامل الذاتي — يحمل سرّه الخاص ولا يعتمد على أي جلسة */
 export async function kickWorker(job: AudioJob): Promise<void> {
-  const base = process.env.PUBLIC_URL;
-  if (!base) {
-    /* بلا رابط عام مهيأ — نفّذ الخطوة داخل نفس السياق حمايةً من الجمود */
-    await runAudioJobStep(job).catch(() => {});
-    return;
-  }
+  const base = workerBase();
   try {
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), 55_000);
@@ -139,8 +146,9 @@ export async function kickWorker(job: AudioJob): Promise<void> {
     });
     clearTimeout(timer);
   } catch {
-    /* إن انقطع الاستدعاء تبقى المهمة PROCESSING وكشف التعليق (stale)
-       في مسار الحالة يسمح للأدمن بإعادة إطلاق السلسلة بضغطة */
+    /* شبكة عابرة؟ حماية ذاتية: نفّذ الخطوة داخل نفس السياق —
+       حارس audioJobId يجعل الخطوة آمنة حتى مع تداخل المهمات */
+    await runAudioJobStep(job).catch(() => {});
   }
 }
 
