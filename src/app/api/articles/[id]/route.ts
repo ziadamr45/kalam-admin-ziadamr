@@ -144,6 +144,7 @@ export async function PATCH(request: Request, { params }: Params) {
         : await prisma.section.findUnique({ where: { id: existing.sectionId ?? "" }, select: { slug: true } });
       await revalidatePublicPaths(
         articleRevalidatePaths({ slug: article.slug, sectionSlug: section?.slug ?? null }),
+        article.slug,
       );
     }
 

@@ -45,6 +45,7 @@ export async function GET(request: Request) {
 
       await revalidatePublicPaths(
         articleRevalidatePaths({ slug: article.slug, sectionSlug: section?.slug ?? null }),
+        article.slug,
       );
     }
 

@@ -105,6 +105,7 @@ export async function POST(request: Request, { params }: Params) {
       });
       await revalidatePublicPaths(
         articleRevalidatePaths({ slug: updated.slug, sectionSlug: section?.slug ?? null }),
+        updated.slug,
       );
 
       return NextResponse.json({ ok: true, url: uploaded.url });

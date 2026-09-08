@@ -3,7 +3,10 @@
  * On-Demand ISR: المنصة تعيد توليد صفحات المقال فورًا بدل انتظار 5 دقائق
  */
 
-export async function revalidatePublicPaths(paths: string[]): Promise<void> {
+export async function revalidatePublicPaths(
+  paths: string[],
+  slug?: string,
+): Promise<void> {
   const publicUrl = process.env.PUBLIC_URL;
   const secret = process.env.REVALIDATE_SECRET;
   if (!publicUrl || !secret) return;
@@ -17,7 +20,7 @@ export async function revalidatePublicPaths(paths: string[]): Promise<void> {
         "Content-Type": "application/json",
         "x-revalidate-secret": secret,
       },
-      body: JSON.stringify({ paths }),
+      body: JSON.stringify({ paths, slug }),
       signal: controller.signal,
     });
     clearTimeout(timeout);
