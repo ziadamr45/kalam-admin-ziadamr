@@ -116,12 +116,12 @@ async function touchJob(
 /**
  * عنوان تطبيق اللوحة نفسه — نداء العامل الذاتي يجب أن يعود إلى هذا التطبيق
  * لا إلى المنصة العامة (PUBLIC_URL هناك يشير للمنصة القارئة).
- * VERCEL_URL توفّره Vercel تلقائيًا لكل دالة (رابط النشر الفعلي — أدق خيار:
- * السلسلة تعود لنفس نسخة الكود التي بدأتها حتى أثناء نشر نسخة جديدة).
+ * ملاحظة حرجة: رابط النشر الداخلي VERCEL_URL محمي بـ SSO (Deployment
+ * Protection) فيسقط كل نداء داخلي بـ 401 — لذا النطاق العام للوحة هو
+ * القاعدة، مع باب ADMIN_URL لأي نطاق مخصص مستقبلًا.
  */
 function workerBase(): string {
   if (process.env.ADMIN_URL) return process.env.ADMIN_URL;
-  if (process.env.VERCEL_URL) return `https://${process.env.VERCEL_URL}`;
   return "https://kalam-admin-ziadamr.vercel.app";
 }
 
