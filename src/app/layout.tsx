@@ -1,4 +1,5 @@
 import type { Metadata, Viewport } from "next";
+import NextTopLoader from "nextjs-toploader";
 import {
   Readex_Pro,
   Amiri,
@@ -71,7 +72,18 @@ export default function RootLayout({
       dir="rtl"
       className={`${readex.variable} ${amiri.variable} ${amiriQuran.variable} ${naskh.variable}`}
     >
-      <body className="font-ui">{children}</body>
+      <body className="font-ui">
+        {/* شريط التقدم العلوي الفوري — الكشيدة النحاسية تجري لحظة لمس أي رابط */}
+        <NextTopLoader
+          color="#B9832F"
+          initialPosition={0.08}
+          crawlSpeed={200}
+          speed={300}
+          height={3}
+          showSpinner={false}
+        />
+        {children}
+      </body>
     </html>
   );
 }
