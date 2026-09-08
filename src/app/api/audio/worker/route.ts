@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { after } from "next/server";
 import { runAudioJobStep, kickWorker, type AudioJob } from "@/lib/audio-job";
+import { writeAudit } from "@/lib/guard";
 
 /*
  * العامل الخلفي الذاتي — قلب المعمارية غير المتزامنة.
@@ -28,9 +29,20 @@ export async function POST(request: Request) {
     adminId: body.adminId ?? null,
   };
 
+  /* أثر تشخيصي: هل وصل النداء الذاتي إلى العامل أصلًا؟ */
+  await writeAudit({ adminId: null, action: "audio_worker_entry", entity: "Article", entityId: job.articleId, meta: { jobId } });
+
   let needsNext = false;
   try {
     needsNext = await runAudioJobStep(job);
+    /* أثر تشخيصي: نتيجة الخطوة داخل هذه الاستدعاء */
+    await writeAudit({
+      adminId: null,
+      action: "audio_step_result",
+      entity: "Article",
+      entityId: job.articleId,
+      meta: { jobId: job.jobId, needsNext },
+    });
   } catch (err) {
     /* المهمة تدير فشلها داخليًا — أي استثناء عابر هنا لا يقتل السلسلة إلا
        إذا كانت الكتابة الأخيرة قد فشلت، ووكشف التعليق (stale) صمام أمان */

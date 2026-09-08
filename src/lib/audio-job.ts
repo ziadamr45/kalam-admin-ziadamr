@@ -128,10 +128,25 @@ function workerBase(): string {
 /** نداء العامل الذاتي — يحمل سرّه الخاص ولا يعتمد على أي جلسة */
 export async function kickWorker(job: AudioJob): Promise<void> {
   const base = workerBase();
+  /* أثر تشخيصي مؤقت: رصد محاولة الإطلاق الذاتي ونتيجتها في سجل التدقيق */
+  const breadcrumb = async (action: string, meta: Record<string, unknown>) => {
+    await prisma.auditLog
+      .create({
+        data: {
+          adminId: null,
+          action,
+          entity: "Article",
+          entityId: job.articleId,
+          meta: meta as never,
+        },
+      })
+      .catch(() => {});
+  };
+  await breadcrumb("audio_kick", { base, jobId: job.jobId });
   try {
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), 55_000);
-    await fetch(`${base}/api/audio/worker`, {
+    const res = await fetch(`${base}/api/audio/worker`, {
       method: "POST",
       headers: {
         "content-type": "application/json",
@@ -145,7 +160,13 @@ export async function kickWorker(job: AudioJob): Promise<void> {
       signal: controller.signal,
     });
     clearTimeout(timer);
-  } catch {
+    await breadcrumb("audio_kick_done", { base, status: res.status, jobId: job.jobId });
+  } catch (err) {
+    await breadcrumb("audio_kick_error", {
+      base,
+      jobId: job.jobId,
+      error: err instanceof Error ? err.message : "unknown",
+    });
     /* شبكة عابرة؟ حماية ذاتية: نفّذ الخطوة داخل نفس السياق —
        حارس audioJobId يجعل الخطوة آمنة حتى مع تداخل المهمات */
     await runAudioJobStep(job).catch(() => {});
