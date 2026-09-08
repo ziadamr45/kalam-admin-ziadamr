@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { requireSession, isRejected, writeAudit, getClientIp } from "@/lib/guard";
-import { geminiImage, geminiConfigured, GeminiError } from "@/lib/gemini-inference";
+import { generateCoverArt, geminiChat, geminiConfigured, GeminiError } from "@/lib/gemini-inference";
 import { uploadImage, cloudinaryConfigured } from "@/lib/cloudinary";
 import { articleRevalidatePaths, revalidatePublicPaths } from "@/lib/revalidate";
 
@@ -111,29 +111,95 @@ export async function POST(request: Request, { params }: Params) {
       return NextResponse.json({ ok: true, url: uploaded.url });
     }
 
-    /* ---------- التوليد: برومبت فني من مضمون المقال ---------- */
-    if (!geminiConfigured()) {
-      return NextResponse.json(
-        { error: "خدمة الذكاء الاصطناعي غير مهيأة — تحقق من GEMINI_API_KEY" },
-        { status: 503 },
-      );
+    /* ---------- التوليد: خطوتان — مدير فني Gemini ثم سلسلة محركات الرسم ---------- */
+    const core = sanitizeForPrompt(article.content).slice(0, 1600);
+
+    /* الخطوة 1 — صياغة برومبت إنجليزي احترافي من جوهر المقال (موديل نصوص مجاني،
+       وعند فشله يكفي القالب الإنجليزي الحتمي المدمج — لا يُفشل التوليد أبدًا هنا) */
+    let artPrompt = buildArtPrompt(article.title, article.summary, core);
+    let promptEngine = "template";
+    if (geminiConfigured()) {
+      try {
+        const synthesized = await geminiChat({
+          candidates: ["gemini-2.5-flash", "gemini-2.5-flash-lite", "gemini-2.0-flash"],
+          memoKind: "cover-prompt",
+          timeoutMs: 12_000,
+          temperature: 0.85,
+          maxOutputTokens: 300,
+          system:
+            "أنت مدير فني لمنصة مقالات فكرية عربية. مهمتك استخراج الجوهر الفكري للمقال وترجمته إلى سطر توجيه فني إنجليزي واحد لتوليد صورة. أخرج السطر الإنجليزي فقط دون أي شرح أو علامات تنسيق أو اقتباسات.",
+          turns: [
+            {
+              role: "user",
+              text: [
+                "حوّل جوهر المقال التالي إلى سطر توجيه فني إنجليزي واحد (image-generation prompt)",
+                "بالقالب الحرفي التالي مع تعبئة [Theme] بخلاصة الفكرة بلغة إنجليزية بليغة:",
+                "Generate a minimal, abstract, thought-provoking editorial artwork representing: [Theme], dark cinematic tones, elegant lighting, warm copper accent glow, modern minimalist style, ultra-high resolution, no text.",
+                "",
+                `عنوان المقال: ${article.title}`,
+                article.summary ? `المختصر: ${article.summary}` : "",
+                `المتن: ${core}`,
+              ]
+                .filter(Boolean)
+                .join("\n"),
+            },
+          ],
+        });
+        const cleaned = synthesized.replace(/["'`]+/g, "").replace(/\s+/g, " ").trim();
+        if (cleaned.length >= 40 && /[a-zA-Z]/.test(cleaned)) {
+          artPrompt = cleaned;
+          promptEngine = "gemini-2.5-flash";
+        }
+      } catch {
+        /* صمت تام — القالب الاحتياطي يكفي */
+      }
     }
 
-    const core = sanitizeForPrompt(article.content).slice(0, 1600);
-    const prompt = buildArtPrompt(article.title, article.summary, core);
+    /* الخطوة 2 — الرسم عبر سلسلة المحركات: Imagen (إن مُفوتر) ثم Nano Banana ثم Pollinations المجاني */
+    const { base64, mimeType, engine } = await generateCoverArt(artPrompt, Date.now() + 50_000);
+    const dataUrl = `data:${mimeType};base64,${base64}`;
 
-    const { base64, mimeType } = await geminiImage(prompt);
+    /* رفع سحابي فوري + حفظ الرابط النهائي في coverImage (توليد = اعتماد تلقائي) */
+    let url: string | undefined;
+    let saved = false;
+    if (cloudinaryConfigured) {
+      try {
+        const buf = Buffer.from(base64, "base64");
+        const ext = mimeType.split("/")[1].replace("jpeg", "jpg");
+        const uploaded = await uploadImage(
+          new Blob([new Uint8Array(buf)], { type: mimeType }),
+          `ai-cover-${Date.now()}.${ext}`,
+          "kalam/covers",
+        );
+        const updated = await prisma.article.update({
+          where: { id },
+          data: { coverImage: uploaded.url },
+        });
+        url = uploaded.url;
+        saved = true;
+        const section = await prisma.section.findUnique({
+          where: { id: updated.sectionId ?? "" },
+          select: { slug: true },
+        });
+        await revalidatePublicPaths(
+          articleRevalidatePaths({ slug: updated.slug, sectionSlug: section?.slug ?? null }),
+          updated.slug,
+        );
+      } catch {
+        /* فشل الرفع لا يُفشل التوليد — يعود قرار الاعتماد للأدمن عبر زر الاعتماد */
+      }
+    }
 
     await writeAudit({
       adminId: guard.adminId,
       action: "article.cover.generated",
       entity: "Article",
       entityId: id,
-      meta: { title: article.title },
+      meta: { title: article.title, engine, promptEngine, saved },
       ip: getClientIp(request),
     });
 
-    return NextResponse.json({ image: `data:${mimeType};base64,${base64}` });
+    return NextResponse.json({ image: dataUrl, url, saved, engine });
   } catch (err) {
     if (err instanceof GeminiError) {
       return NextResponse.json({ error: err.message }, { status: err.status >= 500 ? 502 : err.status });

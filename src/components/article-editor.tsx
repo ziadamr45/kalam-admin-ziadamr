@@ -90,6 +90,8 @@ export function ArticleEditor({
   const [coverBusy, setCoverBusy] = useState<"generate" | "adopt" | null>(null);
   const [coverPreview, setCoverPreview] = useState<string>("");
   const [coverError, setCoverError] = useState<string>("");
+  /* اعتُمد الغلاف المولّد تلقائيًا على الخادم (رُفع سحابيًا وارتبط بالمقال)؟ */
+  const [coverAutoSaved, setCoverAutoSaved] = useState(false);
 
   /* أدوات إدراج الآيات والأحاديث + المعاينة الحية */
   const contentRef = useRef<HTMLTextAreaElement | null>(null);
@@ -280,12 +282,13 @@ export function ArticleEditor({
     save("PUBLISHED", true);
   };
 
-  /* ============ مولّد الغلاف التجريدي الذكي (Nano Banana 2 Lite) ============ */
+  /* ============ مولّد الغلاف الذكي — خطوتان على الخادم ثم سلسلة محركات رسم متدرجة ============ */
   const generateCover = async () => {
     if (!initial?.id) return;
     setCoverBusy("generate");
     setCoverError("");
     setCoverPreview("");
+    setCoverAutoSaved(false);
     try {
       const res = await fetch(`/api/articles/${initial.id}/cover`, {
         method: "POST",
@@ -298,7 +301,14 @@ export function ArticleEditor({
         return;
       }
       setCoverPreview(data.image || "");
-      toast("صُنع الغلاف من مضمون المقال — اعتمده أو ولّد بديلًا", "success");
+      if (data.url) {
+        /* الخادم رفع الصورة سحابيًا وحفظها في coverImage مباشرة */
+        setCoverImage(data.url);
+        setCoverAutoSaved(true);
+        toast("وُلّد الغلاف ورُفع سحابيًا وارتبط بالمقال تلقائيًا", "success");
+      } else {
+        toast("صُنع الغلاف من مضمون المقال — اعتمده أو ولّد بديلًا", "success");
+      }
     } catch {
       setCoverError("انقطع الاتصال أثناء التوليد — أعد المحاولة");
     } finally {
@@ -673,14 +683,33 @@ export function ArticleEditor({
                 alt="معاينة الغلاف المولّد"
                 className="max-h-72 w-full rounded-xl border border-steel-100 object-cover"
               />
+              {coverAutoSaved && (
+                <p
+                  className="rounded-xl border p-3 text-xs font-bold leading-6"
+                  style={{ borderColor: "#bbf7d0", background: "#f0fdf4", color: "#15803d" }}
+                >
+                  ✓ اعتُمد الغلاف تلقائيًا: رُفع سحابيًا وارتبط بحقل صورة الغلاف،
+                  وسيظهر في المقال فور حفظك أو حتى دون حفظ (حُفظ على الخادم مباشرة).
+                </p>
+              )}
               <div className="flex flex-wrap gap-2">
-                <Button size="sm" onClick={adoptCover} disabled={coverBusy !== null}>
-                  {coverBusy === "adopt" ? "جارٍ الاعتماد والرفع.." : "اعتماد الغلاف ورفعه وربطه بالمقال"}
-                </Button>
+                {!coverAutoSaved && (
+                  <Button size="sm" onClick={adoptCover} disabled={coverBusy !== null}>
+                    {coverBusy === "adopt" ? "جارٍ الاعتماد والرفع.." : "اعتماد الغلاف ورفعه وربطه بالمقال"}
+                  </Button>
+                )}
                 <Button size="sm" variant="outline" onClick={generateCover} disabled={coverBusy !== null}>
                   توليد بديل
                 </Button>
-                <Button size="sm" variant="ghost" onClick={() => setCoverPreview("")} disabled={coverBusy !== null}>
+                <Button
+                  size="sm"
+                  variant="ghost"
+                  onClick={() => {
+                    setCoverPreview("");
+                    setCoverAutoSaved(false);
+                  }}
+                  disabled={coverBusy !== null}
+                >
                   تجاهل
                 </Button>
               </div>
