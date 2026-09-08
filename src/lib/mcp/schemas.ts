@@ -16,7 +16,7 @@ export type McpToolSchema = {
 
 export const MCP_PROTOCOL_VERSION = "2025-03-26";
 export const MCP_SERVER_NAME = "kalam-sovereign-admin";
-export const MCP_SERVER_VERSION = "1.0.0";
+export const MCP_SERVER_VERSION = "2.0.0";
 
 export const MCP_TOOLS: McpToolSchema[] = [
   /* ==================== أ) أدوات المقالات ==================== */
@@ -252,6 +252,235 @@ export const MCP_TOOLS: McpToolSchema[] = [
         layout: { type: "boolean", description: "إعادة تحقق على مستوى التخطيط المشترك كلّه" },
       },
       required: ["paths"],
+    },
+  },
+
+  /* ==================== و) المستخدمون والقراء ==================== */
+  {
+    name: "list_users",
+    description:
+      "جلب القراء المسجلين مرتبين برصيد الأثر: الاسم المعروض والاسم الأصلي والبريد والرتبة الفكرية ورصيد الأثر وحالة الحظر وسببها وعدد تعليقاتهم وجلسات نقاشهم — مع بحث نصي وفلترة المحظورين.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        query: { type: "string", description: "بحث في الاسم المعروض أو الأصلي أو البريد" },
+        bannedOnly: { type: "boolean", description: "إظهار المحظورين فقط" },
+        limit: { type: "number", description: "عدد النتائج (افتراضي 30، أقصى 100)" },
+        offset: { type: "number", description: "إزاحة الترقيم للصفحات" },
+      },
+    },
+  },
+  {
+    name: "manage_user",
+    description:
+      "السيادة الكاملة على حساب قارئ: حظره نهائيًا بسبب موثق أو فك حظره، أو منح/خصم رصيد أثر (من ±1 إلى ±5000 بسبب يُوثَّق في سجل الأثر وتُعاد حساب رتبته الفكرية آليًا)، أو تصفير هويته المخصصة (الاسم والصورة والنبذة) عائدًا إياه لحالة Google الأصلية عند الانتهاك.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        userId: { type: "string", description: "معرف المستخدم — إلزامي" },
+        action: {
+          type: "string",
+          enum: ["ban", "unban", "adjust_impact", "reset_identity"],
+          description: "ban حظر | unban فك الحظر | adjust_impact منح/خصم أثر | reset_identity تصفير الهوية المخصصة",
+        },
+        reason: {
+          type: "string",
+          description: "السبب الموثق — إلزامي مع ban وadjust_impact (يُسجل في سجل الأثر/التدقيق)",
+        },
+        delta: {
+          type: "number",
+          description: "عدد النقاط مع adjust_impact — موجبة للمنح وسالبة للخصم (±1 إلى ±5000)",
+        },
+      },
+      required: ["userId", "action"],
+    },
+  },
+
+  /* ==================== ز) القنوات الخاصة والحوكمة ==================== */
+  {
+    name: "list_and_handle_proposals",
+    description:
+      "قناة «أهل الكلمة» الخاصة: جلب المقترحات الفكرية الواردة مباشرة من أصحاب أعلى رتبة فكرية (مع بيانات كاتبها ورتبته ورصيده) وتعليم المقترح مُعالَجًا أو إعادة فتحه.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        action: {
+          type: "string",
+          enum: ["list", "handle", "reopen"],
+          description: "list جلب (افتراضي) | handle تعليم مُعالَجًا | reopen إعادة فتح",
+        },
+        id: { type: "string", description: "معرف المقترح — إلزامي مع handle وreopen" },
+        limit: { type: "number", description: "عدد نتائج الجلب (افتراضي 30، أقصى 100)" },
+      },
+    },
+  },
+  {
+    name: "manage_contact_messages",
+    description:
+      "صندوق «اتصل بنا»: جلب رسائل الزوار (غير المقروءة أولًا) ببيانات مرسليها، وتعليمها مقروءة أو غير مقروءة، أو أرشفتها واسترجاعها، أو حذفها نهائيًا.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        action: {
+          type: "string",
+          enum: ["list", "mark_read", "mark_unread", "archive", "unarchive", "delete"],
+          description: "list جلب (افتراضي) | بقية الأفعال تتطلب id الرسالة",
+        },
+        id: { type: "string", description: "معرف الرسالة — إلزامي لكل الأفعال عدا list" },
+        archived: {
+          type: "boolean",
+          description: "فلتر قائمة الجلب: true المؤرشفة فقط | false غير المؤرشفة فقط | احذفه للكل",
+        },
+        limit: { type: "number", description: "عدد نتائج الجلب (افتراضي 30، أقصى 100)" },
+      },
+    },
+  },
+  {
+    name: "manage_legal_pages",
+    description:
+      "تحرير الصفحات القانونية الثلاث للمنصة — سياسة الخصوصية وشروط الاستخدام وأخلاقيات الحوار: قراءة نصوصها الحالية أو حفظ نص جديد يظهر على المنصة العامة فورًا.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        action: {
+          type: "string",
+          enum: ["list", "update"],
+          description: "list جلب كل الصفحات (افتراضي) | update حفظ صفحة",
+        },
+        slug: {
+          type: "string",
+          enum: ["privacy", "terms", "dialogue-ethics"],
+          description: "معرف الصفحة — إلزامي مع update",
+        },
+        title: { type: "string", description: "عنوان جديد اختياري للصفحة" },
+        content: { type: "string", description: "النص الكامل الجديد — إلزامي مع update" },
+      },
+    },
+  },
+  {
+    name: "manage_comment_features",
+    description:
+      "صلاحيات التعليق المتقدمة: تمييز تعليق «فكريًا ملهمًا» (يثبته أعلى حوار المقال وينح به صاحبه +30 رصيد أثر مع إشعار داخلي وويب فوري) أو إلغاء التمييز، أو تحرير نص التعليق بعلامة التحرير الإداري، أو حظر كاتب التعليق نهائيًا مع رفض كل تعليقاته المعلقة.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        action: {
+          type: "string",
+          enum: ["inspire", "uninspire", "edit", "ban_author"],
+          description:
+            "inspire تمييز ملهم (+30) | uninspire إلغاء التمييز | edit تحرير النص | ban_author حظر الكاتب نهائيًا",
+        },
+        commentId: { type: "string", description: "معرف التعليق — إلزامي" },
+        content: { type: "string", description: "النص الجديد — إلزامي مع edit" },
+        banReason: { type: "string", description: "سبب الحظر مع ban_author (افتراضي: مخالفة أدب الحوار)" },
+      },
+      required: ["action", "commentId"],
+    },
+  },
+
+  /* ==================== ح) البث والإشعارات وتحديثات المنصة ==================== */
+  {
+    name: "broadcast_notification",
+    description:
+      "مركز الإشعارات الجماهيري: بث إشعار لكل القراء غير المحظورين (أو إشعار مخصص لمستخدم بعينه) عبر جرس المنصة الداخلي وإشعار الويب الفوري لهواتفهم معًا، مع خيار توثيق البث في سجل تحديثات المنصة الظاهر للقراء — وجلب آخر التحديثات الموثقة أو حذف سجل منها.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        action: {
+          type: "string",
+          enum: ["send", "list_updates", "delete_update"],
+          description: "send إرسال (افتراضي) | list_updates جلب سجل التحديثات | delete_update حذف سجل",
+        },
+        title: { type: "string", description: "عنوان الإشعار — إلزامي مع send (3 أحرف فأكثر)" },
+        details: { type: "string", description: "نص الإشعار/التحديث — إلزامي مع send" },
+        url: { type: "string", description: "مسار يفتح عند النقر مثل /article/slug" },
+        kind: {
+          type: "string",
+          enum: ["FEATURE", "MAINTENANCE", "INTELLECTUAL", "ALERT"],
+          description: "نوع الإشعار: ميزة جديدة | صيانة | ترقية فكرية | تنبيه عام (افتراضي FEATURE)",
+        },
+        asPlatformUpdate: {
+          type: "boolean",
+          description: "توثيق الإشعار في سجل تحديثات المنصة الظاهر للقراء",
+        },
+        targetUserId: {
+          type: "string",
+          description: "معرف مستخدم لإشعار مخصص له وحده — اتركه فارغًا للبث للجميع",
+        },
+        sendInApp: { type: "boolean", description: "الإرسال لجرس المنصة الداخلي (افتراضي true)" },
+        sendPush: { type: "boolean", description: "الإرسال كإشعار ويب فوري (افتراضي true)" },
+        id: { type: "string", description: "معرف سجل التحديث — إلزامي مع delete_update" },
+        limit: { type: "number", description: "عدد نتائج list_updates (افتراضي 12)" },
+      },
+    },
+  },
+
+  /* ==================== ط) الإعدادات السيادية ==================== */
+  {
+    name: "manage_system_settings",
+    description:
+      "إعدادات المنصة السيادية: قراءة مفاتيح الحوكمة الحالية (AUTO_APPROVE_COMMENTS اعتماد التعليقات آليًا دون مراجعة، REQUIRE_CHECKLIST فرض قائمة الفحص الأخلاقي قبل النشر) وتغييرها، وقراءة بنود قائمة الفحص الأخلاقي أو استبدالها كلها.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        action: {
+          type: "string",
+          enum: ["get", "set", "get_checklist", "set_checklist"],
+          description: "get قراءة الإعدادات (افتراضي) | set تغييرها | get_checklist بنود الفحص | set_checklist استبدالها",
+        },
+        autoApproveComments: {
+          type: "boolean",
+          description: "قيمة AUTO_APPROVE_COMMENTS الجديدة مع set",
+        },
+        requireChecklist: { type: "boolean", description: "قيمة REQUIRE_CHECKLIST الجديدة مع set" },
+        items: {
+          type: "array",
+          items: { type: "string" },
+          description: "بنود قائمة الفحص الجديدة (نصوص فقط) مع set_checklist — من 3 إلى 12 بندًا",
+        },
+      },
+    },
+  },
+
+  /* ==================== ي) الأمن والنبض الحي ==================== */
+  {
+    name: "manage_security",
+    description:
+      "مركز أمن المنصة: نظرة شاملة على آخر التنبيهات الأمنية ومحاولات الدخول الفاشلة وقواعد IP وسجل تدقيق اللوحة، مع حلّ التنبيهات، وإضافة قاعدة سماح ALLOW أو حجب DENY لأي عنوان IP أو إزالة قاعدة قائمة.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        action: {
+          type: "string",
+          enum: ["overview", "resolve_alert", "add_ip_rule", "remove_ip_rule"],
+          description: "overview نظرة شاملة (افتراضي) | resolve_alert حل تنبيه | add_ip_rule إضافة قاعدة | remove_ip_rule إزالتها",
+        },
+        alertId: { type: "string", description: "معرف التنبيه — إلزامي مع resolve_alert" },
+        ip: { type: "string", description: "عنوان IP — إلزامي مع add_ip_rule وremove_ip_rule" },
+        mode: {
+          type: "string",
+          enum: ["ALLOW", "DENY"],
+          description: "نوع القاعدة مع add_ip_rule (افتراضي DENY)",
+        },
+        note: { type: "string", description: "ملاحظة على القاعدة مع add_ip_rule" },
+        ruleId: { type: "string", description: "بديل عن ip عند remove_ip_rule — معرف القاعدة" },
+      },
+    },
+  },
+  {
+    name: "get_live_activity",
+    description:
+      "النبض الحي للمنصة: آخر أحداث الشفافية المسجلة لحظيًا (دخول قارئ بنجاح أو حجب محاولة، تعليق مُرسل، تصويت، حفظ مقال، مشاركة اقتباس، رسالة تواصل) بفاعلها ومسارها وتفاصيلها — لمراقبة حركة المنصة لحظة بلحظة.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        type: {
+          type: "string",
+          description: "فلتر بنوع الحدث مثل COMMENT_SUBMITTED أو VOTE أو AUTH_LOGIN_BLOCKED — احذفه لكل الأنواع",
+        },
+        hours: { type: "number", description: "المدة بالساعات الماضية (افتراضي 24)" },
+        limit: { type: "number", description: "عدد الأحداث (افتراضي 30، أقصى 100)" },
+      },
     },
   },
 ];
