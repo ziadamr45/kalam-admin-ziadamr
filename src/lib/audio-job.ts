@@ -128,21 +128,6 @@ export function workerBase(): string {
 /** نداء العامل الذاتي الأول (من مسار البدء) — العامل يرد فورًا ويعالج داخل after */
 export async function kickWorker(job: AudioJob): Promise<void> {
   const base = workerBase();
-  /* أثر تشخيصي مؤقت: رصد محاولة الإطلاق الذاتي ونتيجتها في سجل التدقيق */
-  const breadcrumb = async (action: string, meta: Record<string, unknown>) => {
-    await prisma.auditLog
-      .create({
-        data: {
-          adminId: null,
-          action,
-          entity: "Article",
-          entityId: job.articleId,
-          meta: meta as never,
-        },
-      })
-      .catch(() => {});
-  };
-  await breadcrumb("audio_kick", { base, jobId: job.jobId });
   try {
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), 55_000);
@@ -160,13 +145,7 @@ export async function kickWorker(job: AudioJob): Promise<void> {
       signal: controller.signal,
     });
     clearTimeout(timer);
-    await breadcrumb("audio_kick_done", { base, status: res.status, jobId: job.jobId });
-  } catch (err) {
-    await breadcrumb("audio_kick_error", {
-      base,
-      jobId: job.jobId,
-      error: err instanceof Error ? err.message : "unknown",
-    });
+  } catch {
     /* شبكة عابرة؟ حماية ذاتية: نفّذ الخطوة داخل نفس السياق —
        حارس audioJobId يجعل الخطوة آمنة حتى مع تداخل المهمات */
     await runAudioJobStep(job).catch(() => {});
@@ -273,7 +252,7 @@ export async function runAudioJobStep(job: AudioJob): Promise<boolean> {
         new Blob([new Uint8Array(encoded.bytes)], { type: encoded.mime }),
         `${safeSlug}-s${idx}.${encoded.ext}`,
         "kalam/audio-tmp",
-        `kalam/audio-tmp/${safeSlug}-${jobId}-s${idx}`,
+        `${safeSlug}-${jobId}-s${idx}`,
       );
 
       rec.url = uploaded.url;
@@ -366,7 +345,7 @@ async function finalizeAudioJob(job: AudioJob, chunks: ChunkRec[]): Promise<void
     new Blob([new Uint8Array(merged)], { type: mime }),
     `${safeSlug}.${ext}`,
     "kalam/audio",
-    `kalam/audio/${safeSlug}-${Date.now().toString(36)}`,
+    `${safeSlug}-${Date.now().toString(36)}`,
   );
 
   /* استبدال نظيف للصوت القديم إن وُجد */

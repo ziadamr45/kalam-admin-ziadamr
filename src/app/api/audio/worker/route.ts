@@ -34,15 +34,6 @@ export async function POST(request: Request) {
     adminId: body.adminId ?? null,
   };
 
-  /* أثر تشخيصي: هل وصل النداء الذاتي إلى العامل أصلًا؟ */
-  await writeAudit({
-    adminId: null,
-    action: "audio_worker_entry",
-    entity: "Article",
-    entityId: job.articleId,
-    meta: { jobId: job.jobId },
-  });
-
   after(async () => {
     let needsNext = false;
     try {
@@ -53,15 +44,6 @@ export async function POST(request: Request) {
       console.error("[audio-worker] step error:", err);
       needsNext = false;
     }
-
-    /* أثر تشخيصي: نتيجة الخطوة داخل هذه الاستدعاء */
-    await writeAudit({
-      adminId: null,
-      action: "audio_step_result",
-      entity: "Article",
-      entityId: job.articleId,
-      meta: { jobId: job.jobId, needsNext },
-    });
 
     if (needsNext) {
       /* إطلاق الخطوة التالية — تأكيد الإرسال يكفي: العامل الجديد يرد فورًا
