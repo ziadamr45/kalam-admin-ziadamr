@@ -3572,17 +3572,23 @@ async function executeHardDeleteTool(args: McpArgs, meta: McpRequestMeta) {
   const target = await prisma.user.findUnique({ where: { email }, select: { id: true } });
   if (!target) throw new McpToolError(`لا يوجد مستخدم بالبريد «${email}»`);
 
-  const result = await hardDeleteUser(
-    { userId: target.id, reason, reasonCode, evidenceUrl },
-    {
-      adminId: null,
-      actorEmail: "gemini-spark",
-      actorRole: "SYSTEM",
-      ip: meta.ip,
-      userAgent: "gemini-spark-mcp",
-      via: "gemini-spark-mcp",
-    },
-  );
+  let result;
+  try {
+    result = await hardDeleteUser(
+      { userId: target.id, reason, reasonCode, evidenceUrl },
+      {
+        adminId: null,
+        actorEmail: "gemini-spark",
+        actorRole: "SYSTEM",
+        ip: meta.ip,
+        userAgent: "gemini-spark-mcp",
+        via: "gemini-spark-mcp",
+      },
+    );
+  } catch (e) {
+    /* أخطاء البوابات (سبب قصير، دليل ناقص، حماية المالك) تصل كرسالة واضحة لا كخطأ داخلي */
+    throw new McpToolError(e instanceof Error ? e.message : "تعذر إتمام المحو السيادي");
+  }
 
   return {
     deleted: true,
