@@ -16,7 +16,7 @@ export type McpToolSchema = {
 
 export const MCP_PROTOCOL_VERSION = "2025-03-26";
 export const MCP_SERVER_NAME = "kalam-sovereign-admin";
-export const MCP_SERVER_VERSION = "2.4.0";
+export const MCP_SERVER_VERSION = "2.5.0";
 
 export const MCP_TOOLS: McpToolSchema[] = [
   /* ==================== أ) أدوات المقالات ==================== */
@@ -744,6 +744,25 @@ export const MCP_TOOLS: McpToolSchema[] = [
           enum: ["publish_scheduled"],
           description: "publish_scheduled نشر كل المجدول المستحق الآن (الفعل الوحيد المتاح حاليًا)",
         },
+      },
+    },
+  },
+  {
+    name: "manage_comment_votes",
+    description:
+      "سيادة كاملة على تصويتات التعليقات (إعجاب/عدم إعجاب القارئين على تعليقات بعضهم): list لجرد أصوات تعليق بعينه أو قارئ بعينه مع هوية المصوّت وموضع التعليق وملخص العدادات، stats لملخص عدادات تعليق أو أحدث التصويتات عبر المنصة، delete لإزالة صوت بعينه بمعرفه، وclear لمسح كل أصوات تعليق عند التنظيف الإشرافي (مع توثيق كامل في دفتر التدقيق).",
+    inputSchema: {
+      type: "object",
+      properties: {
+        action: {
+          type: "string",
+          enum: ["list", "stats", "delete", "clear"],
+          description: "list جرد | stats عدادات | delete صوت بعينه | clear مسح أصوات تعليق",
+        },
+        commentId: { type: "string", description: "معرف التعليق — إلزامي مع clear، واختياري (أو userId) مع list وstats" },
+        userId: { type: "string", description: "معرف القارئ — بديل أو مكمّل لـ commentId في list وstats" },
+        voteId: { type: "string", description: "معرف الصوت مع delete — إلزامي" },
+        limit: { type: "number", description: "عدد النتائج (افتراضي 30، أقصى 100)" },
       },
     },
   },

@@ -2100,6 +2100,132 @@ async function runMaintenance(args: McpArgs, meta: McpRequestMeta) {
   throw new McpToolError(`فعل غير معروف: «${action}»`);
 }
 
+/* ============================ سيادة تصويتات التعليقات ============================ */
+
+async function manageCommentVotes(args: McpArgs, meta: McpRequestMeta) {
+  const action = str(args, "action") ?? "list";
+  const commentId = str(args, "commentId");
+  const userId = str(args, "userId");
+  const cap = Math.min(Math.max(num(args, "limit") ?? 30, 1), 100);
+
+  if (action === "list") {
+    if (!commentId && !userId) {
+      throw new McpToolError("مرّر commentId أو userId (أو كليهما) لجرد الأصوات");
+    }
+    const where: Prisma.CommentVoteWhereInput = {
+      ...(commentId ? { commentId } : {}),
+      ...(userId ? { userId } : {}),
+    };
+    const [total, likes, dislikes, votes] = await Promise.all([
+      prisma.commentVote.count({ where }),
+      prisma.commentVote.count({ where: { ...where, value: "LIKE" } }),
+      prisma.commentVote.count({ where: { ...where, value: "DISLIKE" } }),
+      prisma.commentVote.findMany({
+        where,
+        orderBy: { updatedAt: "desc" },
+        take: cap,
+        include: {
+          user: { select: { id: true, name: true, customName: true } },
+          comment: {
+            select: {
+              id: true,
+              status: true,
+              article: { select: { slug: true, title: true } },
+            },
+          },
+        },
+      }),
+    ]);
+    return {
+      total,
+      likes,
+      dislikes,
+      count: votes.length,
+      votes: votes.map((v) => ({
+        id: v.id,
+        value: v.value,
+        by: v.user.customName?.trim() || v.user.name || "قارئ",
+        userId: v.user.id,
+        commentStatus: v.comment.status,
+        article: v.comment.article.title,
+        slug: v.comment.article.slug,
+        at: v.createdAt,
+        updatedAt: v.updatedAt,
+      })),
+    };
+  }
+
+  if (action === "stats") {
+    if (commentId) {
+      const grouped = await prisma.commentVote.groupBy({
+        by: ["value"],
+        where: { commentId },
+        _count: { value: true },
+      });
+      return {
+        commentId,
+        likes: grouped.find((g) => g.value === "LIKE")?._count.value ?? 0,
+        dislikes: grouped.find((g) => g.value === "DISLIKE")?._count.value ?? 0,
+      };
+    }
+    /* بدون commentId: أحدث التصويتات عبر المنصة + ملخصها */
+    const [total, latest] = await Promise.all([
+      prisma.commentVote.count(),
+      prisma.commentVote.findMany({
+        orderBy: { updatedAt: "desc" },
+        take: cap,
+        include: {
+          user: { select: { customName: true, name: true } },
+          comment: { select: { article: { select: { slug: true, title: true } } } },
+        },
+      }),
+    ]);
+    return {
+      totalAcrossPlatform: total,
+      count: latest.length,
+      latest: latest.map((v) => ({
+        id: v.id,
+        value: v.value,
+        by: v.user.customName?.trim() || v.user.name || "قارئ",
+        article: v.comment.article.title,
+        slug: v.comment.article.slug,
+        at: v.updatedAt,
+      })),
+    };
+  }
+
+  if (action === "delete") {
+    const voteId = str(args, "voteId");
+    if (!voteId) throw new McpToolError("معرف الصوت voteId إلزامي مع delete");
+    const vote = await prisma.commentVote.delete({ where: { id: voteId } });
+    await writeAudit({
+      adminId: null,
+      action: "mcp.comment_vote_deleted",
+      entity: "CommentVote",
+      entityId: voteId,
+      meta: { via: "gemini-spark-mcp", commentId: vote.commentId, value: vote.value },
+      ip: meta.ip,
+    });
+    return { deleted: true, voteId, commentId: vote.commentId };
+  }
+
+  if (action === "clear") {
+    if (!commentId) throw new McpToolError("معرف التعليق commentId إلزامي مع clear");
+    const removed = await prisma.commentVote.deleteMany({ where: { commentId } });
+    await writeAudit({
+      adminId: null,
+      action: "mcp.comment_votes_cleared",
+      entity: "CommentVote",
+      entityId: commentId,
+      meta: { via: "gemini-spark-mcp", removed: removed.count },
+      ip: meta.ip,
+    });
+    return { cleared: true, commentId, removed: removed.count };
+  }
+
+  throw new McpToolError(`فعل غير معروف: «${action}»`);
+}
+
 async function getLiveActivity(args: McpArgs) {
   const type = str(args, "type");
   const hours = Math.max(num(args, "hours") ?? 24, 1);
@@ -2816,6 +2942,8 @@ export async function executeMcpTool(
       return getSiteHealth();
     case "run_maintenance":
       return runMaintenance(args, meta);
+    case "manage_comment_votes":
+      return manageCommentVotes(args, meta);
     default:
       throw new McpToolError(`أداة غير معروفة: «${name}»`);
   }

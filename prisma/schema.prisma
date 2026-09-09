@@ -118,6 +118,7 @@ model User {
   accounts     Account[]
   sessions     Session[]
   comments     Comment[]
+  commentVotes CommentVote[]
   interactions Interaction[]
   savedArticles SavedArticle[]
   pushSubscriptions UserPushSubscription[]
@@ -157,6 +158,11 @@ model SavedArticle {
   @@index([userId, createdAt(sort: Desc)])
 }
 
+enum CommentVoteType {
+  LIKE
+  DISLIKE
+}
+
 model Comment {
   id            String        @id @default(cuid())
   articleId     String
@@ -176,6 +182,7 @@ model Comment {
   createdAt     DateTime      @default(now())
   updatedAt     DateTime      @updatedAt
   reports       CommentReport[]
+  votes         CommentVote[]
 
   @@index([articleId, status])
   @@index([status, createdAt(sort: Desc)])
@@ -191,6 +198,21 @@ model CommentReport {
   createdAt  DateTime @default(now())
 
   @@index([commentId])
+}
+
+/* تصويتات القارئين على التعليقات — إعجاب أو عدم إعجاب، صوت واحد لكل قارئ لكل تعليق */
+model CommentVote {
+  id        String          @id @default(cuid())
+  commentId String
+  comment   Comment         @relation(fields: [commentId], references: [id], onDelete: Cascade)
+  userId    String
+  user      User            @relation(fields: [userId], references: [id], onDelete: Cascade)
+  value     CommentVoteType
+  createdAt DateTime        @default(now())
+  updatedAt DateTime        @updatedAt
+
+  @@unique([userId, commentId])
+  @@index([commentId, value])
 }
 
 model Interaction {
