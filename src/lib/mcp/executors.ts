@@ -3533,7 +3533,7 @@ async function getAuditSummaryTool(args: McpArgs) {
   const limit = Math.min(Math.max(num(args, "limit") ?? 20, 1), 100);
   const categoryRaw = str(args, "category")?.toUpperCase();
 
-  const range = resolveLedgerRange(`days-${days}`);
+  const range = resolveLedgerRange(String(days));
   const { entries, summary } = await loadLedger({
     range,
     category: (categoryRaw ?? "ALL") as never,

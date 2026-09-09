@@ -653,7 +653,7 @@ async function cmdAuditList(flags: Map<string, string | true>): Promise<CliLine[
       },
     ];
 
-  const range = resolveLedgerRange(`days-${days}`);
+  const range = resolveLedgerRange(days);
   const { entries, summary } = await loadLedger({
     range,
     category: categoryRaw as TrailCategoryFilter,
