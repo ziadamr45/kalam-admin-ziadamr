@@ -24,7 +24,12 @@ import {
   revalidatePublicPaths,
   articleRevalidatePaths,
 } from "@/lib/revalidate";
-import { destroyAudio } from "@/lib/cloudinary";
+import {
+  destroyAudio,
+  cloudinaryUsage,
+  listCloudinaryAssets,
+  destroyCloudinaryAsset,
+} from "@/lib/cloudinary";
 import { kickWorker } from "@/lib/audio-job";
 
 /* ============================ الأنواع ============================ */
@@ -1606,6 +1611,55 @@ async function manageSecurity(args: McpArgs, meta: McpRequestMeta) {
   throw new McpToolError(`فعل غير معروف: «${action}»`);
 }
 
+/** إدارة خزنة الميديا السحابية Cloudinary — السيادة حتى خارج قاعدة البيانات */
+async function manageMedia(args: McpArgs, meta: McpRequestMeta) {
+  const action = str(args, "action") ?? "stats";
+  const typeArg = str(args, "resourceType");
+  const resourceType: "image" | "video" | "raw" =
+    typeArg === "video" || typeArg === "raw" ? typeArg : "image";
+
+  if (action === "stats") {
+    const usage = await cloudinaryUsage();
+    if (!usage) throw new McpToolError("خدمة الميديا غير مهيأة أو تعذّر جلب الاستهلاك");
+    return usage;
+  }
+
+  if (action === "list") {
+    const prefix = str(args, "prefix") ?? "kalam";
+    const limit = Math.min(num(args, "limit") ?? 30, 100);
+    const result = await listCloudinaryAssets(prefix, resourceType, limit);
+    const withCursor = result.nextCursor
+      ? { nextCursor: result.nextCursor, hint: "مرّر cursor بنفس القيمة للدفعة التالية" }
+      : {};
+    return {
+      prefix,
+      resourceType,
+      count: result.assets.length,
+      totalBytes: result.assets.reduce((s, a) => s + a.bytes, 0),
+      assets: result.assets,
+      ...withCursor,
+    };
+  }
+
+  if (action === "delete") {
+    const publicId = str(args, "publicId");
+    if (!publicId) throw new McpToolError("معرف الأصل publicId إلزامي مع delete");
+    const outcome = await destroyCloudinaryAsset(publicId, resourceType);
+    if (!outcome.deleted) throw new McpToolError(`لم يُحذف الأصل (${outcome.result}) — تحقق من المعرف ونوعه`);
+    await writeAudit({
+      adminId: null,
+      action: "mcp.media_asset_deleted",
+      entity: "Cloudinary",
+      entityId: publicId,
+      meta: { via: "gemini-spark-mcp", resourceType },
+      ip: meta.ip,
+    });
+    return { deleted: true, publicId, resourceType };
+  }
+
+  throw new McpToolError(`فعل غير معروف: «${action}»`);
+}
+
 async function getLiveActivity(args: McpArgs) {
   const type = str(args, "type");
   const hours = Math.max(num(args, "hours") ?? 24, 1);
@@ -2294,6 +2348,8 @@ export async function executeMcpTool(
       return manageSystemSettings(args, meta);
     case "manage_security":
       return manageSecurity(args, meta);
+    case "manage_media":
+      return manageMedia(args, meta);
     case "get_live_activity":
       return getLiveActivity(args);
     case "delete_category":

@@ -16,7 +16,7 @@ export type McpToolSchema = {
 
 export const MCP_PROTOCOL_VERSION = "2025-03-26";
 export const MCP_SERVER_NAME = "kalam-sovereign-admin";
-export const MCP_SERVER_VERSION = "2.1.1";
+export const MCP_SERVER_VERSION = "2.2.0";
 
 export const MCP_TOOLS: McpToolSchema[] = [
   /* ==================== أ) أدوات المقالات ==================== */
@@ -678,6 +678,30 @@ export const MCP_TOOLS: McpToolSchema[] = [
         userId: { type: "string", description: "فلترة/تصفير بمستخدم" },
         articleId: { type: "string", description: "فلترة/تصفير بمقال" },
         limit: { type: "number", description: "عدد النتائج (افتراضي 40، أقصى 100)" },
+      },
+    },
+  },
+  {
+    name: "manage_media",
+    description:
+      "خزنة الميديا السحابية Cloudinary خارج قاعدة البيانات — كل أغلفة المقالات والصوتيات وأفاتارات القراء: استهلاك الحساب الكامل (المساحة والباندويث والخطة وعدد الأصول)، وجرد الأصول بمجلد أو بادئة (صور image أو صوت video)، وحذف أي أصل يتيم أو مكرر بمعرفه public_id. هكذا تكتمل السيادة على المنظومة كلها حتى خارج جداول قاعدة البيانات.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        action: {
+          type: "string",
+          enum: ["stats", "list", "delete"],
+          description: "stats استهلاك الحساب (افتراضي) | list جرد الأصول | delete حذف أصل",
+        },
+        prefix: { type: "string", description: "مع list: بادئة المجلد (افتراضي kalam — جرّب kalam/audio للصوتيات)" },
+        resourceType: {
+          type: "string",
+          enum: ["image", "video", "raw"],
+          description: "نوع الأصل مع list وdelete — image صور (افتراضي) | video صوتيات | raw ملفات",
+        },
+        limit: { type: "number", description: "مع list: عدد الأصول (افتراضي 30، أقصى 100)" },
+        cursor: { type: "string", description: "مع list: رمز الترقيم للدفعة التالية next_cursor" },
+        publicId: { type: "string", description: "مع delete: معرف الأصل — إلزامي" },
       },
     },
   },
