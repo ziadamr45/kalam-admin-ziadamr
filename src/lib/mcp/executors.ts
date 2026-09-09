@@ -1357,47 +1357,27 @@ async function broadcastNotification(args: McpArgs, meta: McpRequestMeta) {
     updateId = update.id;
   }
 
-  /* 2) المستهدفون — الجميع غير المحظورين أو مستخدم بعينه */
+  /* 2+3+4) المرسل المركزي الموحد — سجل موحد + جرس + بث ويب مع تفضيلات القارئ */
   const targetIds = targetUserId
     ? [targetUserId]
     : (await prisma.user.findMany({ where: { banned: false }, select: { id: true } })).map((u) => u.id);
 
-  const notificationKind = targetUserId ? "TARGETED" : asPlatformUpdate ? "UPDATE" : "BROADCAST";
-
-  /* 3) الجرس الداخلي */
-  let inAppSent = 0;
-  if (sendInApp && targetIds.length > 0) {
-    await prisma.userNotification.createMany({
-      data: targetIds.map((userId) => ({
-        userId,
-        title: title.slice(0, 200),
-        body: details.slice(0, 2000),
-        url,
-        kind: notificationKind,
-        updateId,
-      })),
-    });
-    inAppSent = targetIds.length;
-  }
-
-  /* 4) إشعار الويب الفوري — فشله لا يعطل البث أبدًا */
-  let pushSent = 0;
-  if (sendPush && targetIds.length > 0) {
-    pushSent = await pushUsers(
-      {
-        title: title.slice(0, 120),
-        body: details.slice(0, 180),
-        url: url ?? "/",
-        tag: `platform-${kind.toLowerCase()}`,
-      },
-      { userIds: targetIds },
-    );
-  }
+  const { dispatchBroadcast } = await import("@/lib/notifications/dispatcher");
+  const { inApp: inAppSent, pushSent } = await dispatchBroadcast({
+    type: "BROADCAST",
+    title,
+    message: details,
+    link: url,
+    userIds: targetIds,
+    channels: sendInApp && sendPush ? "ALL" : sendInApp ? "IN_APP" : "WEB_PUSH",
+    pushTag: `platform-${kind.toLowerCase()}`,
+    metadata: { kind, updateId },
+  });
 
   await writeAudit({
     adminId: null,
     action: "mcp.broadcast_sent",
-    entity: updateId ? "PlatformUpdate" : "UserNotification",
+    entity: updateId ? "PlatformUpdate" : "Notification",
     entityId: updateId,
     meta: {
       via: "gemini-spark-mcp",
@@ -2991,6 +2971,166 @@ async function manageDiscussionQuota(args: McpArgs, meta: McpRequestMeta) {
   throw new McpToolError(`فعل غير معروف: «${action}»`);
 }
 
+
+/* ============================ منظومة الإشعارات الموحدة وبوابات المصادقة ============================ */
+
+/** kalam_broadcast_notification — البث الموحد عبر المرسل المركزي (أو إشعار مخصص) */
+async function kalamBroadcastNotificationTool(args: McpArgs, meta: McpRequestMeta) {
+  const title = str(args, "title") ?? "";
+  const details = str(args, "details") ?? "";
+  if (title.length < 3 || details.length < 3) {
+    throw new McpToolError("العنوان والتفاصيل حقلان إلزاميان (3 أحرف فأكثر لكل منهما)");
+  }
+  const email = str(args, "email")?.toLowerCase().trim() || null;
+  const url = str(args, "url") || null;
+  const channelsRaw = (str(args, "channels") ?? "ALL").toUpperCase();
+  const channels = (["ALL", "IN_APP", "WEB_PUSH", "EMAIL"].includes(channelsRaw) ? channelsRaw : "ALL") as
+    | "ALL"
+    | "IN_APP"
+    | "WEB_PUSH"
+    | "EMAIL";
+  const asPlatformUpdate = bool(args, "asPlatformUpdate") === true;
+  const kind: BroadcastKind = BROADCAST_KINDS.includes(str(args, "kind") as BroadcastKind)
+    ? (str(args, "kind") as BroadcastKind)
+    : "FEATURE";
+
+  let updateId: string | null = null;
+  if (asPlatformUpdate) {
+    const update = await prisma.platformUpdate.create({
+      data: { title: title.slice(0, 200), details: details.slice(0, 5000), kind },
+    });
+    updateId = update.id;
+  }
+
+  const { dispatchNotification, dispatchBroadcast } = await import("@/lib/notifications/dispatcher");
+  let target = "all";
+  let result: unknown;
+  if (email) {
+    const user = await prisma.user.findUnique({ where: { email }, select: { id: true, email: true } });
+    if (!user) throw new McpToolError(`لا يوجد قارئ بالبريد «${email}»`);
+    target = user.email ?? user.id;
+    result = await dispatchNotification({
+      userId: user.id,
+      type: "BROADCAST",
+      title,
+      message: details,
+      link: url,
+      channels,
+      pushTag: "spark-notify",
+      metadata: { via: "gemini-spark-mcp", updateId },
+    });
+  } else {
+    result = await dispatchBroadcast({
+      type: "BROADCAST",
+      title,
+      message: details,
+      link: url,
+      channels,
+      pushTag: "spark-notify",
+      metadata: { via: "gemini-spark-mcp", updateId },
+    });
+  }
+
+  await writeAudit({
+    adminId: null,
+    action: "mcp.sovereign_notification_dispatched",
+    entity: updateId ? "PlatformUpdate" : "Notification",
+    entityId: updateId,
+    meta: { via: "gemini-spark-mcp", target, channels, result },
+    ip: meta.ip,
+  });
+
+  return { dispatched: true, target, channels, result, updateId };
+}
+
+/** kalam_get_user_notifications — تدقيق صندوق إشعارات مستخدم من الجدول الموحد */
+async function kalamGetUserNotificationsTool(args: McpArgs) {
+  const email = str(args, "email")?.toLowerCase().trim();
+  if (!email) throw new McpToolError("بريد المستخدم المستهدف إلزامي");
+  const user = await prisma.user.findUnique({ where: { email }, select: { id: true, email: true } });
+  if (!user) throw new McpToolError(`لا يوجد قارئ بالبريد «${email}»`);
+  const limit = Math.min(num(args, "limit") ?? 10, 50);
+  const unreadOnly = bool(args, "unreadOnly") === true;
+
+  const [items, unread] = await Promise.all([
+    prisma.notification.findMany({
+      where: { userId: user.id, ...(unreadOnly ? { isRead: false } : {}) },
+      orderBy: { createdAt: "desc" },
+      take: limit,
+      select: { id: true, type: true, title: true, message: true, link: true, isRead: true, createdAt: true },
+    }),
+    prisma.notification.count({ where: { userId: user.id, isRead: false } }),
+  ]);
+
+  return {
+    email: user.email,
+    totalUnread: unread,
+    count: items.length,
+    items: items.map((i) => ({ ...i, createdAt: i.createdAt.toISOString() })),
+  };
+}
+
+/** kalam_audit_auth_gates — فحص حي: كل نقاط النهاية التفاعلية مغلقة أمام المجهولين */
+async function kalamAuditAuthGatesTool(args: McpArgs, meta: McpRequestMeta) {
+  const base =
+    process.env.NEXT_PUBLIC_PLATFORM_URL ??
+    process.env.PUBLIC_PLATFORM_URL ??
+    "https://kalam-ziadamr.vercel.app";
+  const probes = [
+    { gate: "comments.submit", method: "POST", path: "/api/comments" },
+    { gate: "comments.vote", method: "POST", path: "/api/comments/gate-probe/vote" },
+    { gate: "comments.pin", method: "POST", path: "/api/comments/gate-probe/pin" },
+    { gate: "articles.vote", method: "POST", path: "/api/interactions" },
+    { gate: "library.save", method: "POST", path: "/api/saves" },
+    { gate: "ai.discuss", method: "POST", path: "/api/ai/discuss" },
+    { gate: "proposals.send", method: "POST", path: "/api/proposals" },
+    { gate: "push.subscribe", method: "POST", path: "/api/push/subscribe" },
+    { gate: "profile.update", method: "PUT", path: "/api/profile" },
+    { gate: "account.delete", method: "POST", path: "/api/account/delete" },
+  ];
+
+  const results: Array<{ gate: string; method: string; path: string; status: number; verdict: string }> = [];
+  let closed = 0;
+  let open = 0;
+  for (const p of probes) {
+    let status = 0;
+    try {
+      const controller = new AbortController();
+      const timer = setTimeout(() => controller.abort(), 8000);
+      const res = await fetch(`${base}${p.path}`, {
+        method: p.method,
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({}),
+        signal: controller.signal,
+      });
+      clearTimeout(timer);
+      status = res.status;
+    } catch {
+      status = 0;
+    }
+    const verdict = status === 401 || status === 403 || status === 429 ? "CLOSED" : "OPEN";
+    if (verdict === "CLOSED") closed++;
+    else open++;
+    results.push({ gate: p.gate, method: p.method, path: p.path, status, verdict });
+  }
+
+  await writeAudit({
+    adminId: null,
+    action: "mcp.auth_gates_audited",
+    entity: "Platform",
+    meta: { via: "gemini-spark-mcp", closed, open },
+    ip: meta.ip,
+  });
+
+  return {
+    auditedAt: new Date().toISOString(),
+    base,
+    summary: { total: probes.length, closed, open },
+    verdict: open === 0 ? "SECURE — كل البوابات مغلقة بإحكام" : `ATTENTION — ${open} بوابة مفتوحة على المجهولين`,
+    results,
+  };
+}
+
 export async function executeMcpTool(
   name: string,
   args: McpArgs,
@@ -3097,6 +3237,12 @@ export async function executeMcpTool(
       return manageVerificationTool(args, meta);
     case "kalam_dispatch_vip_notification":
       return dispatchVipNotificationTool(args, meta);
+    case "kalam_broadcast_notification":
+      return kalamBroadcastNotificationTool(args, meta);
+    case "kalam_get_user_notifications":
+      return kalamGetUserNotificationsTool(args);
+    case "kalam_audit_auth_gates":
+      return kalamAuditAuthGatesTool(args, meta);
     case "kalam_get_audit_summary":
       return getAuditSummaryTool(args);
     case "kalam_execute_hard_delete":

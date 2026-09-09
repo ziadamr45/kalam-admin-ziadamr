@@ -146,7 +146,13 @@ model User {
 
   /* ============ البطاقة الفكرية الموسعة — لحاملي التوثيق (Rich Profile Card) ============ */
   extendedBio     String?   @db.Text // نبذة فكرية موسعة تظهر في بطاقة الهوية عند الضغط على الاسم الموثق
-  personalLinks   Json?     // روابط شخصية { portfolio، github، devto، linkedin، x } تظهر في البطاقة الغنية
+  personalLinks   Json?     // (مُهمل — تراثي) روابط تقنية قديمة { portfolio، github، devto، linkedin، x }
+
+  /* ============ الروابط الاجتماعية العامة للبطاقة الفكرية الموثقة ============ */
+  verifiedSocialLinks Json? // { website، facebook، instagram، telegram، whatsapp، youtube، tiktok، x، linkedin } — تُعرض الحقول الممتلئة فقط
+
+  /* ============ مركز تفضيلات الإشعارات (Notification Preferences Center) ============ */
+  notificationPrefs Json?   // { pushNewArticles: boolean، impactAndReplies: boolean } — بريد الأمان إلزامي لا يمكن إلغاؤه
 
   accounts     Account[]
   sessions     Session[]
@@ -161,6 +167,7 @@ model User {
   aiDiscussions     AiDiscussionUsage[]
   loginLogs         LoginLog[]
   readingProgress   ReadingProgress[]
+  notificationFeed  Notification[]
 }
 
 /* حصة نقاش الذكاء الاصطناعي الدائمة — سجل استهلاك صارم لكل قارئ مسجل
@@ -740,4 +747,63 @@ model AuditTrail {
   @@index([createdAt])
   @@index([actorId])
   @@index([actionCategory])
+}
+
+// ============ منظومة الإشعارات السيادية الموحدة (Unified Sovereign Notification Engine) ============
+
+/* تصنيفات أحداث الإشعار — تغطي الأثر والنقاش والتوثيق وأحداث السيادة الإدارية */
+enum NotificationType {
+  // أحداث المستخدم والتفاعل الفكري
+  IMPACT_POINTS_EARNED      // كسب نقاط أثر (قراءة، تصويت، اقتباس)
+  COMMENT_REPLY             // رد على تعليق
+  COMMENT_APPROVED          // اعتماد تعليق من الإدارة (+2 نقطة)
+  COMMENT_FEATURED          // تمييز تعليق من الإدارة (+10)
+  COMMENT_UNFEATURED        // إلغاء تمييز تعليق (-10 مع السبب)
+  COMMENT_LIKED             // إعجاب قارئ مسجل بتعليق
+  ARTICLE_PUBLISHED         // نشر مقال جديد للقراء
+  AHL_AL_KALIMA_UNLOCKED    // بلوغ عتبة 350 نقطة ودخول قناة النخبة
+
+  // أحداث الحساب والتوثيق
+  VIP_UPGRADE_GRANTED       // ترقية لحساب مميز وتحديد شارة ولون
+  USER_VERIFIED             // منح علامة التوثيق الرسمية
+  VIP_REVOKED               // سحب أو تعديل ميزة/توثيق
+  SECURITY_NEW_LOGIN        // تنبيه تسجيل دخول من جهاز/موقع جديد
+
+  // أحداث سيادية وإدارية (للأدمن فقط)
+  ADMIN_NEW_USER            // تسجيل مستخدم جديد
+  ADMIN_NEW_COMMENT         // تعليق جديد بحاجة لمراجعة أو اطلاع
+  ADMIN_NEW_PROPOSAL        // مقترح جديد في قناة أهل الكلمة
+  ADMIN_COMMENT_REPORTED    // بلاغ على تعليق مخالف
+  ADMIN_SYSTEM_ALERT        // خطأ سيرفر، اقتراب استهلاك حصص Gemini أو Neon
+  BROADCAST                 // بث عام من مركز الإشعارات
+}
+
+/* قنوات الإرسال — القناة ALL تعني كل الوسائط المتاحة للحدث وفق مصفوفة الإرسال */
+enum NotificationChannel {
+  IN_APP
+  WEB_PUSH
+  EMAIL
+  ALL
+}
+
+/* الجدول المركزي الموحد لكل إشعارات المنظومة — المرسل المركزي
+   lib/notifications/dispatcher.ts هو الطريق الوحيد للكتابة هنا */
+model Notification {
+  id        String              @id @default(cuid())
+  userId    String              // المعرف للمستلم (قارئ أو حساب صاحب المنصة)
+  user      User                @relation(fields: [userId], references: [id], onDelete: Cascade)
+  type      NotificationType
+  title     String
+  message   String              @db.Text
+  link      String?             // الرابط المباشر للحدث (رابط المقال أو المسار الإداري)
+  metadata  Json?               // تفاصيل إضافية: (السبب، عدد النقاط، عنوان IP، المتصفح)
+  isRead    Boolean             @default(false)
+  readAt    DateTime?
+  channel   NotificationChannel @default(ALL)
+  createdAt DateTime            @default(now())
+
+  @@index([userId, isRead])
+  @@index([userId, createdAt(sort: Desc)])
+  @@index([createdAt])
+  @@index([type])
 }

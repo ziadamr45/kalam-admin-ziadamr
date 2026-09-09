@@ -20,8 +20,9 @@
 import { prisma } from "@/lib/prisma";
 import { rankForScore } from "@/lib/ranks";
 import { getImpactParams } from "@/lib/site-config";
+import { dispatchNotification } from "@/lib/notifications/dispatcher";
 
-/** عتبة رتبة «أهل الكلمة» الافتراضية — الحية تُقرأ من التكوين السيادي (getImpactParams) */
+/** العتبة الافتراضية — الحية تُقرأ من التكوين السيادي (getImpactParams) */
 export const ELDERS_THRESHOLD = 350;
 
 /** الأوزان الافتراضية — الحية تُقرأ من التكوين السيادي (getImpactParams) */
@@ -66,7 +67,8 @@ function startOfCairoDay(): Date {
 
 /**
  * الاحتفال بعبور عتبة «أهل الكلمة» — يُنفَّذ مرة واحدة في عمر الحساب:
- * توثيق احتفالي في السجل + إشعار جرس + بث فوري لهاتف القارئ.
+ * توثيق احتفالي في السجل + منح توثيق «النخبة الفكرية» (Impact Elite Track)
+ * + إشعار جرس + بث فوري لهاتف القارئ.
  * يُستدعى بعد نجاح المعاملة فقط، وتفرّده محمي بقيد CH:{userId} الفريد.
  */
 async function celebrateEldersThreshold(userId: string): Promise<void> {
@@ -80,27 +82,57 @@ async function celebrateEldersThreshold(userId: string): Promise<void> {
         dedupKey: `CH:${userId}`,
       },
     });
-    await prisma.userNotification
+
+    /* المسار التلقائي للتوثيق (Impact Elite Track): أول من يبلغ 350
+       يُوثَّق فورًا توثيقًا رسميًا بنخبة «أهل الكلمة» — ختم كحلي بلا
+       أي عضوية مميزة (فصل معماري: التوثيق إثبات هوية فقط) */
+    try {
+      const u = await prisma.user.findUnique({
+        where: { id: userId },
+        select: { isVerified: true, verificationType: true },
+      });
+      if (u && !u.isVerified) {
+        await prisma.user.update({
+          where: { id: userId },
+          data: {
+            isVerified: true,
+            verifiedAt: new Date(),
+            verificationType: "NOTABLE",
+            verificationLabel: "عضو أهل الكلمة",
+          },
+        });
+      }
+    } catch {
+      /* منح التوثيق زينة لا تعطل الاحتفال */
+    }
+
+    /* المرسل المركزي الموحد: جرس + بث ويب + بريد المعاملة الاحتفالية
+       (مصفوفة الإرسال: بلوغ 350 = داخل الموقع + Web Push + إيميل) */
+    await dispatchNotification({
+      userId,
+      type: "AHL_AL_KALIMA_UNLOCKED",
+      title: "مبارك! بلغت 350 نقطة أثر وفُتحت لك قناة أهل الكلمة رسميًا ✦",
+      message:
+        "بلغ رصيد أثرك عتبة الـ350 نقطة، ووُثّق حسابك رسميًا كعضو في «أهل الكلمة»، وفُتحت لك قناة المقترحات الخاصة — كلمتك لها وزن الآن.",
+      link: "/profile",
+      pushTag: "channel-unlocked",
+      metadata: { threshold: 350, verificationType: "NOTABLE" },
+      channels: "ALL",
+    }).catch(() => {});
+
+    /* توثيق حي في سجل الأحداث — يصل لمركز نشاط الأدمن فورًا
+       (اللوحة تكتب AuditEvent مباشرة — بلا وسيط logEvent) */
+    await prisma.auditEvent
       .create({
         data: {
-          userId,
-          title: "تهانينا! أنت الآن من «أهل الكلمة» ✦",
-          body: "بلغ رصيد أثرك عتبة الـ350 نقطة، وفُتحت لك قناة المقترحات الخاصة في ملفك — كلمتك لها وزن الآن.",
-          url: "/profile",
-          kind: "TARGETED",
+          type: "USER_VERIFIED",
+          actorType: "SYSTEM",
+          actorId: userId,
+          message: "توثيق تلقائي: بلوغ عتبة «أهل الكلمة» — شارة عضو أهل الكلمة",
+          meta: { verificationType: "NOTABLE", label: "عضو أهل الكلمة" } as never,
         },
       })
       .catch(() => {});
-    const { pushUsers } = await import("@/lib/push");
-    void pushUsers(
-      {
-        title: "تهانينا! أنت الآن من «أهل الكلمة» ✦",
-        body: "+350 رصيد أثر — فُتحت لك قناة المقترحات الخاصة",
-        url: "/profile",
-        tag: "channel-unlocked",
-      },
-      { userIds: [userId] },
-    );
   } catch {
     /* ازدواج الاحتفال مستحيل بقيد فريد، وأي خطأ هنا زينة لا تُعطل */
   }
@@ -291,19 +323,7 @@ export async function setCommentFeatured(opts: {
         data: { impactScore: newScore, intellectualRank: newRank },
       });
 
-      await tx.userNotification.create({
-        data: {
-          userId: comment.userId!,
-          title: opts.featured
-            ? "تم تمييز تعليقك كتعليق ملهم ✦"
-            : "أُلغي تمييز تعليقك",
-          body: opts.featured
-            ? `تم تمييز تعليقك بمقال «${comment.article.title}» وحصلت على +${inspiringPoints} نقاط أثر! السبب: ${opts.reason}`
-            : `تم إلغاء تمييز تعليقك بمقال «${comment.article.title}» وخُصمت ${Math.abs(unfeaturedPoints)} نقاط من رصيدك. السبب: ${opts.reason}`,
-          url: `/article/${comment.article.slug}`,
-          kind: "TARGETED",
-        },
-      });
+      /* الإشعار يمر عبر المرسل المركزي بعد نجاح المعاملة — لا كتابة مباشرة */
 
       return { conflict: false as const, impactScore: newScore, rank: newRank };
     });
@@ -316,6 +336,22 @@ export async function setCommentFeatured(opts: {
           : "التعليق غير مُعلَّم أصلًا — لا خصم",
         status: 409,
       };
+    }
+
+    /* مصفوفة الإرسال: تمييز = داخل الموقع + Web Push، وإلغاؤه = داخل الموقع فقط */
+    if (comment.userId) {
+      void dispatchNotification({
+        userId: comment.userId,
+        type: opts.featured ? "COMMENT_FEATURED" : "COMMENT_UNFEATURED",
+        title: opts.featured ? "تم تمييز تعليقك كتعليق ملهم ✦" : "أُلغي تمييز تعليقك",
+        message: opts.featured
+          ? `تم تمييز تعليقك بمقال «${comment.article.title}» (+${inspiringPoints} نقاط). السبب: ${opts.reason}`
+          : `تم إلغاء تمييز تعليقك بمقال «${comment.article.title}» (${unfeaturedPoints} نقاط). السبب: ${opts.reason}`,
+        link: `/article/${comment.article.slug}`,
+        pushTag: opts.featured ? "inspiring-comment" : "uninspiring-comment",
+        metadata: { reason: opts.reason, pointsDelta: points, articleId: comment.article.id },
+        channels: opts.featured ? "ALL" : "IN_APP",
+      }).catch(() => {});
     }
 
     return {

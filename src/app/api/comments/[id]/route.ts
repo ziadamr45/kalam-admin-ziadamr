@@ -1,9 +1,9 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { requireSession, isRejected, writeAudit, getClientIp, raiseAlert } from "@/lib/guard";
-import { setCommentFeatured } from "@/lib/impact";
+import { setCommentFeatured, awardImpact } from "@/lib/impact";
+import { dispatchNotification } from "@/lib/notifications/dispatcher";
 import { writeTrail } from "@/lib/audit-trail";
-import { pushUsers } from "@/lib/push";
 import { articleRevalidatePaths, revalidatePublicPaths } from "@/lib/revalidate";
 
 type Params = { params: Promise<{ id: string }> };
@@ -61,24 +61,12 @@ export async function PATCH(request: Request, { params }: Params) {
         return NextResponse.json({ error: result.error }, { status: result.status });
       }
 
-      /* بث فوري لهاتف المعلّق — زينة لا تعطل أبدًا */
+      /* الإشعار مرّ عبر المرسل المركزي داخل setCommentFeatured — يبقى جلب التعليق لتحديث الصفحة والتوثيق */
       const comment = await prisma.comment.findUnique({
         where: { id },
         select: { userId: true, article: { select: { slug: true, title: true } } },
       });
       if (comment) {
-        void pushUsers(
-          {
-            title: body.isInspiring ? "تم تمييز تعليقك كتعليق ملهم ✦" : "أُلغي تمييز تعليقك",
-            body: body.isInspiring
-              ? `+10 نقاط أثر بمقال «${comment.article.title.slice(0, 50)}» — السبب: ${reason.slice(0, 80)}`
-              : `-10 نقاط أثر بمقال «${comment.article.title.slice(0, 50)}» — السبب: ${reason.slice(0, 80)}`,
-            url: `/article/${comment.article.slug}`,
-            tag: body.isInspiring ? "inspiring-comment" : "uninspiring-comment",
-          },
-          { userIds: comment.userId ? [comment.userId] : [] },
-        );
-
         /* تحديث صفحة المقال على المنصة فورًا (التثبيت أعلى الحوار) */
         await revalidatePublicPaths(
           articleRevalidatePaths({ slug: comment.article.slug, sectionSlug: null }),
@@ -123,21 +111,93 @@ export async function PATCH(request: Request, { params }: Params) {
       });
     }
 
+    /* حالة التعليق قبل التغيير — لالتقاط انتقال «بانتظار المراجعة → معتمد» تحديدًا */
+    const before = await prisma.comment.findUnique({
+      where: { id },
+      select: {
+        status: true,
+        userId: true,
+        articleId: true,
+        article: { select: { slug: true, title: true, section: { select: { slug: true } } } },
+      },
+    });
+
     const comment = await prisma.comment.update({
       where: { id },
       data: data as never,
       include: { user: { select: { email: true, name: true } }, article: { select: { slug: true } } },
     });
 
+    /* ============ اعتماد تعليق معلق → +2 نقطة أثر لصاحبه ============
+       awardImpact معاملة ذرّية: قيد ImpactLog بنوع COMMENT_APPROVED
+       ومفتاح COMMENT:{id} الفريد — من حصل على نقطتيه لحظة الإرسال
+       (تدقيق AI منخفض المخاطر) يصله رفض المنح آمنًا (DUPLICATE)،
+       ومن فوّتهما (تعليق قصير أو مخاطرة أعلى) يستلمهما الآن عند الاعتماد. */
+    const approved =
+      body.status === "APPROVED" && before !== null && before.status !== "APPROVED" && before.userId !== null;
+    let impact: { awarded: boolean; points: number; impactScore: number; rank: string } | null = null;
+    if (approved && before && before.userId) {
+      impact = await awardImpact({
+        userId: before.userId,
+        actionType: "COMMENT_APPROVED",
+        points: 2,
+        articleId: before.articleId,
+        dedupKey: `COMMENT:${id}`,
+        reason: "نشر تعليق فكري معتمد",
+      }).catch(() => null);
+
+      /* إشعار الاعتماد عبر المرسل المركزي الموحد — النص يعكس ما حدث فعلًا للنقاط */
+      void dispatchNotification({
+        userId: before.userId,
+        type: "COMMENT_APPROVED",
+        title: "تم اعتماد تعليقك ونشره على المنصة",
+        message: impact?.awarded
+          ? `وصل تعليقك إلى القراء بمقال «${before.article.title}» وأُضيفت +2 نقطة إلى رصيد أثرك.`
+          : `وصل تعليقك إلى القراء بمقال «${before.article.title}».`,
+        link: `/article/${before.article.slug}#comments`,
+        pushTag: "comment-approved",
+        metadata: { commentId: id, points: impact?.awarded ? impact.points : 0 },
+        channels: "ALL",
+      }).catch(() => {});
+
+      /* تحديث صفحة المقال فورًا — التعليق يظهر للقراء لحظة الاعتماد */
+      await revalidatePublicPaths(
+        articleRevalidatePaths({
+          slug: before.article.slug,
+          sectionSlug: before.article.section?.slug ?? null,
+        }),
+      ).catch(() => {});
+    }
+
     await writeAudit({
       adminId: guard.adminId,
       action: body.status ? `comment.${body.status.toLowerCase()}` : "comment.edited",
       entity: "Comment",
       entityId: id,
+      meta: impact?.awarded ? { impactPoints: impact.points, impactScore: impact.impactScore } : undefined,
       ip: getClientIp(request),
     });
 
-    return NextResponse.json({ comment });
+    if (approved) {
+      await writeTrail({
+        actorId: guard.adminId,
+        actorEmail: guard.username ?? "admin",
+        actorRole: "ADMIN",
+        actionCategory: "ADMIN_MODERATION",
+        actionType: "COMMENT_APPROVED",
+        targetId: id,
+        targetEmail: comment.user?.email ?? null,
+        reason: "نشر تعليق فكري معتمد",
+        metadata: {
+          via: "studio",
+          ip: getClientIp(request),
+          pointsDelta: impact?.awarded ? impact.points : 0,
+          articleSlug: before.article.slug,
+        },
+      });
+    }
+
+    return NextResponse.json({ comment, impact });
   } catch {
     return NextResponse.json({ error: "خطأ داخلي" }, { status: 500 });
   }

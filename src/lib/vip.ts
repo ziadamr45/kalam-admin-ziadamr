@@ -1,6 +1,7 @@
 import "server-only";
 import { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
+import { dispatchNotification } from "@/lib/notifications/dispatcher";
 import { writeAudit } from "@/lib/guard";
 import { writeTrail } from "@/lib/audit-trail";
 import {
@@ -318,69 +319,47 @@ export async function dispatchVipNotification(input: VipDispatchInput): Promise<
   emailSent: boolean;
 }> {
   const { title, body } = notificationCopy(input);
-  let inApp = false;
-  let pushSent = false;
-  let emailSent = false;
-
-  let user: { id: string; email: string | null; customName: string | null; name: string | null } | null = null;
-  try {
-    user = await prisma.user.findUnique({
+  const user = await prisma.user
+    .findUnique({
       where: { id: input.userId },
       select: { id: true, email: true, customName: true, name: true },
-    });
-    if (!user) return { inApp: false, pushSent: false, emailSent: false };
-    await prisma.userNotification.create({
-      data: { userId: user.id, title, body, url: "/profile", kind: "TARGETED" },
-    });
-    inApp = true;
-  } catch {}
+    })
+    .catch(() => null);
+  if (!user) return { inApp: false, pushSent: false, emailSent: false };
 
-  try {
-    const { pushUsers } = await import("@/lib/push");
-    const sent = await pushUsers(
-      { title, body: body.slice(0, 220), url: "/profile", tag: `vip-${input.event.toLowerCase()}` },
-      { userIds: [user!.id] },
-    );
-    pushSent = sent > 0;
-  } catch {}
+  /* خريطة الأحداث إلى أنواع الإشعار الموحدة وقنواتها وفق مصفوفة الإرسال:
+     ترقية مميزة/توثيق/نخبة 350 = كل القنوات (جرس + بث + بريد)،
+     والتعديل والسحب وإلغاء التوثيق = داخل الموقع فقط */
+  const type =
+    input.event === "REVOKED"
+      ? "VIP_REVOKED"
+      : input.event === "VERIFIED" || input.event === "UNVERIFIED" || input.event === "ELITE"
+        ? "USER_VERIFIED"
+        : "VIP_UPGRADE_GRANTED";
+  const channels =
+    input.event === "MODIFIED" || input.event === "UNVERIFIED" || input.event === "REVOKED"
+      ? ("IN_APP" as const)
+      : ("ALL" as const);
 
-  try {
-    const key = process.env.RESEND_API_KEY;
-    if (key && user!.email) {
-      const res = await fetch("https://api.resend.com/emails", {
-        method: "POST",
-        headers: { Authorization: `Bearer ${key}`, "Content-Type": "application/json" },
-        body: JSON.stringify({
-          from: process.env.SECURITY_EMAIL_FROM ?? "كلام له لازمة <onboarding@resend.dev>",
-          to: [user!.email],
-          subject: title,
-          html: vipEmailHtml(input, user!.customName ?? user!.name),
-        }),
-      });
-      emailSent = res.ok;
-    }
-  } catch {}
+  const result = await dispatchNotification({
+    userId: user.id,
+    type,
+    title,
+    message: body,
+    link: "/profile",
+    pushTag: `vip-${input.event.toLowerCase()}`,
+    metadata: {
+      event: input.event,
+      badge: input.badgeTitle ?? null,
+      color: input.badgeColor ?? null,
+      reason: input.reason ?? null,
+    },
+    channels,
+    forceInApp: true,
+    emailHtml: vipEmailHtml(input, user.customName ?? user.name),
+  }).catch(() => ({ inApp: false, pushSent: false, emailSent: false, adminPushed: false }));
 
-  try {
-    await prisma.auditEvent.create({
-      data: {
-        type: "NOTIFICATION_DISPATCHED_VIP",
-        actorType: "SYSTEM",
-        actorId: user!.id,
-        actorLabel: user!.email,
-        message: title,
-        meta: {
-          event: input.event,
-          badge: input.badgeTitle ?? null,
-          color: input.badgeColor ?? null,
-          reason: input.reason ?? null,
-          channels: { inApp, push: pushSent, email: emailSent },
-        },
-      },
-    });
-  } catch {}
-
-  return { inApp, pushSent, emailSent };
+  return { inApp: result.inApp, pushSent: result.pushSent, emailSent: result.emailSent };
 }
 
 /* ==================== المنح والسحب — المنطق الموحد ==================== */

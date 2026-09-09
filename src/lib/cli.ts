@@ -50,6 +50,8 @@ const HELP_LINES: CliLine[] = [
   { type: "muted", text: "  traffic tail [n] | errors tail [n] | security tail [n] — المراصد الحية" },
   { type: "muted", text: "  sec audit | block-ip <ip> | active-logins — الأمن: فحص الرؤوس، الحجب، الدخولات" },
   { type: "muted", text: "  spark exec \"<طلب بالطبيعي>\" — انطة طبيعية يحولها الذكاء السيادي لأمر وينفذه" },
+  { type: "muted", text: "  notify send <email | all> --title \"..\" --body \"..\" [--channel push|email|inapp|all] — إرسال عبر المرسل المركزي" },
+  { type: "muted", text: "  notify inspect <email> | notify purge-old --days N — تدقيق صندوق مستخدم / تنظيف المقروء القديم" },
   { type: "muted", text: "  help [command] | clear       — الدليل المفصل / تنظيف الشاشة" },
 ];
 
@@ -114,7 +116,96 @@ const HELP_TOPICS: Record<string, CliLine[]> = {
     { type: "info", text: "config — التكوين السيادي:" },
     { type: "muted", text: "  config list | config get <key> | config set <key> <value> — عرض/قراءة/تعديل لحظي" },
   ],
+  notify: [
+    { type: "info", text: "notify — منظومة الإشعارات الموحدة:" },
+    { type: "muted", text: "  notify send <email | all> --title \"..\" --body \"..\" [--channel push|email|inapp|all] — إرسال عبر المرسل المركزي (جرس + بث + بريد حسب القناة)" },
+    { type: "muted", text: "  notify inspect <email> — آخر 10 إشعارات وصلت للمستخدم وحالة قراءتها" },
+    { type: "muted", text: "  notify purge-old --days N — حذف الإشعارات المقروءة الأقدم من N يومًا لمنع تضخم القاعدة" },
+  ],
 };
+
+
+/* ==================== أوامر الإشعارات — عبر المرسل المركزي الموحد ==================== */
+
+async function cmdNotifySend(
+  target: string,
+  flags: Map<string, string | true>,
+  ctx: CliContext,
+): Promise<CliLine[]> {
+  const title = String(flags.get("title") ?? "");
+  const body = String(flags.get("body") ?? "");
+  if (!title || !body)
+    return [{ type: "error", text: "الصيغة: notify send <email | all> --title \"..\" --body \"..\" [--channel push|email|inapp|all]" }];
+  const channelRaw = String(flags.get("channel") ?? "all").toLowerCase();
+  const channels = (
+    channelRaw === "push" ? "WEB_PUSH" : channelRaw === "email" ? "EMAIL" : channelRaw === "inapp" ? "IN_APP" : "ALL"
+  ) as "WEB_PUSH" | "EMAIL" | "IN_APP" | "ALL";
+  const { dispatchNotification, dispatchBroadcast } = await import("@/lib/notifications/dispatcher");
+
+  if (target.toLowerCase() === "all") {
+    const r = await dispatchBroadcast({
+      type: "BROADCAST",
+      title,
+      message: body,
+      channels,
+      pushTag: "cli-broadcast",
+      metadata: { via: `cli:${ctx.source}`, by: ctx.adminUsername },
+    });
+    return [{ type: "ok", text: `بُثّ الإشعار للجميع: جرس ${r.inApp} | بث ويب ${r.pushSent}` }];
+  }
+
+  const user = await resolveUser(target);
+  if (!user) return [{ type: "error", text: `لا يوجد قارئ مطابق لـ «${target}»` }];
+  const r = await dispatchNotification({
+    userId: user.id,
+    type: "BROADCAST",
+    title,
+    message: body,
+    channels,
+    pushTag: "cli-notify",
+    metadata: { via: `cli:${ctx.source}`, by: ctx.adminUsername },
+  });
+  return [
+    {
+      type: "ok",
+      text: `أُرسل الإشعار إلى ${user.email ?? user.id}: جرس ${r.inApp ? "✓" : "×"} | بث ${r.pushSent ? "✓" : "×"} | بريد ${r.emailSent ? "✓" : "×"}`,
+    },
+  ];
+}
+
+async function cmdNotifyInspect(target: string): Promise<CliLine[]> {
+  if (!target) return [{ type: "error", text: "الصيغة: notify inspect <email>" }];
+  const user = await resolveUser(target);
+  if (!user) return [{ type: "error", text: `لا يوجد قارئ مطابق لـ «${target}»` }];
+  const [items, unread] = await Promise.all([
+    prisma.notification.findMany({
+      where: { userId: user.id },
+      orderBy: { createdAt: "desc" },
+      take: 10,
+    }),
+    prisma.notification.count({ where: { userId: user.id, isRead: false } }),
+  ]);
+  if (items.length === 0) return [{ type: "muted", text: "لا إشعارات موثقة لهذا الحساب بعد" }];
+  const lines: CliLine[] = [
+    { type: "info", text: `آخر 10 إشعارات لـ «${user.email ?? user.id}» — غير المقروء: ${unread}` },
+  ];
+  for (const n of items) {
+    lines.push({
+      type: "muted",
+      text: `  ${n.createdAt.toISOString().slice(0, 16).replace("T", " ")} [${n.type}] ${n.isRead ? "مقروء ✓" : "غير مقروء ●"} — ${n.title}`,
+    });
+  }
+  return lines;
+}
+
+async function cmdNotifyPurge(flags: Map<string, string | true>): Promise<CliLine[]> {
+  const days = String(flags.get("days") ?? "30");
+  if (!/^\d+$/.test(days) || Number(days) < 1 || Number(days) > 365)
+    return [{ type: "error", text: "--days يجب أن يكون عددًا بين ١ و ٣٦٥" }];
+  const cut = new Date(Date.now() - Number(days) * 86_400_000);
+  const res = await prisma.notification.deleteMany({ where: { isRead: true, readAt: { lte: cut } } });
+  return [{ type: "ok", text: `حُذف ${res.count} إشعارًا مقروءًا أقدم من ${days} يومًا — قاعدة الإشعارات تخفّت` }];
+}
 
 function bytes(n: number): string {
   if (n >= 1_073_741_824) return `${(n / 1_073_741_824).toFixed(2)} GB`;
@@ -816,7 +907,7 @@ async function cmdSparkExec(query: string, ctx: CliContext): Promise<CliLine[]> 
     return [{ type: "error", text: "محرك الذكاء غير مُهيأ في هذه البيئة (GEMINI_API_KEY)" }];
   }
   const catalog =
-    "الأوامر المتاحة: sys info | sys ping | sys env | cache purge all|<path> | user inspect <email> | user vip-grant <email> --title \"..\" --color \"#hex\" --reason \"..\" [--points N] [--role USER|MODERATOR|EDITOR|ADMIN] [--unlimited-ai] | user set-points <email> <n> | user verify <email> --type OFFICIAL_AUTHOR|FAMILY_CORE|NOTABLE [--badge \"..\"] | user unverify <email> --reason \"..\" | user vip-revoke <email> --reason \"..\" | user ban <email> [سبب] | user unban <email> | user hard-delete <email> --reason-code OFFICIAL_USER_REQUEST|SEVERE_DIALOGUE_VIOLATION|SECURITY_ABUSE --reason \"..\" --evidence \"https://..\" | audit list --days N [--category USER_SELF_ACTION|ADMIN_MODERATION|ADMIN_VIP_CHANGE|SYSTEM_CONFIG_CHANGE] | audit inspect <auditId> | audit export-pdf --range weekly|monthly | article status <slug> | article toggle-comments <slug> | config list|get <key>|set <key> <value> | db stats | db slow-queries | sec audit | sec block-ip <ip> | sec active-logins | traffic tail [n] | errors tail [n] | security tail [n] | help";
+    "الأوامر المتاحة: sys info | sys ping | sys env | cache purge all|<path> | user inspect <email> | user vip-grant <email> --title \"..\" --color \"#hex\" --reason \"..\" [--points N] [--role USER|MODERATOR|EDITOR|ADMIN] [--unlimited-ai] | user set-points <email> <n> | user verify <email> --type OFFICIAL_AUTHOR|FAMILY_CORE|NOTABLE [--badge \"..\"] | user unverify <email> --reason \"..\" | user vip-revoke <email> --reason \"..\" | user ban <email> [سبب] | user unban <email> | user hard-delete <email> --reason-code OFFICIAL_USER_REQUEST|SEVERE_DIALOGUE_VIOLATION|SECURITY_ABUSE --reason \"..\" --evidence \"https://..\" | audit list --days N [--category USER_SELF_ACTION|ADMIN_MODERATION|ADMIN_VIP_CHANGE|SYSTEM_CONFIG_CHANGE] | audit inspect <auditId> | audit export-pdf --range weekly|monthly | article status <slug> | article toggle-comments <slug> | config list|get <key>|set <key> <value> | db stats | db slow-queries | sec audit | sec block-ip <ip> | sec active-logins | traffic tail [n] | errors tail [n] | security tail [n] | notify send <email|all> --title \"..\" --body \"..\" [--channel push|email|inapp|all] | notify inspect <email> | notify purge-old --days N | help";
   const raw = await geminiChat({
     system:
       "أنت محول أوامر لترمينال إداري عربي. حوّل طلب المستخدم الطبيعي إلى أمر واحد فقط من الكتالوج. أعد JSON فقط بالصيغة {\"command\":\"...\"} وإن كان الطلب خارج الكتالوج أو خطرًا أعد {\"command\":null,\"why\":\"سبب\"}. لا تضف أي شرح.",
@@ -1027,6 +1118,27 @@ export async function runCliCommand(raw: string, ctx: CliContext): Promise<CliLi
           }
           default:
             return [{ type: "error", text: "الصيغة: audit list --days N [--category ..] | audit inspect <id> | audit export-pdf --range weekly|monthly" }];
+        }
+      }
+
+      case "notify": {
+        const [sub, target] = rest;
+        switch ((sub ?? "").toLowerCase()) {
+          case "send": {
+            if (!target)
+              return [{ type: "error", text: "الصيغة: notify send <email | all> --title \"..\" --body \"..\" [--channel push|email|inapp|all]" }];
+            const { flags } = parseFlags(rest.slice(2));
+            return cmdNotifySend(target, flags, ctx);
+          }
+          case "inspect":
+            if (!target) return [{ type: "error", text: "الصيغة: notify inspect <email>" }];
+            return cmdNotifyInspect(target);
+          case "purge-old": {
+            const { flags } = parseFlags(rest.slice(1));
+            return cmdNotifyPurge(flags);
+          }
+          default:
+            return [{ type: "error", text: "الصيغة: notify send <email | all> --title \"..\" --body \"..\" | notify inspect <email> | notify purge-old --days N" }];
         }
       }
 

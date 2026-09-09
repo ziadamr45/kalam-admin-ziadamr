@@ -6,6 +6,7 @@ import { createContext, useContext, useState } from "react";
 import { ToastProvider } from "@/components/ui";
 import { PushToggle } from "@/components/push-toggle";
 import { SovereignTerminal } from "@/components/sovereign-terminal";
+import { AdminNotificationBell, AdminUrgentBar } from "@/components/notification-center";
 import { SOCIAL_LINKS } from "@/lib/constants/socials";
 
 /**
@@ -221,6 +222,8 @@ export function DashboardShell({
 
         {/* المحتوى */}
         <div className="flex min-w-0 flex-1 flex-col">
+          {/* شريط الطوارئ السيادي — التنبيهات الإدارية الطارئة بالبرتقالي والأحمر */}
+          <AdminUrgentBar />
           <header className="sticky top-0 z-20 flex h-14 items-center justify-between border-b border-steel-100 bg-white/90 px-4 backdrop-blur lg:px-8">
             <button
               onClick={() => setSidebarOpen(true)}
@@ -233,6 +236,8 @@ export function DashboardShell({
               <span className="text-xs text-steel-400">الوضع: أمن مشدد — تحقق بخطوتين إلزامي</span>
             </div>
             <div className="flex items-center gap-2">
+              {/* مركز الإشعارات السيادية — جرس أحداث السيادة بعداد لحظي (SSE) */}
+              <AdminNotificationBell />
               {/* تفعيل الإشعارات الفورية — هاتف الأدمن وحاسوبه (المحور الأول) */}
               <PushToggle />
               {/* فتح التيرمينال السيادي من الشريط العلوي أيضًا */}

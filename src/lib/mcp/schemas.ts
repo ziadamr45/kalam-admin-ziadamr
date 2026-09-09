@@ -16,7 +16,7 @@ export type McpToolSchema = {
 
 export const MCP_PROTOCOL_VERSION = "2025-03-26";
 export const MCP_SERVER_NAME = "kalam-sovereign-admin";
-export const MCP_SERVER_VERSION = "3.1.0";
+export const MCP_SERVER_VERSION = "3.2.0";
 
 export const MCP_TOOLS: McpToolSchema[] = [
   /* ==================== أ) أدوات المقالات ==================== */
@@ -1048,5 +1048,51 @@ export const MCP_TOOLS: McpToolSchema[] = [
       "range": { "type": "string", "enum": ["weekly", "monthly"], "description": "نطاق التقرير: weekly آخر ٧ أيام (افتراضي) | monthly آخر ٣٠ يومًا" }
     }
   }
-},
+},  {
+    name: "kalam_broadcast_notification",
+    description:
+      "المرسل المركزي الموحد للإشعارات: بث عام لكل القراء أو إشعار مخصص لمستخدم بعينه عبر القنوات الثلاث (جرس داخل الموقع + Web Push + بريد Resend) مع احترام تفضيلات كل قارئ، وخيار توثيق البث في سجل تحديثات المنصة الظاهر للقراء.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        title: { type: "string", description: "عنوان الإشعار (3 أحرف فأكثر)" },
+        details: { type: "string", description: "نص الإشعار (3 أحرف فأكثر)" },
+        email: { type: "string", description: "بريد مستخدم لإشعار مخصص له وحده — اتركه فارغًا للبث للجميع" },
+        url: { type: "string", description: "مسار يفتح عند النقر مثل /article/slug" },
+        channels: {
+          type: "string",
+          enum: ["ALL", "IN_APP", "WEB_PUSH", "EMAIL"],
+          description: "قنوات الإرسال (افتراضي ALL)",
+        },
+        asPlatformUpdate: { type: "boolean", description: "توثيق الإشعار في سجل تحديثات المنصة الظاهر للقراء" },
+        kind: {
+          type: "string",
+          enum: ["FEATURE", "MAINTENANCE", "INTELLECTUAL", "ALERT"],
+          description: "نوع التحديث عند توثيقه (افتراضي FEATURE)",
+        },
+      },
+      required: ["title", "details"],
+    },
+  },
+  {
+    name: "kalam_get_user_notifications",
+    description:
+      "جلب وتدقيق سجل إشعارات أي مستخدم من الجدول المركزي الموحد: آخر الإشعارات بأنواعها وحالة قراءتها وعدد غير المقروء — لمساعدته إداريًا أو تتبع وصول التنبيهات إليه.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        email: { type: "string", description: "بريد المستخدم المستهدف" },
+        limit: { type: "number", description: "عدد الإشعارات (افتراضي 10، أقصى 50)" },
+        unreadOnly: { type: "boolean", description: "جلب غير المقروء فقط" },
+      },
+      required: ["email"],
+    },
+  },
+  {
+    name: "kalam_audit_auth_gates",
+    description:
+      "فحص أمني حي لبوابات المصادقة: يجرّب نداءات مجهولة (بلا جلسة ولا كوكيز) على كل نقطة النهاية التفاعلية للمنصة العامة ويتحقق أنها مغلقة بإحكام (401/403) — التعليقات، تصويت التعليقات والمقالات، الحفظ، محاورة الذكاء الاصطناعي، المقترحات، الاشتراكات، الملف الشخصي، محو الحساب.",
+    inputSchema: { type: "object", properties: {} },
+  },
+
 ];

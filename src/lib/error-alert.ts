@@ -108,21 +108,25 @@ export async function recordServerError(input: ServerErrorInput): Promise<void> 
         .catch(() => {});
     }
 
-    /* البث الفوري — أول ظهور فقط + العلم مفعل + بيئة إنتاج */
+    /* التنبيه السيادي عبر المرسل المركزي: سجل موحد لحساب المالك + رنين هواتف
+       الإدارة + بريد طوارئ — أول ظهور فقط + العلم مفعل + بيئة إنتاج */
     if (
       isNew &&
       process.env.NODE_ENV === "production" &&
       (await alertsEnabled())
     ) {
-      const { pushAdmins } = await import("@/lib/push");
+      const { dispatchAdminEvent } = await import("@/lib/notifications/dispatcher");
       const appLabel = input.app === "ADMIN" ? "لوحة التحكم" : "المنصة العامة";
-      await pushAdmins({
-        title: `🚨 خطأ 500 جديد — ${appLabel}`,
-        body: `${message.slice(0, 140)}${message.length > 140 ? "…" : ""}${
+      await dispatchAdminEvent({
+        type: "ADMIN_SYSTEM_ALERT",
+        title: `تنبيه تقني: خطأ 500 جديد — ${appLabel}`,
+        message: `${message.slice(0, 140)}${message.length > 140 ? "…" : ""}${
           input.path ? ` — المسار: ${input.path}` : ""
         }`,
-        url: input.url ?? "/system?tab=errors",
-        tag: `server-error-${digest.slice(0, 10)}`,
+        link: input.url ?? "/system?tab=errors",
+        pushTag: `server-error-${digest.slice(0, 10)}`,
+        metadata: { digest, app: input.app, path: input.path ?? null },
+        emergencyEmail: true,
       }).catch(() => {});
     }
   } catch {
