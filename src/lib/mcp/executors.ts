@@ -1578,6 +1578,31 @@ async function manageSecurity(args: McpArgs, meta: McpRequestMeta) {
     return { removed: true, count: removed.count };
   }
 
+  if (action === "list_auth_tokens") {
+    const tokens = await prisma.verificationToken.findMany();
+    return {
+      count: tokens.length,
+      note: "رموز التحقق المؤقتة لتدفقات بريد Auth.js — المنصة تدخل عبر Google أو كلمة المرور فلا يُتوقع أن يحوي هذا الجدول شيئًا؛ وجود سجلات يعني محاولة تدفق غريب.",
+      tokens: tokens.map((t) => ({ identifier: t.identifier, tokenHint: t.token.slice(0, 8) + "…", expiresAt: t.expires })),
+    };
+  }
+
+  if (action === "purge_auth_tokens") {
+    const expiredOnly = args["expiredOnly"] !== false;
+    const removed = await prisma.verificationToken.deleteMany(
+      expiredOnly ? { where: { expires: { lt: new Date() } } } : undefined
+    );
+    await writeAudit({
+      adminId: null,
+      action: "mcp.auth_tokens_purged",
+      entity: "VerificationToken",
+      entityId: "*",
+      meta: { via: "gemini-spark-mcp", expiredOnly, count: removed.count },
+      ip: meta.ip,
+    });
+    return { purged: true, count: removed.count, expiredOnly };
+  }
+
   throw new McpToolError(`فعل غير معروف: «${action}»`);
 }
 

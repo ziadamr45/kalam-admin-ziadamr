@@ -16,7 +16,7 @@ export type McpToolSchema = {
 
 export const MCP_PROTOCOL_VERSION = "2025-03-26";
 export const MCP_SERVER_NAME = "kalam-sovereign-admin";
-export const MCP_SERVER_VERSION = "2.1.0";
+export const MCP_SERVER_VERSION = "2.1.1";
 
 export const MCP_TOOLS: McpToolSchema[] = [
   /* ==================== أ) أدوات المقالات ==================== */
@@ -459,14 +459,14 @@ export const MCP_TOOLS: McpToolSchema[] = [
   {
     name: "manage_security",
     description:
-      "مركز أمن المنصة: نظرة شاملة على آخر التنبيهات الأمنية ومحاولات الدخول الفاشلة وقواعد IP وسجل تدقيق اللوحة، مع حلّ التنبيهات، وإضافة قاعدة سماح ALLOW أو حجب DENY لأي عنوان IP أو إزالة قاعدة قائمة.",
+      "مركز أمن المنصة: نظرة شاملة على آخر التنبيهات الأمنية ومحاولات الدخول الفاشلة وقواعد IP وسجل تدقيق اللوحة، مع حلّ التنبيهات، وإضافة قاعدة سماح ALLOW أو حجب DENY لأي عنوان IP أو إزالة قاعدة قائمة، وفحص رموز التحقق المؤقتة VerificationToken وسحبها كاملة.",
     inputSchema: {
       type: "object",
       properties: {
         action: {
           type: "string",
-          enum: ["overview", "resolve_alert", "add_ip_rule", "remove_ip_rule"],
-          description: "overview نظرة شاملة (افتراضي) | resolve_alert حل تنبيه | add_ip_rule إضافة قاعدة | remove_ip_rule إزالتها",
+          enum: ["overview", "resolve_alert", "add_ip_rule", "remove_ip_rule", "list_auth_tokens", "purge_auth_tokens"],
+          description: "overview نظرة شاملة (افتراضي) | resolve_alert حل تنبيه | add_ip_rule إضافة قاعدة | remove_ip_rule إزالتها | list_auth_tokens جرد رموز التحقق المؤقتة | purge_auth_tokens سحب كل الرموز منتهية الصلاحية أو كلها",
         },
         alertId: { type: "string", description: "معرف التنبيه — إلزامي مع resolve_alert" },
         ip: { type: "string", description: "عنوان IP — إلزامي مع add_ip_rule وremove_ip_rule" },
@@ -477,6 +477,7 @@ export const MCP_TOOLS: McpToolSchema[] = [
         },
         note: { type: "string", description: "ملاحظة على القاعدة مع add_ip_rule" },
         ruleId: { type: "string", description: "بديل عن ip عند remove_ip_rule — معرف القاعدة" },
+        expiredOnly: { type: "boolean", description: "مع purge_auth_tokens: true يسحب المنتهية فقط (افتراضي)، false يسحب كلها" },
       },
     },
   },
