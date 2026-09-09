@@ -983,14 +983,15 @@ export async function runCliCommand(raw: string, ctx: CliContext): Promise<CliLi
         const [sub, target] = rest;
         switch ((sub ?? "").toLowerCase()) {
           case "list": {
-            const { flags } = parseFlags(rest.slice(2));
+            /* الأعلام تبدأ مباشرة بعد sub — لا موضعي قبلها */
+            const { flags } = parseFlags(rest.slice(1));
             return cmdAuditList(flags);
           }
           case "inspect":
             if (!target) return [{ type: "error", text: "الصيغة: audit inspect <auditId>" }];
             return cmdAuditInspect(target);
           case "export-pdf": {
-            const { flags } = parseFlags(rest.slice(2));
+            const { flags } = parseFlags(rest.slice(1));
             return cmdAuditExportPdf(flags, ctx);
           }
           default:
