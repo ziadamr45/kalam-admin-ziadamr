@@ -3086,7 +3086,7 @@ async function kalamAuditAuthGatesTool(args: McpArgs, meta: McpRequestMeta) {
     { gate: "proposals.send", method: "POST", path: "/api/proposals" },
     { gate: "push.subscribe", method: "POST", path: "/api/push/subscribe" },
     { gate: "profile.update", method: "PUT", path: "/api/profile" },
-    { gate: "account.delete", method: "POST", path: "/api/account/delete" },
+    { gate: "account.delete", method: "DELETE", path: "/api/account/delete" },
   ];
 
   const results: Array<{ gate: string; method: string; path: string; status: number; verdict: string }> = [];
@@ -3108,7 +3108,10 @@ async function kalamAuditAuthGatesTool(args: McpArgs, meta: McpRequestMeta) {
     } catch {
       status = 0;
     }
-    const verdict = status === 401 || status === 403 || status === 429 ? "CLOSED" : "OPEN";
+    /* مغلقة: رفض مصادقة/صلاحية، أو خنق الدرع العام، أو لا معالج أصلًا للطريقة
+       (405 على طريقة غير معتمدة يعني لا باب دخول للمجهولين) */
+    const verdict =
+      status === 401 || status === 403 || status === 405 || status === 429 ? "CLOSED" : "OPEN";
     if (verdict === "CLOSED") closed++;
     else open++;
     results.push({ gate: p.gate, method: p.method, path: p.path, status, verdict });
