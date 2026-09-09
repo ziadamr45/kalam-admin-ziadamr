@@ -3409,6 +3409,9 @@ async function manageVipPrivilegesTool(args: McpArgs, meta: McpRequestMeta) {
   if (action === "set_privileges") {
     const reason = str(args, "reason");
     if (!reason) throw new McpToolError("سبب تعديل الصلاحيات إلزامي — يُوثق في السجل");
+    if (target.email?.toLowerCase() === "ziad90216@gmail.com" || target.role === "OWNER") {
+      throw new McpToolError("حساب صاحب المنصة سيادي بالبذر التلقائي — صلاحياته كاملة دائمًا ولا تُعدل يدويًا");
+    }
     if (!target.isVip) throw new McpToolError("الحساب بلا عضوية مميزة فعالة — فعّلها بـ grant أولًا");
     const current = parsePrivileges(target.vipPrivileges);
     const patchRaw = (args.privileges ?? {}) as Record<string, unknown>;
