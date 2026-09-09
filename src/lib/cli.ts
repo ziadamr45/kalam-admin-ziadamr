@@ -334,14 +334,14 @@ async function cmdSysPing(): Promise<CliLine[]> {
 async function cmdSysEnv(): Promise<CliLine[]> {
   const required: { key: string; label: string; critical: boolean }[] = [
     { key: "DATABASE_URL", label: "قاعدة Neon", critical: true },
-    { key: "AUTH_SECRET", label: "سر الجلسات الإدارية", critical: true },
-    { key: "GOOGLE_CLIENT_ID", label: "OAuth Google", critical: false },
+    { key: "ADMIN_SESSION_SECRET", label: "سر الجلسات الإدارية", critical: true },
     { key: "PUBLIC_URL", label: "رابط المنصة العامة", critical: false },
     { key: "REVALIDATE_SECRET", label: "سر إعادة التحقق", critical: false },
     { key: "GEMINI_API_KEY", label: "الذكاء الاصطناعي", critical: false },
     { key: "RESEND_API_KEY", label: "البريد الإلكتروني", critical: false },
     { key: "CLOUDINARY_CLOUD_NAME", label: "الوسائط", critical: false },
-    { key: "VAPID_PUBLIC_KEY", label: "بث الإشعارات", critical: false },
+    { key: "NEXT_PUBLIC_VAPID_PUBLIC_KEY", label: "بث الإشعارات (عام)", critical: false },
+    { key: "VAPID_PRIVATE_KEY", label: "بث الإشعارات (خاص)", critical: false },
     { key: "NEXT_PUBLIC_ADMIN_URL", label: "رابط اللوحة", critical: false },
   ];
   const lines: CliLine[] = [{ type: "info", text: "تدقيق البيئة — الحالة فقط بلا أي قيم:" }];
