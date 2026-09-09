@@ -1,8 +1,9 @@
 /* ============================================================
    Service Worker لوحة التحكم السيادية — إشعارات الويب الفورية حصرًا
    بلا كاش إطلاقًا: لوحة التحكم يجب أن تبقى حية دائمًا.
-   الشعار الرسمي أيقونةً وشارةً في شريط إشعارات الهاتف،
-   والنقر يفتح صفحة الحدث المعنية في اللوحة مباشرة.
+   الأيقونة الملونة الخاصة بالأدمن داخل متن الإشعار، والبادج الإداري
+   المستقل المفرّغ ألفا-فقط (درع + ترس، أبيض صافٍ على شفاف) لشريط
+   حالة أندرويد — تمييز فوري عن إشعارات المنصة العامة.
    ============================================================ */
 
 self.addEventListener("install", () => {
@@ -14,7 +15,7 @@ self.addEventListener("activate", (event) => {
 });
 
 const PUSH_ICON = "/icons/icon-192.png";
-const PUSH_BADGE = "/icons/badge-96.png";
+const PUSH_BADGE = "/badge-admin-96x96.png";
 
 self.addEventListener("push", (event) => {
   let data = {};
@@ -29,7 +30,8 @@ self.addEventListener("push", (event) => {
     body: data.body || "",
     icon: data.icon || PUSH_ICON,
     badge: data.badge || PUSH_BADGE,
-    tag: data.tag || undefined,
+    tag: data.tag || "kalam-admin-notification",
+    renotify: true,
     dir: "rtl",
     lang: "ar",
     vibrate: [100, 50, 100],
