@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { requireSession, isRejected, writeAudit, getClientIp, getUserAgent } from "@/lib/guard";
 import { awardImpact } from "@/lib/impact";
-import { grantVip, revokeVip, type VipPrivileges, type GrantableRole } from "@/lib/vip";
+import { grantVip, revokeVip, grantVerification, revokeVerification, type VipPrivileges, type GrantableRole, type VerificationType } from "@/lib/vip";
 import { hardDeleteUser, isHardDeleteReason } from "@/lib/hard-delete";
 import { writeTrail } from "@/lib/audit-trail";
 
@@ -36,15 +36,26 @@ export async function PATCH(request: Request) {
       userId?: string;
       banned?: boolean;
       banReason?: string;
-      action?: "adjust-impact" | "reset-identity" | "grant-vip" | "revoke-vip" | "hard-delete";
+      action?:
+        | "adjust-impact"
+        | "reset-identity"
+        | "grant-vip"
+        | "revoke-vip"
+        | "grant-verification"
+        | "revoke-verification"
+        | "hard-delete";
       delta?: number;
       reason?: string;
-      /* حقول استوديو الحسابات المميزة */
+      /* حقول استوديو العضوية المميزة */
       role?: GrantableRole;
       badgeTitle?: string;
       badgeColor?: string;
       privileges?: VipPrivileges;
       welcomePoints?: number;
+      resetRole?: boolean;
+      /* حقول استوديو التوثيق الرسمي */
+      verificationType?: VerificationType;
+      verificationLabel?: string;
       /* حقول الحذف السيادي */
       reasonCode?: string;
       evidenceUrl?: string;
@@ -82,11 +93,11 @@ export async function PATCH(request: Request) {
       }
     }
 
-    /* ============ سحب التوثيق والتمييز كليًا ============ */
+    /* ============ سحب العضوية المميزة فقط — التوثيق الرسمي لا يُمس ============ */
     if (body.action === "revoke-vip") {
       try {
         const result = await revokeVip(
-          { userId: body.userId, reason: body.reason ?? "" },
+          { userId: body.userId, reason: body.reason ?? "", resetRole: Boolean(body.resetRole) },
           {
             adminId: guard.adminId,
             adminUsername: guard.username ?? "admin",
@@ -98,6 +109,53 @@ export async function PATCH(request: Request) {
       } catch (e) {
         return NextResponse.json(
           { error: e instanceof Error ? e.message : "تعذر السحب" },
+          { status: 400 },
+        );
+      }
+    }
+
+    /* ============ منح التوثيق الرسمي — إثبات هوية فقط بلا امتيازات ============ */
+    if (body.action === "grant-verification") {
+      try {
+        const result = await grantVerification(
+          {
+            userId: body.userId,
+            verificationType: (body.verificationType ?? "OFFICIAL_AUTHOR") as VerificationType,
+            label: body.verificationLabel ?? null,
+            reason: body.reason ?? null,
+          },
+          {
+            adminId: guard.adminId,
+            adminUsername: guard.username ?? "admin",
+            ip: getClientIp(request),
+            via: "studio",
+          },
+        );
+        return NextResponse.json(result);
+      } catch (e) {
+        return NextResponse.json(
+          { error: e instanceof Error ? e.message : "تعذر منح التوثيق" },
+          { status: 400 },
+        );
+      }
+    }
+
+    /* ============ سحب التوثيق الرسمي فقط — العضوية المميزة لا تُمس ============ */
+    if (body.action === "revoke-verification") {
+      try {
+        const result = await revokeVerification(
+          { userId: body.userId, reason: body.reason ?? null },
+          {
+            adminId: guard.adminId,
+            adminUsername: guard.username ?? "admin",
+            ip: getClientIp(request),
+            via: "studio",
+          },
+        );
+        return NextResponse.json(result);
+      } catch (e) {
+        return NextResponse.json(
+          { error: e instanceof Error ? e.message : "تعذر سحب التوثيق" },
           { status: 400 },
         );
       }

@@ -15,7 +15,7 @@ import { Badge, Button, Card, useToast } from "@/components/ui";
 
 type Def = {
   key: string;
-  category: "BRANDING" | "TEXTS" | "FLAGS" | "IMPACT";
+  category: "BRANDING" | "SOCIAL" | "TEXTS" | "FLAGS" | "IMPACT";
   type: "string" | "text" | "boolean" | "number" | "json";
   label: string;
   hint?: string;
@@ -24,13 +24,15 @@ type Def = {
 
 const CATEGORY_TABS: { key: Def["category"]; label: string; icon: string }[] = [
   { key: "BRANDING", label: "الهوية والعلامة", icon: "◈" },
+  { key: "SOCIAL", label: "الروابط الرسمية", icon: "⛓" },
   { key: "TEXTS", label: "النصوص والرسائل", icon: "✎" },
   { key: "FLAGS", label: "مفاتيح الميزات", icon: "⚑" },
   { key: "IMPACT", label: "اقتصاد الأثر", icon: "✦" },
 ];
 
 const CATEGORY_DESC: Record<Def["category"], string> = {
-  BRANDING: "اسم المنصة والوثائق والتذييل وروابط التواصل — كل ما يحمل هوية «كلام له لازمة».",
+  BRANDING: "اسم المنصة والوثائق والتذييل — كل ما يحمل هوية «كلام له لازمة».",
+  SOCIAL: "الحزمة الرسمية المعتمدة لروابط صاحب المنصة (14 منصة) — تعدّل أي رابط فيطبق لحظيًا على الفوتر واتصل بنا وكل الواجهات بلا إعادة نشر.",
   TEXTS: "رسالة الترحيب وشرائح التهيئة وشارة المحاور وتنويهه الافتتاحي والثابت.",
   FLAGS: "مفاتيح تشغيل/إيقاف فورية: المحاورة الذكية، التعليقات، المشغل الصوتي، قناة أهل الكلمة.",
   IMPACT: "أوزان النقاط وعتبة «أهل الكلمة» — تُطبَّق على محرك الرصيد لحظة الحفظ.",

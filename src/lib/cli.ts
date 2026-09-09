@@ -13,7 +13,7 @@ import {
   getFlags,
 } from "@/lib/site-config";
 import { dbHealth, dbStats, cairoDayKey } from "@/lib/system";
-import { grantVip, revokeVip, PRIVILEGE_KEYS, VERIFIED_TYPES, type VipPrivileges, type VerifiedType, type GrantableRole, roleLabelAr } from "@/lib/vip";
+import { grantVip, revokeVip, grantVerification, revokeVerification, PRIVILEGE_KEYS, VERIFICATION_TYPES, GRANTABLE_VERIFICATION_TYPES, type VipPrivileges, type VerificationType, type GrantableRole, roleLabelAr, verificationSealLabel } from "@/lib/vip";
 import { hardDeleteUser, isHardDeleteReason, hardDeleteReasonLabel, HARD_DELETE_REASONS } from "@/lib/hard-delete";
 import { loadLedger, resolveLedgerRange, TRAIL_CATEGORIES, type TrailCategoryFilter } from "@/lib/audit-ledger";
 import { buildAuditShareUrl } from "@/lib/audit-share";
@@ -38,9 +38,9 @@ const HELP_LINES: CliLine[] = [
   { type: "muted", text: "  sys info | ping | env        — النظام: النبض، زمن استجابة Neon، تدقيق البيئة الصحي" },
   { type: "muted", text: "  cache purge [all|<path>] | purge-all — إفراغ الكاش الشامل أو لمسار محدد" },
   { type: "muted", text: "  user inspect <email|id>      — السجل الأمني الكامل ونقاط الأثر والجلسات" },
-  { type: "muted", text: "  user grant-vip <email> --title \"..\" --color \"#..\" --points N --role R --unlimited-ai" },
-  { type: "muted", text: "  user set-points <email> <n>  — تعديل رصيد الأثر بقيمة مطلقة موثقة" },
-  { type: "muted", text: "  user verify <email> --type <TYPE> --badge \"..\" — منح التوثيق فقط" },
+  { type: "muted", text: "  user grant-vip <email> --title \"..\" --color \"#..\" --points N --role R --unlimited-ai — العضوية المميزة" },
+  { type: "muted", text: "  user verify <email> [--type OWNER|OFFICIAL_AUTHOR|FAMILY_CORE|NOTABLE] [--badge \"..\"] — التوثيق الرسمي" },
+  { type: "muted", text: "  user unverify <email> [--reason \"..\"] — سحب التوثيق فقط (العضوية لا تُمس)" },
   { type: "muted", text: "  user ban <email> [سبب] | unban <email> — تعطيل/تفعيل الحساب" },
   { type: "muted", text: "  user hard-delete <email> --reason-code .. --reason \"..\" --evidence \"https://..\" — المحو السيادي الشامل الموثق بالدليل" },
   { type: "muted", text: "  audit list --days N [--category ..] | audit inspect <id> | audit export-pdf --range weekly|monthly — السجل السيادي والتقارير" },
@@ -65,13 +65,15 @@ const HELP_TOPICS: Record<string, CliLine[]> = {
     { type: "info", text: "user — إدارة المستخدمين والسيادة:" },
     { type: "muted", text: "  user inspect <email|id>    — سجل استخباري شامل: الرصيد، الشارة، الدخولات، الأثر" },
     { type: "muted", text: "  user grant-vip <email> --title \"كاتب ضيف\" --color \"#6B8E23\" [--role EDITOR] [--points 350] [--unlimited-ai]" },
-    { type: "muted", text: "                             — منح التوثيق والشارة والنقاط فورًا (السبب إلزامي بـ --reason)" },
+    { type: "muted", text: "                             — العضوية المميزة المستقلة: كبسولة بلون وسبب إلزامي وصلاحيات ونقاط (بلا توثيق)" },
+    { type: "muted", text: "  user vip-grant ...          — اسم بديل لنفس أمر العضوية المميزة" },
     { type: "muted", text: "  user set-points <email> <n> — تعديل الرصيد قيمة مطلقة (يُسجل الفرق في سجل الأثر)" },
-    { type: "muted", text: "  user verify <email> --type VIP_GRANT --badge \"باحث معرفي\" — توثيق فقط بلا صلاحيات" },
+    { type: "muted", text: "  user verify <email> --type NOTABLE --badge \"باحث معرفي\" — التوثيق الرسمي فقط (إثبات هوية بلا صلاحيات)" },
+    { type: "muted", text: "  user unverify <email> --reason \"..\" — سحب التوثيق فقط، العضوية المميزة إن وُجدت لا تُمس" },
     { type: "muted", text: "  user ban <email> [سبب] | user unban <email> — الحظر والفك" },
     { type: "muted", text: "  user hard-delete <email> --reason-code OFFICIAL_USER_REQUEST|SEVERE_DIALOGUE_VIOLATION|SECURITY_ABUSE --reason \"تفصيل\" --evidence \"https://رابط-الدليل\"" },
     { type: "muted", text: "                             — المحو البرمجي الشامل: كل بيانات الحساب تُمحى نهائيًا، الدليل إلزامي، ويُودع قيد رقابي داخل المعاملة" },
-    { type: "muted", text: "  أنواع التوثيق: SOVEREIGN | ADMIN_STAFF | IMPACT_ELITE | VIP_GRANT | GUEST_AUTHOR | COMMUNITY" },
+    { type: "muted", text: "  أنواع التوثيق: OWNER (حصري بالبذر) | OFFICIAL_AUTHOR زيتي | FAMILY_CORE فيروزي | NOTABLE كحلي" },
   ],
   audit: [
     { type: "info", text: "audit — السجل السيادي (التدقيق والامتثال):" },
@@ -394,7 +396,7 @@ function parseFlags(parts: string[]): { positional: string[]; flags: Map<string,
   return { positional, flags };
 }
 
-/** user grant-vip — منح التوثيق والشارة والرتبة والنقاط عبر المنطق الموحد */
+/** user grant-vip / vip-grant — منح العضوية المميزة المستقلة: الشارة والرتبة والنقاط عبر المنطق الموحد */
 async function cmdUserGrantVip(query: string, flags: Map<string, string | true>, ctx: CliContext): Promise<CliLine[]> {
   if (!query) return [{ type: "error", text: "الصيغة: user grant-vip <email> --title \"..\" --color \"#..\" --reason \"..\" [--points N] [--role R] [--unlimited-ai]" }];
   const user = await resolveUser(query);
@@ -467,43 +469,66 @@ async function cmdUserSetPoints(query: string, value: string, ctx: CliContext): 
   ];
 }
 
-/** user verify — منح التوثيق فقط (بلا صلاحيات ولا نقاط) */
+/** user verify — التوثيق الرسمي فقط (إثبات هوية، بلا صلاحيات ولا نقاط ولا شارة) */
 async function cmdUserVerify(query: string, flags: Map<string, string | true>, ctx: CliContext): Promise<CliLine[]> {
   const user = await resolveUser(query);
   if (!user) return [{ type: "error", text: `لا يوجد قارئ مطابق لـ «${query}»` }];
-  const typeRaw = String(flags.get("type") ?? "VIP_GRANT").toUpperCase() as VerifiedType;
-  if (!VERIFIED_TYPES.includes(typeRaw)) {
-    return [{ type: "error", text: `نوع توثيق غير معروف: ${typeRaw} — المتاح: ${VERIFIED_TYPES.join(" | ")}` }];
+  const typeRaw = String(flags.get("type") ?? "OFFICIAL_AUTHOR").toUpperCase() as VerificationType;
+  if (!VERIFICATION_TYPES.includes(typeRaw)) {
+    return [{ type: "error", text: `نوع توثيق غير معروف: ${typeRaw} — المتاح: ${VERIFICATION_TYPES.join(" | ")}` }];
   }
-  const badge = String(flags.get("badge") ?? "حساب موثّق");
+  if (!GRANTABLE_VERIFICATION_TYPES.includes(typeRaw as never) && typeRaw === "OWNER") {
+    return [{ type: "error", text: "توثيق «المؤسس» حصري بالبذر السيادي التلقائي — لا يُمنح يدويًا" }];
+  }
+  const badge = flags.has("badge") ? String(flags.get("badge")) : undefined;
   try {
-    await grantVip(
+    const result = await grantVerification(
       {
         userId: user.id,
-        badgeTitle: badge,
-        badgeColor: String(flags.get("color") ?? "#2563EB"),
-        reason: String(flags.get("reason") ?? `منح توثيق (${typeRaw}) عبر التيرمينال السيادي`),
-        privileges: {},
-        vipBadgeKind: typeRaw,
+        verificationType: typeRaw,
+        label: badge ?? null,
+        reason: flags.has("reason") ? String(flags.get("reason")) : `منح توثيق رسمي (${verificationSealLabel(typeRaw, badge)}) عبر التيرمينال السيادي`,
       },
       { adminId: ctx.adminId, adminUsername: ctx.adminUsername, ip: ctx.ip, via: `cli:${ctx.source}` },
     );
-    return [{ type: "ok", text: `وُثّق ${user.email ?? user.id} بنوع ${typeRaw} وشارة «${badge}» — أُرسل الإشعار` }];
+    return [
+      { type: "ok", text: `وُثّق ${user.email ?? user.id} كـ«${result.sealLabel}» بختم ${result.sealColor} — علامة التوثيق بلا أي عضوية مميزة` },
+      { type: "muted", text: `الإشعارات: جرس ${result.dispatch.inApp ? "✓" : "×"} | بث ${result.dispatch.pushSent ? "✓" : "×"} | بريد ${result.dispatch.emailSent ? "✓" : "×"}` },
+    ];
   } catch (e) {
     return [{ type: "error", text: e instanceof Error ? e.message : "تعذر التوثيق" }];
   }
 }
 
-/** user un-vip — سحب كامل عبر المنطق الموحد */
-async function cmdUserRevokeVip(query: string, reason: string | undefined, ctx: CliContext): Promise<CliLine[]> {
+/** user unverify — سحب التوثيق الرسمي فقط، العضوية المميزة لا تُمس */
+async function cmdUserUnverify(query: string, flags: Map<string, string | true>, positional: string[], ctx: CliContext): Promise<CliLine[]> {
+  const user = await resolveUser(query);
+  if (!user) return [{ type: "error", text: `لا يوجد قارئ مطابق لـ «${query}»` }];
+  const reason =
+    (flags.has("reason") ? String(flags.get("reason")) : "") ||
+    positional.join(" ") ||
+    "سحب التوثيق الرسمي بقرار إداري من التيرمينال السيادي";
+  try {
+    await revokeVerification(
+      { userId: user.id, reason },
+      { adminId: ctx.adminId, adminUsername: ctx.adminUsername, ip: ctx.ip, via: `cli:${ctx.source}` },
+    );
+    return [{ type: "ok", text: `سُحب توثيق ${user.email ?? user.id} وأُرسل إشعار التحديث — العضوية المميزة إن وُجدت لم تُمس` }];
+  } catch (e) {
+    return [{ type: "error", text: e instanceof Error ? e.message : "تعذر سحب التوثيق" }];
+  }
+}
+
+/** user un-vip / vip-revoke — سحب العضوية المميزة فقط عبر المنطق الموحد */
+async function cmdUserRevokeVip(query: string, reason: string | undefined, resetRole: boolean, ctx: CliContext): Promise<CliLine[]> {
   const user = await resolveUser(query);
   if (!user) return [{ type: "error", text: `لا يوجد قارئ مطابق لـ «${query}»` }];
   try {
     await revokeVip(
-      { userId: user.id, reason: reason?.trim() || "سحب التوثيق بقرار إداري من التيرمينال السيادي" },
+      { userId: user.id, reason: reason?.trim() || "سحب العضوية المميزة بقرار إداري من التيرمينال السيادي", resetRole },
       { adminId: ctx.adminId, adminUsername: ctx.adminUsername, ip: ctx.ip, via: `cli:${ctx.source}` },
     );
-    return [{ type: "ok", text: `سُحب التوثيق من ${user.email ?? user.id} وأُرسل إشعار التحديث` }];
+    return [{ type: "ok", text: `سُحبت العضوية المميزة من ${user.email ?? user.id} وأُرسل إشعار التحديث — التوثيق الرسمي لم يُمس` }];
   } catch (e) {
     return [{ type: "error", text: e instanceof Error ? e.message : "تعذر السحب" }];
   }
@@ -791,7 +816,7 @@ async function cmdSparkExec(query: string, ctx: CliContext): Promise<CliLine[]> 
     return [{ type: "error", text: "محرك الذكاء غير مُهيأ في هذه البيئة (GEMINI_API_KEY)" }];
   }
   const catalog =
-    "الأوامر المتاحة: sys info | sys ping | sys env | cache purge all|<path> | user inspect <email> | user grant-vip <email> --title \"..\" --color \"#hex\" --reason \"..\" [--points N] [--role USER|MODERATOR|EDITOR|ADMIN] [--unlimited-ai] | user set-points <email> <n> | user verify <email> --type SOVEREIGN|ADMIN_STAFF|IMPACT_ELITE|VIP_GRANT|GUEST_AUTHOR|COMMUNITY --badge \"..\" | user un-vip <email> --reason \"..\" | user ban <email> [سبب] | user unban <email> | user hard-delete <email> --reason-code OFFICIAL_USER_REQUEST|SEVERE_DIALOGUE_VIOLATION|SECURITY_ABUSE --reason \"..\" --evidence \"https://..\" | audit list --days N [--category USER_SELF_ACTION|ADMIN_MODERATION|ADMIN_VIP_CHANGE|SYSTEM_CONFIG_CHANGE] | audit inspect <auditId> | audit export-pdf --range weekly|monthly | article status <slug> | article toggle-comments <slug> | config list|get <key>|set <key> <value> | db stats | db slow-queries | sec audit | sec block-ip <ip> | sec active-logins | traffic tail [n] | errors tail [n] | security tail [n] | help";
+    "الأوامر المتاحة: sys info | sys ping | sys env | cache purge all|<path> | user inspect <email> | user vip-grant <email> --title \"..\" --color \"#hex\" --reason \"..\" [--points N] [--role USER|MODERATOR|EDITOR|ADMIN] [--unlimited-ai] | user set-points <email> <n> | user verify <email> --type OFFICIAL_AUTHOR|FAMILY_CORE|NOTABLE [--badge \"..\"] | user unverify <email> --reason \"..\" | user vip-revoke <email> --reason \"..\" | user ban <email> [سبب] | user unban <email> | user hard-delete <email> --reason-code OFFICIAL_USER_REQUEST|SEVERE_DIALOGUE_VIOLATION|SECURITY_ABUSE --reason \"..\" --evidence \"https://..\" | audit list --days N [--category USER_SELF_ACTION|ADMIN_MODERATION|ADMIN_VIP_CHANGE|SYSTEM_CONFIG_CHANGE] | audit inspect <auditId> | audit export-pdf --range weekly|monthly | article status <slug> | article toggle-comments <slug> | config list|get <key>|set <key> <value> | db stats | db slow-queries | sec audit | sec block-ip <ip> | sec active-logins | traffic tail [n] | errors tail [n] | security tail [n] | help";
   const raw = await geminiChat({
     system:
       "أنت محول أوامر لترمينال إداري عربي. حوّل طلب المستخدم الطبيعي إلى أمر واحد فقط من الكتالوج. أعد JSON فقط بالصيغة {\"command\":\"...\"} وإن كان الطلب خارج الكتالوج أو خطرًا أعد {\"command\":null,\"why\":\"سبب\"}. لا تضف أي شرح.",
@@ -866,14 +891,15 @@ export async function runCliCommand(raw: string, ctx: CliContext): Promise<CliLi
           return [
             {
               type: "error",
-              text: "الصيغة: user inspect <email|id> | user grant-vip <email> --title \"..\" --reason \"..\" | user set-points <email> <n> | user verify <email> --type .. --badge \"..\" | user un-vip <email> --reason \"..\" | user ban <email> [سبب] | user unban <email>",
+              text: "الصيغة: user inspect <email|id> | user vip-grant <email> --title \"..\" --reason \"..\" | user verify <email> --type .. --badge \"..\" | user unverify <email> --reason \"..\" | user set-points <email> <n> | user vip-revoke <email> --reason \"..\" | user ban <email> [سبب] | user unban <email>",
             },
           ];
         switch ((sub ?? "").toLowerCase()) {
           case "inspect":
             return cmdUserInspect(target);
           case "grant-vip":
-          case "make-vip": {
+          case "make-vip":
+          case "vip-grant": {
             const { flags } = parseFlags(tail);
             return cmdUserGrantVip(target, flags, ctx);
           }
@@ -886,11 +912,16 @@ export async function runCliCommand(raw: string, ctx: CliContext): Promise<CliLi
             const { flags } = parseFlags(tail);
             return cmdUserVerify(target, flags, ctx);
           }
+          case "unverify": {
+            const { flags, positional } = parseFlags(tail);
+            return cmdUserUnverify(target, flags, positional, ctx);
+          }
           case "un-vip":
-          case "revoke-vip": {
+          case "revoke-vip":
+          case "vip-revoke": {
             const { flags, positional } = parseFlags(tail);
             const reason = String(flags.get("reason") ?? "") || positional.join(" ");
-            return cmdUserRevokeVip(target, reason, ctx);
+            return cmdUserRevokeVip(target, reason, flags.has("reset-role"), ctx);
           }
           case "ban":
             return cmdUserBan(target, tail.join(" ") || undefined, ctx);

@@ -25,10 +25,13 @@ export default async function UsersPage() {
         intellectualRank: u.intellectualRank,
         banned: u.banned,
         banReason: u.banReason,
-        /* منظومة التوثيق السيادي — حقول الاستوديو */
+        /* التوثيق الرسمي المستقل + العضوية المميزة — حقول الاستوديو */
         role: u.role,
         isVerified: u.isVerified,
-        verifiedType: u.verifiedType,
+        verifiedAt: u.verifiedAt ? u.verifiedAt.toISOString() : null,
+        verificationType: u.verificationType,
+        verificationLabel: u.verificationLabel,
+        isVip: u.isVip,
         vipBadgeTitle: u.vipBadgeTitle,
         vipBadgeColor: u.vipBadgeColor,
         vipReason: u.vipReason,

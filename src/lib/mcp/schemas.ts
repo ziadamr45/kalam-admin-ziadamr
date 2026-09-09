@@ -16,7 +16,7 @@ export type McpToolSchema = {
 
 export const MCP_PROTOCOL_VERSION = "2025-03-26";
 export const MCP_SERVER_NAME = "kalam-sovereign-admin";
-export const MCP_SERVER_VERSION = "3.0.0";
+export const MCP_SERVER_VERSION = "3.1.0";
 
 export const MCP_TOOLS: McpToolSchema[] = [
   /* ==================== أ) أدوات المقالات ==================== */
@@ -951,20 +951,22 @@ export const MCP_TOOLS: McpToolSchema[] = [
   }
 },
 {
-  "name": "kalam_assign_user_vip",
-  "description": "منح أو تحديث تمييز حساب مميز (VIP) لأي قارئ: توثيق الحساب مع شارة نصية مخصصة ولون سداسي ورتبة وظيفية وسبب إلزامي وحزم صلاحيات دقيقة (حصة ذكاء غير محدودة، تجاوز حدود المعدل، قناة أهل الكلمة، تثبيت ذاتي للتعليقات، إطار تعليق فخم، ميزات تجريبية) ورصيد أثر ترحيبي فوري — مع إطلاق إشعارات التهنئة (جرس + بث + بريد) وتوثيق كامل في سجل التدقيق.",
+  "name": "kalam_manage_vip_privileges",
+  "description": "إدارة العضوية المميزة المستقلة (VIP Privileges) لأي قارئ — منفصلة تمامًا عن التوثيق الرسمي: grant لتفعيل العضوية بكبسولة مسماة بلون سداسي وسبب إلزامي وحزم صلاحيات دقيقة (حصة ذكاء غير محدودة، تجاوز حدود المعدل والتهدئة، قناة أهل الكلمة، تثبيت ذاتي للتعليقات، إطار تعليق فخم، ميزات تجريبية) ورصيد أثر ترحيبي ورتبة وظيفية اختيارية، set_privileges لتحديث مفاتيح الصلاحيات وحدها لحظيًا، revoke لسحب العضوية والشارة بسبب إلزامي (التوثيق الرسمي لا يُمس) — كل فعل يُشعِر المستخدم فورًا ويُوثق في سجلي التدقيق.",
   "inputSchema": {
     "type": "object",
     "properties": {
+      "action": { "type": "string", "enum": ["check", "grant", "set_privileges", "revoke"], "description": "check فحص | grant منح/تحديث العضوية | set_privileges تحديث الصلاحيات فقط | revoke سحب — إلزامي" },
       "email": { "type": "string", "description": "بريد القارئ المستهدف — إلزامي" },
-      "badgeTitle": { "type": "string", "description": "مسمى الشارة الظاهر بجانب اسمه مثل «كاتب ضيف» — إلزامي (2-40 حرفًا)" },
-      "badgeColor": { "type": "string", "description": "لون الشارة السداسي مثل #D97706 (افتراضي #7C3AED)" },
-      "reason": { "type": "string", "description": "سبب منح التمييز — إلزامي، يُحفظ في السجل ويظهر في إشعار المستخدم" },
-      "role": { "type": "string", "enum": ["USER", "MODERATOR", "EDITOR", "ADMIN"], "description": "الرتبة الوظيفية (اختياري — الافتراضي بلا تغيير)" },
-      "welcomePoints": { "type": "number", "description": "رصيد أثر ترحيبي فوري 0-10000 (اختياري)" },
+      "badgeTitle": { "type": "string", "description": "مسمى الكبسولة الظاهر بجانب اسمه مثل «مساهم متميز» — إلزامي مع grant (2-40 حرفًا)" },
+      "badgeColor": { "type": "string", "description": "لون الكبسولة السداسي مثل #D97706 (افتراضي #7C3AED)" },
+      "reason": { "type": "string", "description": "سبب الإجراء — إلزامي مع grant وset_privileges وrevoke، يُحفظ في السجل ويظهر في إشعار المستخدم" },
+      "role": { "type": "string", "enum": ["USER", "MODERATOR", "EDITOR", "ADMIN"], "description": "الرتبة الوظيفية مع grant (اختياري — الافتراضي بلا تغيير)" },
+      "welcomePoints": { "type": "number", "description": "رصيد أثر ترحيبي فوري 0-10000 مع grant (اختياري)" },
+      "resetRole": { "type": "boolean", "description": "مع revoke: إعادة الرتبة إلى USER (اختياري — الافتراضي false، الرتبة تبقى)" },
       "privileges": {
         "type": "object",
-        "description": "مفاتيح الصلاحيات الممنوحة (كل مفتاح true عند المنح)",
+        "description": "مفاتيح الصلاحيات الممنوحة (مع grant تعريف كامل، ومع set_privileges دمج جزئي — كل مفتاح true يُفعّل)",
         "properties": {
           "unlimitedAiChat": { "type": "boolean", "description": "حصة ذكاء اصطناعي غير محدودة" },
           "bypassRateLimits": { "type": "boolean", "description": "تجاوز محددات المعدل" },
@@ -976,33 +978,32 @@ export const MCP_TOOLS: McpToolSchema[] = [
         }
       }
     },
-    "required": ["email", "badgeTitle", "reason"]
+    "required": ["action", "email"]
   }
 },
 {
   "name": "kalam_manage_verification",
-  "description": "إدارة توثيق الحسابات السيادية بثلاثة أفعال: check لفحص حالة توثيق أي حساب وشاراته وتصنيفه وسبب منحه، grant لمنح توثيق فقط بنوع محدد (SOVEREIGN سيادي حصري، ADMIN_STAFF طاقم الإدارة، IMPACT_ELITE نخبة أهل الكلمة، VIP_GRANT منح يدوي، GUEST_AUTHOR كاتب ضيف، COMMUNITY استحقاق مجتمعي) وشارة مخصصة، revoke لسحب التوثيق كليًا بسبب إلزامي — كل فعل يُشعِر المستخدم فورًا ويُوثق في دفتر التدقيق.",
+  "description": "إدارة التوثيق الرسمي — إثبات الهوية فقط (Proof of Identity)، منفصل تمامًا عن العضوية المميزة: check لفحص حالة التوثيق وتصنيفه ومسماه، grant لمنح علامة الصح الرسمية بنوع محدد (OWNER مؤسس حصري بالبذر التلقائي، OFFICIAL_AUTHOR كاتب رسمي زيتي، FAMILY_CORE فرد عائلة موثق فيروزي، NOTABLE نخبة أهل الكلمة كحلي)، update لتعديل النوع أو المسمى الظاهر لحظيًا، revoke لسحب التوثيق فقط بسبب إلزامي (العضوية المميزة لا تُمس). مزايا التوثيق البنيوية تلقائية: أولوية النقاشات، تخطي التهدئة، البطاقة الفكرية الموسعة — كل فعل يُشعِر المستخدم ويُوثق في دفتر التدقيق.",
   "inputSchema": {
     "type": "object",
     "properties": {
-      "action": { "type": "string", "enum": ["check", "grant", "revoke"], "description": "check فحص | grant منح | revoke سحب — إلزامي" },
+      "action": { "type": "string", "enum": ["check", "grant", "update", "revoke"], "description": "check فحص | grant منح | update تعديل النوع/المسمى | revoke سحب — إلزامي" },
       "email": { "type": "string", "description": "بريد الحساب المستهدف — إلزامي" },
-      "verifiedType": { "type": "string", "enum": ["SOVEREIGN", "ADMIN_STAFF", "IMPACT_ELITE", "VIP_GRANT", "GUEST_AUTHOR", "COMMUNITY"], "description": "نوع التوثيق مع grant (افتراضي VIP_GRANT)" },
-      "badgeTitle": { "type": "string", "description": "مسمى الشارة مع grant (افتراضي «حساب موثّق»)" },
-      "badgeColor": { "type": "string", "description": "لون الشارة السداسي مع grant (افتراضي #2563EB)" },
-      "reason": { "type": "string", "description": "السبب — إلزامي مع grant وrevoke، يظهر في إشعار المستخدم" }
+      "verificationType": { "type": "string", "enum": ["OWNER", "OFFICIAL_AUTHOR", "FAMILY_CORE", "NOTABLE"], "description": "نوع التوثيق مع grant/update (الافتراضي OFFICIAL_AUTHOR، وOWNER مرفوض يدويًا)" },
+      "verificationLabel": { "type": "string", "description": "مسمى عرض اختياري بجانب الختم يفوق تسمية التصنيف (2-40 حرفًا)" },
+      "reason": { "type": "string", "description": "السبب الإداري — اختياري مع grant/update، إلزامي مع revoke؛ يظهر في إشعار المستخدم" }
     },
     "required": ["action", "email"]
   }
 },
 {
   "name": "kalam_dispatch_vip_notification",
-  "description": "إطلاق إشعار توثيق وتمييز فوري لأي مستخدم عبر القنوات الثلاث معًا: إشعار داخلي في جرس المنصة، بث ويب فوري لهاتفه، وبريد إلكتروني مصمم عبر Resend — بأحداث جاهزة (منح شارة، بلوغ أهل الكلمة، تعديل مزايا، سحب توثيق) أو نص مخصص، مع تسجيل قنوات التسليم في سجل الأحداث الحي لمركز نشاط الأدمن.",
+  "description": "إطلاق إشعار توثيق وتمييز فوري لأي مستخدم عبر القنوات الثلاث معًا: إشعار داخلي في جرس المنصة، بث ويب فوري لهاتفه، وبريد إلكتروني مصمم عبر Resend — بأحداث جاهزة (منح شارة، بلوغ أهل الكلمة، تعديل مزايا، سحب شارة، منح توثيق رسمي، سحب توثيق) أو نص مخصص، مع تسجيل قنوات التسليم في سجل الأحداث الحي لمركز نشاط الأدمن.",
   "inputSchema": {
     "type": "object",
     "properties": {
       "email": { "type": "string", "description": "بريد المستخدم المستهدف — إلزامي" },
-      "event": { "type": "string", "enum": ["GRANTED", "ELITE", "MODIFIED", "REVOKED", "CUSTOM"], "description": "نوع الحدث — GRANTED منح شارة | ELITE أهل الكلمة | MODIFIED تعديل مزايا | REVOKED سحب | CUSTOM نص مخصص" },
+      "event": { "type": "string", "enum": ["GRANTED", "ELITE", "MODIFIED", "REVOKED", "VERIFIED", "UNVERIFIED", "CUSTOM"], "description": "نوع الحدث — GRANTED منح شارة | ELITE أهل الكلمة | MODIFIED تعديل مزايا | REVOKED سحب شارة | VERIFIED منح توثيق رسمي | UNVERIFIED سحب توثيق | CUSTOM نص مخصص" },
       "badgeTitle": { "type": "string", "description": "مسمى الشارة في نص الإشعار" },
       "badgeColor": { "type": "string", "description": "لون الشارة في قالب البريد" },
       "reason": { "type": "string", "description": "سبب الإدارة المُظهر في الإشعار" },

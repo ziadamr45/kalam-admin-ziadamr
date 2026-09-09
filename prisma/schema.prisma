@@ -129,15 +129,24 @@ model User {
   intellectualRank String @default("قارئ متأمل") // الرتبة الفكرية المحسوبة آليًا من الرصيد
   hasCompletedOnboarding Boolean @default(false) // ختم تجربة التهيئة والجولة التفاعلية — تُعرض مرة واحدة للأعضاء الجدد
 
-  /* ============ منظومة التوثيق السيادي والحسابات المميزة (VIP & Verification Engine) ============ */
-  role            Role      @default(USER)  // الرتبة الوظيفية — OWNER حصري لصاحب المنصة
-  isVerified      Boolean   @default(false) // علامة التوثيق الرسمية بجانب الاسم في كل الواجهات
-  verifiedType    String?   // تصنيف التوثيق: SOVEREIGN | ADMIN_STAFF | IMPACT_ELITE | VIP_GRANT | GUEST_AUTHOR | COMMUNITY
-  vipBadgeTitle   String?   // مسمى الشارة المعروض بجانب الاسم: «مؤسس المنصة»، «كاتب ضيف»، «عضو أهل الكلمة»
-  vipBadgeColor   String?   // لون الشارة السداسي: #D97706 ذهبي، #2563EB أزرق ملكي، #6B8E23 زيتي
-  vipReason       String?   // سبب منح التمييز — إلزامي، يُحفظ في السجل ويظهر في إشعار التهنئة
-  vipGrantedAt    DateTime? // لحظة منح التمييز
-  vipPrivileges   Json?     // مفاتيح الصلاحيات الممنوحة: unlimitedAiChat، bypassRateLimits، ahlAlKalimaAccess، selfPinComment، vipCommentBorder، betaFeatures
+  /* ============ منظومة التوثيق الرسمي — إثبات الهوية فقط (Proof of Identity) ============ */
+  role             Role      @default(USER)  // الرتبة الوظيفية — OWNER حصري لصاحب المنصة
+  isVerified       Boolean   @default(false) // علامة الصح الرسمية بجانب الاسم أينما وُجد — بلا أي امتيازات بذاتها
+  verifiedAt       DateTime? // لحظة منح التوثيق الرسمي
+  verificationType String?   // تصنيف التوثيق: OWNER مؤسس | OFFICIAL_AUTHOR كاتب رسمي | FAMILY_CORE فرد عائلة موثق | NOTABLE نخبة أهل الكلمة
+  verificationLabel String?  // مسمى عرض اختياري بجانب الختم — يفوق التسمية الافتراضية للتصنيف
+
+  /* ============ العضوية المميزة المستقلة — الامتيازات والشارات (VIP Privileges & Badges) ============ */
+  isVip           Boolean   @default(false) // عضوية التمييز المستقلة — لا علاقة لها بالتوثيق الرسمي
+  vipBadgeTitle   String?   // مسمى الكبسولة الملونة: «مؤسس المنصة»، «عضو فخري»، «مساهم متميز»
+  vipBadgeColor   String?   // كود لون الكبسولة السداسي: #D97706 ذهبي، #2563EB أزرق ملكي، #6B8E23 زيتي
+  vipReason       String?   // سبب منح التمييز — إلزامي، يُحفظ في السجل ويُرسل للمستخدم
+  vipGrantedAt    DateTime? // لحظة منح العضوية المميزة
+  vipPrivileges   Json?     // كائن الصلاحيات: unlimitedAiChat، bypassRateLimits، bypassCooldowns، ahlAlKalimaAccess، selfPinComment، vipCommentBorder، betaFeatures
+
+  /* ============ البطاقة الفكرية الموسعة — لحاملي التوثيق (Rich Profile Card) ============ */
+  extendedBio     String?   @db.Text // نبذة فكرية موسعة تظهر في بطاقة الهوية عند الضغط على الاسم الموثق
+  personalLinks   Json?     // روابط شخصية { portfolio، github، devto، linkedin، x } تظهر في البطاقة الغنية
 
   accounts     Account[]
   sessions     Session[]

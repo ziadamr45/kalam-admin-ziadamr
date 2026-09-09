@@ -3,6 +3,21 @@ import { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import { writeAudit } from "@/lib/guard";
 import { writeTrail } from "@/lib/audit-trail";
+import {
+  VERIFICATION_TYPES,
+  VERIFICATION_TYPE_META,
+  verificationMeta,
+  verificationSealLabel,
+  type VerificationType,
+} from "@/lib/verification-meta";
+
+export {
+  VERIFICATION_TYPES,
+  VERIFICATION_TYPE_META,
+  verificationMeta,
+  verificationSealLabel,
+} from "@/lib/verification-meta";
+export type { VerificationType } from "@/lib/verification-meta";
 
 /**
  * ============================================================
@@ -78,33 +93,19 @@ export async function userHasPrivilege(userId: string, key: keyof VipPrivileges)
   }
 }
 
-/* ==================== التصنيفات والألوان ==================== */
+/* ==================== تصنيفات التوثيق الرسمي ====================
+ * الفصل المعماري: التوثيق (إثبات هوية) ≠ العضوية المميزة (امتيازات).
+ * التصنيفات والألوان معرّفة في verification-meta.ts وتُعاد تصديرها هنا
+ * لتوحيد مصدر الحقيقة لكل القنوات (استوديو/تيرمينال/MCP). */
 
-export type VerifiedType =
-  | "SOVEREIGN"
-  | "ADMIN_STAFF"
-  | "IMPACT_ELITE"
-  | "VIP_GRANT"
-  | "GUEST_AUTHOR"
-  | "COMMUNITY";
+export type GrantableVerificationType = Exclude<VerificationType, "OWNER">;
 
-export const VERIFIED_TYPES: VerifiedType[] = [
-  "SOVEREIGN",
-  "ADMIN_STAFF",
-  "IMPACT_ELITE",
-  "VIP_GRANT",
-  "GUEST_AUTHOR",
-  "COMMUNITY",
+/** التصنيفات القابلة للمنح اليدوي — OWNER حصري بالبذر السيادي لا يُمنح يدويًا */
+export const GRANTABLE_VERIFICATION_TYPES: GrantableVerificationType[] = [
+  "OFFICIAL_AUTHOR",
+  "FAMILY_CORE",
+  "NOTABLE",
 ];
-
-export const VERIFIED_TYPE_META: Record<VerifiedType, { color: string; label: string }> = {
-  SOVEREIGN: { color: SOVEREIGN_COLOR, label: "توثيق سيادي" },
-  ADMIN_STAFF: { color: "#2563EB", label: "طاقم الإدارة" },
-  IMPACT_ELITE: { color: "#1E3A8A", label: "عضو أهل الكلمة" },
-  VIP_GRANT: { color: "#7C3AED", label: "حساب مميز" },
-  GUEST_AUTHOR: { color: "#6B8E23", label: "كاتب ضيف" },
-  COMMUNITY: { color: "#0D9488", label: "موثّق مجتمعيًا" },
-};
 
 export const BADGE_COLOR_PRESETS = [
   { hex: "#D97706", name: "ذهبي سيادي" },
@@ -155,7 +156,8 @@ export async function ensureOwnerSovereign(): Promise<{ seeded: boolean }> {
     const fullySovereign =
       user.role === "OWNER" &&
       user.isVerified &&
-      user.verifiedType === "SOVEREIGN" &&
+      user.verificationType === "OWNER" &&
+      user.isVip === true &&
       user.vipBadgeTitle === "مؤسس المنصة" &&
       user.vipBadgeColor === SOVEREIGN_COLOR &&
       user.impactScore >= SOVEREIGN_IMPACT &&
@@ -169,8 +171,13 @@ export async function ensureOwnerSovereign(): Promise<{ seeded: boolean }> {
         role: "OWNER",
         banned: false,
         banReason: null,
+        /* التوثيق الرسمي: مؤسس — إثبات هوية ذهبي */
         isVerified: true,
-        verifiedType: "SOVEREIGN",
+        verificationType: "OWNER",
+        verifiedAt: user.verifiedAt ?? new Date(),
+        verificationLabel: user.verificationLabel ?? "مؤسس المنصة",
+        /* العضوية المميزة المستقلة: شارة المؤسس الذهبية + كل الصلاحيات */
+        isVip: true,
         vipBadgeTitle: "مؤسس المنصة",
         vipBadgeColor: SOVEREIGN_COLOR,
         vipReason: user.vipReason ?? "صاحب المنصة السيادي — الحساب الأسمى",
@@ -214,8 +221,8 @@ export async function ensureOwnerSovereign(): Promise<{ seeded: boolean }> {
             actorType: "SYSTEM",
             actorId: user.id,
             actorLabel: user.email,
-            message: "البذر السيادي: تُوّثق حساب صاحب المنصة تلقائيًا بشارة المؤسس الذهبية",
-            meta: { verifiedType: "SOVEREIGN", badge: "مؤسس المنصة" },
+            message: "البذر السيادي: تُوّثق حساب صاحب المنصة تلقائيًا (توثيق مؤسس ذهبي + عضوية مميزة)",
+            meta: { verificationType: "OWNER", isVip: true, badge: "مؤسس المنصة" },
           },
         })
         .catch(() => {});
@@ -229,7 +236,13 @@ export async function ensureOwnerSovereign(): Promise<{ seeded: boolean }> {
 
 /* ==================== مذيّع إشعارات التوثيق ==================== */
 
-export type VipDispatchEvent = "GRANTED" | "MODIFIED" | "REVOKED" | "ELITE";
+export type VipDispatchEvent =
+  | "GRANTED"
+  | "MODIFIED"
+  | "REVOKED"
+  | "ELITE"
+  | "VERIFIED"
+  | "UNVERIFIED";
 
 export type VipDispatchInput = {
   event: VipDispatchEvent;
@@ -264,6 +277,18 @@ function notificationCopy(input: VipDispatchInput): { title: string; body: strin
       return {
         title: "تم تحديث حالة توثيق حسابك",
         body: `سُحبت الشارة «${badge}». السبب: ${input.reason ?? "قرار إداري"}. شكرًا لمشاركتك، ويمكنك استعادة التمييز بالتفاعل الرصين.`,
+      };
+    case "VERIFIED": {
+      const sealLabel = input.badgeTitle || "حساب موثّق";
+      return {
+        title: `علامة التوثيق الرسمية صارت لك ✓`,
+        body: `وُثّق حسابك رسميًا كـ«${sealLabel}»${input.reason ? ` — السبب: ${input.reason}` : ""}. علامة التوثيق تظهر الآن بجانب اسمك في كل النقاشات، وتعليقاتك في مقدمة الحوار، وبلا فترات تهدئة.`,
+      };
+    }
+    case "UNVERIFIED":
+      return {
+        title: "تم تحديث حالة التوثيق لحسابك",
+        body: `سُحبت علامة التوثيق الرسمية${input.badgeTitle ? ` («${input.badgeTitle}»)` : ""}. السبب: ${input.reason ?? "قرار إداري"}. عضويتك المميزة إن وُجدت لا تُمس بهذا الإجراء.`,
       };
   }
 }
@@ -360,6 +385,178 @@ export async function dispatchVipNotification(input: VipDispatchInput): Promise<
 
 /* ==================== المنح والسحب — المنطق الموحد ==================== */
 
+/* ==================== التوثيق الرسمي — إثبات هوية فقط ==================== */
+
+export type GrantVerificationInput = {
+  userId: string;
+  verificationType: VerificationType; // إلزامي — OWNER لا يُمنح يدويًا أبدًا
+  label?: string | null; // مسمى عرض اختياري بجانب الختم (--badge)
+  reason?: string | null; // سبب إداري يُوثق في السجل
+};
+
+export type GrantVerificationResult = {
+  ok: boolean;
+  user: { id: string; label: string; email: string | null };
+  verificationType: VerificationType;
+  sealLabel: string;
+  sealColor: string;
+  dispatch: { inApp: boolean; pushSent: boolean; emailSent: boolean };
+};
+
+/**
+ * منح التوثيق الرسمي — إثبات هوية فقط: علامة الصح الملونة حسب التصنيف.
+ * لا يلمس أي حقل من حقول العضوية المميزة إطلاقًا (فصل معماري صارم)،
+ * ولا يمنح أي صلاحيات — مزايا التوثيق ثابتة بنيويًا (أولوية النقاش
+ * وتخطي التهدئة وبطاقة الهوية الغنية).
+ */
+export async function grantVerification(
+  input: GrantVerificationInput,
+  actor: { adminId: string | null; adminUsername: string; ip: string | null; via: string },
+): Promise<GrantVerificationResult> {
+  const type = input.verificationType;
+  if (!VERIFICATION_TYPES.includes(type)) {
+    throw new Error(`تصنيف توثيق غير معروف — المتاح: ${VERIFICATION_TYPES.join(" | ")}`);
+  }
+  if (type === "OWNER") {
+    throw new Error("توثيق «المؤسس» حصري بالبذر السيادي التلقائي — لا يُمنح يدويًا");
+  }
+
+  const target = await prisma.user.findUnique({
+    where: { id: input.userId },
+    select: { id: true, customName: true, name: true, email: true, role: true, isVerified: true, verificationType: true },
+  });
+  if (!target) throw new Error("لا يوجد مستخدم مطابق");
+  if (target.email?.toLowerCase() === OWNER_EMAIL || target.role === "OWNER") {
+    throw new Error("حساب صاحب المنصة موثق سياديًا بالبذر التلقائي — لا يُعدل يدويًا");
+  }
+  const label = target.customName ?? target.name ?? target.email ?? target.id;
+  const customLabel = input.label?.trim() || null;
+  if (customLabel && (customLabel.length < 2 || customLabel.length > 40)) {
+    throw new Error("مسمى الختم بين حرفين و40 حرفًا");
+  }
+  const sealLabel = verificationSealLabel(type, customLabel);
+  const sealColor = verificationMeta(type)!.color;
+
+  await prisma.user.update({
+    where: { id: target.id },
+    data: {
+      isVerified: true,
+      verifiedAt: new Date(),
+      verificationType: type,
+      verificationLabel: customLabel,
+    },
+  });
+
+  const dispatch = await dispatchVipNotification({
+    event: "VERIFIED",
+    userId: target.id,
+    badgeTitle: sealLabel,
+    badgeColor: sealColor,
+    reason: input.reason ?? null,
+  });
+
+  await writeAudit({
+    adminId: actor.adminId,
+    action: "user.verification_granted",
+    entity: "User",
+    entityId: target.id,
+    meta: {
+      via: actor.via,
+      by: actor.adminUsername,
+      user: label,
+      verificationType: type,
+      label: customLabel,
+      reason: input.reason ?? null,
+      notify: dispatch,
+    },
+    ip: actor.ip,
+  });
+  await writeTrail({
+    actorId: actor.adminId ?? actor.adminUsername,
+    actorEmail: actor.adminUsername,
+    actorRole: actor.adminUsername === "gemini-spark" ? "SYSTEM" : "ADMIN",
+    actionCategory: "ADMIN_VIP_CHANGE",
+    actionType: "VERIFICATION_GRANTED",
+    targetId: target.id,
+    targetEmail: target.email,
+    reason: input.reason ?? `منح توثيق رسمي (${sealLabel})`,
+    metadata: { via: actor.via, verificationType: type, label: customLabel, sealColor, ip: actor.ip },
+  });
+
+  return {
+    ok: true,
+    user: { id: target.id, label, email: target.email },
+    verificationType: type,
+    sealLabel,
+    sealColor,
+    dispatch,
+  };
+}
+
+export type RevokeVerificationInput = {
+  userId: string;
+  reason?: string | null; // يظهر في إشعار المستخدم
+};
+
+/** سحب التوثيق الرسمي فقط — العضوية المميزة والشارة لا تُمسان إطلاقًا */
+export async function revokeVerification(
+  input: RevokeVerificationInput,
+  actor: { adminId: string | null; adminUsername: string; ip: string | null; via: string },
+): Promise<{ ok: boolean; user: { id: string; label: string; email: string | null } }> {
+  const target = await prisma.user.findUnique({
+    where: { id: input.userId },
+    select: { id: true, customName: true, name: true, email: true, role: true, isVerified: true, verificationType: true, verificationLabel: true },
+  });
+  if (!target) throw new Error("لا يوجد مستخدم مطابق");
+  if (target.email?.toLowerCase() === OWNER_EMAIL || target.role === "OWNER") {
+    throw new Error("توثيق صاحب المنصة سيادي دائم — لا يُسحب");
+  }
+  const label = target.customName ?? target.name ?? target.email ?? target.id;
+  if (!target.isVerified) throw new Error("الحساب غير موثق أصلًا");
+  const oldSeal = verificationSealLabel(target.verificationType, target.verificationLabel);
+
+  await prisma.user.update({
+    where: { id: target.id },
+    data: {
+      isVerified: false,
+      verifiedAt: null,
+      verificationType: null,
+      verificationLabel: null,
+    },
+  });
+
+  const dispatch = await dispatchVipNotification({
+    event: "UNVERIFIED",
+    userId: target.id,
+    badgeTitle: oldSeal,
+    reason: input.reason ?? null,
+  });
+
+  await writeAudit({
+    adminId: actor.adminId,
+    action: "user.verification_revoked",
+    entity: "User",
+    entityId: target.id,
+    meta: { via: actor.via, by: actor.adminUsername, user: label, oldSeal, reason: input.reason ?? null, notify: dispatch },
+    ip: actor.ip,
+  });
+  await writeTrail({
+    actorId: actor.adminId ?? actor.adminUsername,
+    actorEmail: actor.adminUsername,
+    actorRole: actor.adminUsername === "gemini-spark" ? "SYSTEM" : "ADMIN",
+    actionCategory: "ADMIN_VIP_CHANGE",
+    actionType: "VERIFICATION_REVOKED",
+    targetId: target.id,
+    targetEmail: target.email,
+    reason: input.reason ?? `سحب التوثيق الرسمي (${oldSeal})`,
+    metadata: { via: actor.via, oldSeal, ip: actor.ip },
+  });
+
+  return { ok: true, user: { id: target.id, label, email: target.email } };
+}
+
+/* ==================== العضوية المميزة المستقلة — امتيازات وشارات ==================== */
+
 export type GrantVipInput = {
   userId: string;
   role?: GrantableRole;
@@ -368,7 +565,7 @@ export type GrantVipInput = {
   reason: string; // إلزامي — سبب منح التمييز
   privileges?: VipPrivileges;
   welcomePoints?: number; // رصيد أثر ترحيبي فوري
-  vipBadgeKind?: VerifiedType; // تصنيف التوثيق — الافتراضي VIP_GRANT
+  /** حذفت vipBadgeKind — التوثيق الرسمي يُدار عبر grantVerification المستقلة */        
 };
 
 export type GrantVipResult = {
@@ -414,7 +611,7 @@ export async function grantVip(
 
   const target = await prisma.user.findUnique({
     where: { id: input.userId },
-    select: { id: true, customName: true, name: true, email: true, banned: true, impactScore: true },
+    select: { id: true, customName: true, name: true, email: true, banned: true, impactScore: true, isVip: true },
   });
   if (!target) throw new Error("لا يوجد مستخدم مطابق");
   if (target.email?.toLowerCase() === OWNER_EMAIL) {
@@ -427,15 +624,13 @@ export async function grantVip(
     if (input.privileges?.[key] === true) privileges[key] = true;
   }
 
-  const kind: VerifiedType =
-    input.vipBadgeKind && VERIFIED_TYPES.includes(input.vipBadgeKind) ? input.vipBadgeKind : "VIP_GRANT";
-
+  /* فصل معماري صارم: المنح يلمس حقول العضوية المميزة فقط —
+     علامة التوثيق الرسمية وتصنيفها لا تُمسان ولا تُمنح هنا */
   await prisma.user.update({
     where: { id: target.id },
     data: {
       ...(role ? { role } : {}),
-      isVerified: true,
-      verifiedType: kind,
+      isVip: true,
       vipBadgeTitle: badgeTitle,
       vipBadgeColor: badgeColor,
       vipReason: reason,
@@ -482,7 +677,6 @@ export async function grantVip(
       user: label,
       badge: badgeTitle,
       color: badgeColor,
-      kind,
       role: role ?? "unchanged",
       privileges,
       welcomePoints,
@@ -504,7 +698,6 @@ export async function grantVip(
       via: actor.via,
       badge: badgeTitle,
       color: badgeColor,
-      kind,
       role: role ?? "unchanged",
       privileges,
       welcomePoints,
@@ -529,9 +722,14 @@ export async function grantVip(
 export type RevokeVipInput = {
   userId: string;
   reason: string; // إلزامي — يظهر في إشعار المستخدم
+  resetRole?: boolean; // اختياري — إعادة الرتبة إلى مستخدم عادي مع السحب
 };
 
-/** سحب التوثيق والتمييز كليًا — الرتبة تعود USER والرصيد لا يُمس أبدًا */
+/**
+ * سحب العضوية المميزة فقط: الكبسولة واللون والسبب والصلاحيات تُنزع،
+ * والتوثيق الرسمي (علامة الصح وتصنيفها) لا يُمس إطلاقًا — فصل معماري.
+ * الرتبة الوظيفية تبقى كما هي إلا إذا طلب المانح resetRole صراحة.
+ */
 export async function revokeVip(
   input: RevokeVipInput,
   actor: { adminId: string | null; adminUsername: string; ip: string | null; via: string },
@@ -543,28 +741,27 @@ export async function revokeVip(
 
   const target = await prisma.user.findUnique({
     where: { id: input.userId },
-    select: { id: true, customName: true, name: true, email: true, isVerified: true, vipBadgeTitle: true },
+    select: { id: true, customName: true, name: true, email: true, isVip: true, isVerified: true, vipBadgeTitle: true },
   });
   if (!target) throw new Error("لا يوجد مستخدم مطابق");
   if (target.email?.toLowerCase() === OWNER_EMAIL) {
-    throw new Error("حساب صاحب المنصة سيادي دائم — لا يُسحب توثيقه");
+    throw new Error("حساب صاحب المنصة سيادي دائم — لا يُسحب تمييزه");
   }
   const label = target.customName ?? target.name ?? target.email ?? target.id;
 
-  if (!target.isVerified) throw new Error("الحساب غير موثق أصلًا");
-  const oldBadge = target.vipBadgeTitle ?? "حساب موثّق";
+  if (!target.isVip && !target.vipBadgeTitle) throw new Error("الحساب بلا عضوية مميزة أصلًا");
+  const oldBadge = target.vipBadgeTitle ?? "عضوية مميزة";
 
   await prisma.user.update({
     where: { id: target.id },
     data: {
-      role: "USER",
-      isVerified: false,
-      verifiedType: null,
+      isVip: false,
       vipBadgeTitle: null,
       vipBadgeColor: null,
       vipReason: null,
       vipGrantedAt: null,
       vipPrivileges: Prisma.JsonNull,
+      ...(input.resetRole ? { role: "USER" as const } : {}),
     },
   });
 

@@ -1,4 +1,5 @@
 import { prisma } from "@/lib/prisma";
+import { SOCIAL_KEYS, SOCIAL_LABELS, SOCIAL_LINKS, type SocialKey } from "@/lib/constants/socials";
 
 /**
  * ============================================================
@@ -13,7 +14,7 @@ import { prisma } from "@/lib/prisma";
  * تُزرع تلقائيًا في الجدول الجديد عند أول قراءة إذا كان فارغًا.
  */
 
-export type SiteConfigCategory = "BRANDING" | "TEXTS" | "FLAGS" | "IMPACT";
+export type SiteConfigCategory = "BRANDING" | "SOCIAL" | "TEXTS" | "FLAGS" | "IMPACT";
 export type SiteConfigValueType = "string" | "text" | "boolean" | "number" | "json";
 
 export type SiteConfigKeyDef = {
@@ -70,10 +71,22 @@ export const SITE_CONFIG_SCHEMA: SiteConfigKeyDef[] = [
     key: "SOCIAL_LINKS",
     category: "BRANDING",
     type: "json",
-    label: "روابط التواصل الاجتماعي",
-    hint: 'مصفوفة [{"label":"X","url":"https://x.com/..."}]',
+    label: "روابط التواصل الاجتماعي (توافق تاريخي)",
+    hint: 'مصفوفة [{"label":"X","url":"https://x.com/..."}] — الأفضل استخدم مفاتيح social.* أدناه',
     default: [] as { label: string; url: string }[],
   },
+
+  /* ---------- الروابط الرسمية الموحدة (social.*) ----------
+   * المصدر الموحد lib/constants/socials.ts — كل مفتاح يفوق
+   * الرابط الرسمي المعتمد، ويُطبق لحظيًا على الموقعين */
+  ...SOCIAL_KEYS.map((key) => ({
+    key: `social.${key}` as string,
+    category: "SOCIAL" as SiteConfigCategory,
+    type: "string" as SiteConfigValueType,
+    label: SOCIAL_LABELS[key],
+    hint: `الرابط الرسمي المعتمد: ${SOCIAL_LINKS[key]}`,
+    default: SOCIAL_LINKS[key],
+  })),
 
   /* ---------- النصوص والرسائل ---------- */
   {

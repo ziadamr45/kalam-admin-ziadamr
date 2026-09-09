@@ -3,6 +3,13 @@
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { Badge, Button, Card, Modal, useToast } from "@/components/ui";
+import {
+  VERIFICATION_TYPES,
+  VERIFICATION_TYPE_META,
+  verificationSealColor,
+  verificationSealLabel,
+  type VerificationType,
+} from "@/lib/verification-meta";
 
 /* شارة الرتبة الفكرية — بألوان نسخة المنصة نفسها */
 const RANK_STYLE: Record<string, { color: string; soft: string }> = {
@@ -24,10 +31,14 @@ type UserRow = {
   intellectualRank: string;
   banned: boolean;
   banReason: string | null;
-  /* منظومة التوثيق السيادي */
+  /* التوثيق الرسمي المستقل — إثبات هوية */
   role: string;
   isVerified: boolean;
-  verifiedType: string | null;
+  verifiedAt: string | null;
+  verificationType: string | null;
+  verificationLabel: string | null;
+  /* العضوية المميزة المستقلة — امتيازات وشارات */
+  isVip: boolean;
   vipBadgeTitle: string | null;
   vipBadgeColor: string | null;
   vipReason: string | null;
@@ -107,6 +118,14 @@ export function UsersTable({ users }: { users: UserRow[] }) {
   const [resetTarget, setResetTarget] = useState<UserRow | null>(null);
   const [vipTarget, setVipTarget] = useState<UserRow | null>(null);
   const [revokeTarget, setRevokeTarget] = useState<UserRow | null>(null);
+  /* استوديو التوثيق الرسمي المستقل */
+  const [verifTarget, setVerifTarget] = useState<UserRow | null>(null);
+  const [verifType, setVerifType] = useState<VerificationType>("OFFICIAL_AUTHOR");
+  const [verifLabel, setVerifLabel] = useState("");
+  const [verifReason, setVerifReason] = useState("");
+  const [verifBusy, setVerifBusy] = useState(false);
+  const [unverifTarget, setUnverifTarget] = useState<UserRow | null>(null);
+  const [unverifReason, setUnverifReason] = useState("");
   const [reason, setReason] = useState("مخالفة أدب الحوار والقيم");
   const [busy, setBusy] = useState(false);
 
@@ -124,6 +143,7 @@ export function UsersTable({ users }: { users: UserRow[] }) {
   const [vipPoints, setVipPoints] = useState("");
   const [vipBusy, setVipBusy] = useState(false);
   const [revokeReason, setRevokeReason] = useState("");
+  const [revokeResetRole, setRevokeResetRole] = useState(true);
 
   /* ==================== الحذف السيادي الشامل (محو برمجي كامل) ==================== */
   const [deleteTarget, setDeleteTarget] = useState<UserRow | null>(null);
@@ -212,10 +232,87 @@ export function UsersTable({ users }: { users: UserRow[] }) {
     setVipTarget(u);
     setVipRole(u.role === "OWNER" ? "ADMIN" : u.role || "USER");
     setVipBadgeTitle(u.vipBadgeTitle ?? "");
-    setVipBadgeColor(u.vipBadgeColor ?? "#D97706");
-    setVipReason(u.isVerified ? (u.vipReason ?? "") : "");
+    setVipBadgeColor(u.vipBadgeColor ?? "#7C3AED");
+    setVipReason(u.isVip ? (u.vipReason ?? "") : "");
     setVipPrivileges({});
     setVipPoints("");
+  };
+
+  /* فتح استوديو التوثيق الرسمي — إثبات هوية فقط */
+  const openVerifStudio = (u: UserRow) => {
+    setVerifTarget(u);
+    setVerifType(
+      u.verificationType && VERIFICATION_TYPES.includes(u.verificationType as VerificationType)
+        ? (u.verificationType as VerificationType)
+        : "OFFICIAL_AUTHOR",
+    );
+    setVerifLabel(u.verificationLabel ?? "");
+    setVerifReason("");
+  };
+
+  const submitVerification = async () => {
+    if (!verifTarget) return;
+    if (verifLabel.trim() && (verifLabel.trim().length < 2 || verifLabel.trim().length > 40)) {
+      toast("مسمى الختم بين حرفين و40 حرفًا", "error");
+      return;
+    }
+    setVerifBusy(true);
+    try {
+      const res = await fetch("/api/users", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          userId: verifTarget.id,
+          action: "grant-verification",
+          verificationType: verifType,
+          verificationLabel: verifLabel.trim() || undefined,
+          reason: verifReason.trim() || undefined,
+        }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (res.ok && data?.ok) {
+        toast(
+          `وُثّق الحساب كـ«${data.sealLabel}» — الإشعارات: جرس ${data.dispatch?.inApp ? "✓" : "×"} بث ${data.dispatch?.pushSent ? "✓" : "×"}`,
+        );
+        setVerifTarget(null);
+        router.refresh();
+      } else {
+        toast(data?.error || "تعذر منح التوثيق", "error");
+      }
+    } finally {
+      setVerifBusy(false);
+    }
+  };
+
+  const submitUnverify = async () => {
+    if (!unverifTarget) return;
+    if (unverifReason.trim().length < 3) {
+      toast("سبب سحب التوثيق إلزامي — يظهر في إشعار المستخدم", "error");
+      return;
+    }
+    setVerifBusy(true);
+    try {
+      const res = await fetch("/api/users", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          userId: unverifTarget.id,
+          action: "revoke-verification",
+          reason: unverifReason.trim(),
+        }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (res.ok && data?.ok) {
+        toast("سُحبت علامة التوثيق وأُرسل إشعار التحديث — العضوية المميزة لم تُمس");
+        setUnverifTarget(null);
+        setUnverifReason("");
+        router.refresh();
+      } else {
+        toast(data?.error || "تعذر سحب التوثيق", "error");
+      }
+    } finally {
+      setVerifBusy(false);
+    }
   };
 
   const togglePrivilege = (key: string) =>
@@ -281,16 +378,17 @@ export function UsersTable({ users }: { users: UserRow[] }) {
           userId: revokeTarget.id,
           action: "revoke-vip",
           reason: revokeReason.trim(),
+          resetRole: revokeResetRole,
         }),
       });
       const data = await res.json().catch(() => ({}));
       if (res.ok && data?.ok) {
-        toast("سُحبت الشارة وأُرسل إشعار التحديث للمستخدم");
+        toast("سُحبت العضوية المميزة وأُرسل إشعار التحديث للمستخدم");
         setRevokeTarget(null);
         setRevokeReason("");
         router.refresh();
       } else {
-        toast(data?.error || "تعذر سحب التوثيق", "error");
+        toast(data?.error || "تعذر سحب العضوية", "error");
       }
     } finally {
       setVipBusy(false);
@@ -436,12 +534,19 @@ export function UsersTable({ users }: { users: UserRow[] }) {
                           <div className="flex items-center gap-1.5">
                             <span className="font-bold text-steel-900">{u.name}</span>
                             {u.isVerified && (
-                              <VerifiedDot color={u.vipBadgeColor || "#2563EB"} title={u.vipBadgeTitle || "حساب موثّق"} />
+                              <VerifiedDot
+                                color={verificationSealColor(u.verificationType)}
+                                title={verificationSealLabel(u.verificationType, u.verificationLabel)}
+                              />
                             )}
                           </div>
-                          {(u.role && u.role !== "USER") || u.isVerified ? (
+                          {u.role !== "USER" || u.isVerified || u.isVip ? (
                             <p className="text-[10px] text-steel-400">
-                              {u.role !== "USER" ? ROLE_LABELS[u.role] ?? u.role : u.vipBadgeTitle}
+                              {u.role !== "USER"
+                                ? ROLE_LABELS[u.role] ?? u.role
+                                : u.isVerified
+                                  ? verificationSealLabel(u.verificationType, u.verificationLabel)
+                                  : u.vipBadgeTitle}
                             </p>
                           ) : null}
                         </div>
@@ -492,12 +597,15 @@ export function UsersTable({ users }: { users: UserRow[] }) {
                         ) : (
                           <Badge tone="success">نشط</Badge>
                         )}
-                        {u.isVerified && u.vipBadgeTitle && (
+                        {u.isVerified && (
+                          <Badge tone="copper">موثّق {verificationSealLabel(u.verificationType, u.verificationLabel)}</Badge>
+                        )}
+                        {u.isVip && u.vipBadgeTitle && (
                           <span
                             className="rounded-full px-2 py-0.5 text-[10px] font-bold"
                             style={{
-                              background: `${u.vipBadgeColor || "#2563EB"}1f`,
-                              color: u.vipBadgeColor || "#2563EB",
+                              background: `${u.vipBadgeColor || "#7C3AED"}1f`,
+                              color: u.vipBadgeColor || "#7C3AED",
                             }}
                             title={u.vipReason ?? undefined}
                           >
@@ -512,17 +620,25 @@ export function UsersTable({ users }: { users: UserRow[] }) {
                         <Button size="sm" variant="outline" onClick={() => { setAdjustTarget(u); setAdjustSign(1); }}>
                           تعديل الرصيد
                         </Button>
-                        <Button
-                          size="sm"
-                          variant={u.isVerified ? "ghost" : "primary"}
-                          onClick={() => openVipStudio(u)}
-                        >
-                          {u.isVerified ? "تعديل التمييز" : "ترقية مميزة VIP"}
-                        </Button>
-                        {u.isVerified && (
-                          <Button size="sm" variant="ghost" onClick={() => setRevokeTarget(u)}>
-                            سحب التوثيق
-                          </Button>
+                        {u.role !== "OWNER" && (
+                          <>
+                            <Button size="sm" variant={u.isVerified ? "ghost" : "primary"} onClick={() => openVerifStudio(u)}>
+                              {u.isVerified ? "تعديل التوثيق" : "توثيق الحساب"}
+                            </Button>
+                            <Button size="sm" variant={u.isVip ? "ghost" : "primary"} onClick={() => openVipStudio(u)}>
+                              {u.isVip ? "تعديل VIP" : "عضوية VIP"}
+                            </Button>
+                            {u.isVerified && (
+                              <Button size="sm" variant="ghost" onClick={() => setUnverifTarget(u)}>
+                                سحب التوثيق
+                              </Button>
+                            )}
+                            {u.isVip && (
+                              <Button size="sm" variant="ghost" onClick={() => setRevokeTarget(u)}>
+                                سحب VIP
+                              </Button>
+                            )}
+                          </>
                         )}
                         {hasCustomIdentity && (
                           <Button size="sm" variant="ghost" onClick={() => setResetTarget(u)}>
@@ -646,13 +762,35 @@ export function UsersTable({ users }: { users: UserRow[] }) {
         </div>
       </Modal>
 
-      {/* ==================== استوديو الحسابات المميزة (VIP Studio) ==================== */}
+      {/* ==================== استوديو العضوية المميزة (VIP & Privileges Studio) ==================== */}
       <Modal
         open={Boolean(vipTarget)}
         onClose={() => setVipTarget(null)}
-        title={`استوديو التمييز — ${vipTarget?.customName || vipTarget?.name || ""}`}
+        title={`استوديو العضوية المميزة — ${vipTarget?.customName || vipTarget?.name || ""}`}
       >
         <div className="max-h-[70vh] space-y-5 overflow-y-auto pl-1">
+          {/* حالة التوثيق الرسمي المستقل — معلومة فقط لا تُعدل من هنا */}
+          <div className="rounded-xl border border-steel-100 bg-steel-50 px-3.5 py-2.5 text-[11px] leading-5 text-steel-500">
+            حالة التوثيق الرسمي: {vipTarget?.isVerified ? (
+              <strong className="text-steel-700">
+                موثّق ({verificationSealLabel(vipTarget.verificationType, vipTarget.verificationLabel)})
+              </strong>
+            ) : (
+              "غير موثق — التوثيق يُدار من استوديو التوثيق المستقل ولا يُمنح من هنا إطلاقًا"
+            )}
+            {" "}— هذه الشارة والصلاحيات هنا مستقلة تمامًا عن علامة التوثيق.
+          </div>
+
+          {/* مفتاح العضوية */}
+          <div className="flex items-center justify-between rounded-xl border border-steel-100 p-3">
+            <div>
+              <p className="text-xs font-bold text-steel-800">تفعيل عضوية مميزة VIP</p>
+              <p className="text-[11px] text-steel-400">مفتاح مستقل عن علامة التوثيق الرسمية</p>
+            </div>
+            <span className={`rounded-full px-2.5 py-1 text-[10px] font-bold ${vipTarget?.isVip ? "bg-copper-100 text-copper-700" : "bg-steel-100 text-steel-400"}`}>
+              {vipTarget?.isVip ? "عضوية فعالة" : "بلا عضوية"}
+            </span>
+          </div>
           {/* الرتبة الوظيفية */}
           <div>
             <label className="mb-1.5 block text-xs font-bold text-steel-700">
@@ -676,17 +814,17 @@ export function UsersTable({ users }: { users: UserRow[] }) {
           {/* مسمى الشارة */}
           <div>
             <label className="mb-1.5 block text-xs font-bold text-steel-700">
-              مسمى شارة التوثيق <span className="text-danger-600">*</span>
+              مسمى كبسولة العضوية <span className="text-danger-600">*</span>
             </label>
             <input
               value={vipBadgeTitle}
               onChange={(e) => setVipBadgeTitle(e.target.value)}
               className="field"
-              placeholder="مثال: مؤسس المنصة، كاتب ضيف، باحث معرفي، عضو شرفي"
+              placeholder="مثال: مؤسس المنصة، عضو فخري، مساهم متميز"
               maxLength={40}
             />
             <p className="mt-1 text-[11px] text-steel-400">
-              يظهر بجانب اسمه في كل مكان بالموقع مع ختم التوثيق.
+              كبسولة ملونة تظهر بجانب اسمه في كل مكان — مستقلة عن علامة التوثيق.
             </p>
           </div>
 
@@ -785,17 +923,18 @@ export function UsersTable({ users }: { users: UserRow[] }) {
 
         <div className="mt-5 flex gap-3 border-t border-steel-100 pt-4">
           <Button disabled={vipBusy} onClick={submitVipGrant}>
-            {vipTarget?.isVerified ? "تحديث التمييز والمزايا" : "منح التوثيق والتمييز"}
+            {vipTarget?.isVip ? "تحديث العضوية والمزايا" : "تفعيل العضوية المميزة"}
           </Button>
           <Button variant="ghost" onClick={() => setVipTarget(null)}>إلغاء</Button>
         </div>
       </Modal>
 
-      {/* سحب التوثيق — سبب إلزامي يُرسل للمستخدم */}
-      <Modal open={Boolean(revokeTarget)} onClose={() => setRevokeTarget(null)} title="سحب التوثيق والتمييز">
+      {/* سحب العضوية المميزة فقط — سبب إلزامي يُرسل للمستخدم */}
+      <Modal open={Boolean(revokeTarget)} onClose={() => setRevokeTarget(null)} title="سحب العضوية المميزة VIP">
         <p className="text-sm leading-7 text-steel-600">
-          سيُسحب التوثيق والشارة «<strong>{revokeTarget?.vipBadgeTitle}</strong>» وكل الصلاحيات الممنوحة من{" "}
-          <strong>{revokeTarget?.email}</strong> وتعود رتبته «مستخدم عادي». رصيد أثره المكتسب لا يُمس.
+          ستُنزع الكبسولة «<strong>{revokeTarget?.vipBadgeTitle}</strong>» وكل الصلاحيات الممنوحة من{" "}
+          <strong>{revokeTarget?.email}</strong>. علامة التوثيق الرسمية إن وُجدت لا تُمس إطلاقًا،
+          ورصيد أثره المكتسب لا يُمس.
         </p>
         <input
           value={revokeReason}
@@ -804,11 +943,138 @@ export function UsersTable({ users }: { users: UserRow[] }) {
           placeholder="سبب السحب — إلزامي، يُرسل في إشعار للمستخدم"
           maxLength={300}
         />
+        <label className="mt-3 flex cursor-pointer items-center gap-2.5 rounded-xl border border-steel-100 p-3">
+          <input
+            type="checkbox"
+            checked={revokeResetRole}
+            onChange={(e) => setRevokeResetRole(e.target.checked)}
+            className="h-4 w-4 accent-copper-600"
+          />
+          <span className="text-xs text-steel-600">
+            إعادة رتبته الوظيفية إلى «مستخدم عادي» مع السحب
+          </span>
+        </label>
         <div className="mt-5 flex gap-3">
           <Button variant="danger" disabled={vipBusy} onClick={submitVipRevoke}>
-            تأكيد السحب وإشعار المستخدم
+            تأكيد سحب العضوية وإشعار المستخدم
           </Button>
           <Button variant="ghost" onClick={() => setRevokeTarget(null)}>إلغاء</Button>
+        </div>
+      </Modal>
+
+      {/* ==================== استوديو التوثيق الرسمي — إثبات هوية فقط ==================== */}
+      <Modal
+        open={Boolean(verifTarget)}
+        onClose={() => setVerifTarget(null)}
+        title={`استوديو التوثيق الرسمي — ${verifTarget?.customName || verifTarget?.name || ""}`}
+      >
+        <div className="max-h-[70vh] space-y-5 overflow-y-auto pl-1">
+          <div className="rounded-xl border border-steel-100 bg-steel-50 px-3.5 py-2.5 text-[11px] leading-5 text-steel-500">
+            التوثيق = إثبات هوية فقط: علامة صح بجانب الاسم بألوان التصنيف، أولوية في النقاشات،
+            إعفاء من فترات التهدئة، وبطاقة فكرية موسعة — <strong className="text-steel-700">بلا أي صلاحيات إضافية</strong>.
+            العضوية المميزة VIP تُدار من استوديو مستقل تمامًا.
+          </div>
+
+          {/* مفتاح التوثيق */}
+          <div className="flex items-center justify-between rounded-xl border border-steel-100 p-3">
+            <div>
+              <p className="text-xs font-bold text-steel-800">توثيق الحساب (علامة الصح)</p>
+              <p className="text-[11px] text-steel-400">مفتاح مستقل عن العضوية المميزة</p>
+            </div>
+            <span className={`rounded-full px-2.5 py-1 text-[10px] font-bold ${verifTarget?.isVerified ? "bg-success-100 text-success-700" : "bg-steel-100 text-steel-400"}`}>
+              {verifTarget?.isVerified ? "موثّق" : "غير موثق"}
+            </span>
+          </div>
+
+          {/* تصنيف التوثيق */}
+          <div>
+            <label className="mb-1.5 block text-xs font-bold text-steel-700">
+              نوع التوثيق <span className="text-danger-600">*</span>
+            </label>
+            <select
+              value={verifType}
+              onChange={(e) => setVerifType(e.target.value as VerificationType)}
+              className="field"
+              dir="rtl"
+            >
+              {VERIFICATION_TYPES.map((t) => {
+                const meta = VERIFICATION_TYPE_META[t];
+                const disabled = t === "OWNER";
+                return (
+                  <option key={t} value={t} disabled={disabled}>
+                    {meta.label} — {meta.hint}{disabled ? " (بالبذر التلقائي حصريًا)" : ""}
+                  </option>
+                );
+              })}
+            </select>
+            <div className="mt-2 flex items-center gap-2">
+              <span
+                className="inline-block h-4 w-4 rounded-full"
+                style={{ background: VERIFICATION_TYPE_META[verifType].color }}
+              />
+              <span className="text-[11px] text-steel-400">
+                لون الختم: {VERIFICATION_TYPE_META[verifType].color}
+              </span>
+            </div>
+          </div>
+
+          {/* مسمى عرض اختياري */}
+          <div>
+            <label className="mb-1.5 block text-xs font-bold text-steel-700">
+              مسمى بجانب الختم (اختياري)
+            </label>
+            <input
+              value={verifLabel}
+              onChange={(e) => setVerifLabel(e.target.value)}
+              className="field"
+              placeholder="يُستخدم مسمى التصنيف افتراضيًا — مثل: مؤسس المنصة، باحث معرفي"
+              maxLength={40}
+            />
+          </div>
+
+          {/* سبب إداري اختياري يُوثق في السجل */}
+          <div>
+            <label className="mb-1.5 block text-xs font-bold text-steel-700">
+              سبب إداري (يُوثق في السجل ويظهر في إشعار المستخدم)
+            </label>
+            <textarea
+              value={verifReason}
+              onChange={(e) => setVerifReason(e.target.value)}
+              className="field min-h-16"
+              placeholder="مثال: كاتب معتمد بعقد، فرد من العائلة، بلوغ عتبة الاستحقاق"
+              maxLength={300}
+            />
+          </div>
+        </div>
+
+        <div className="mt-5 flex gap-3 border-t border-steel-100 pt-4">
+          <Button disabled={verifBusy} onClick={submitVerification}>
+            {verifTarget?.isVerified ? "تحديث التوثيق" : "توثيق الحساب"}
+          </Button>
+          <Button variant="ghost" onClick={() => setVerifTarget(null)}>إلغاء</Button>
+        </div>
+      </Modal>
+
+      {/* سحب التوثيق الرسمي فقط — العضوية المميزة لا تُمس */}
+      <Modal open={Boolean(unverifTarget)} onClose={() => setUnverifTarget(null)} title="سحب علامة التوثيق الرسمية">
+        <p className="text-sm leading-7 text-steel-600">
+          ستُنزع علامة التوثيق الرسمية («
+          <strong>{verificationSealLabel(unverifTarget?.verificationType, unverifTarget?.verificationLabel)}</strong>
+          ») من <strong>{unverifTarget?.email}</strong>. العضوية المميزة VIP إن وُجدت
+          <strong> لا تُمس إطلاقًا</strong>.
+        </p>
+        <input
+          value={unverifReason}
+          onChange={(e) => setUnverifReason(e.target.value)}
+          className="field mt-4"
+          placeholder="سبب السحب — إلزامي، يُرسل في إشعار للمستخدم"
+          maxLength={300}
+        />
+        <div className="mt-5 flex gap-3">
+          <Button variant="danger" disabled={verifBusy} onClick={submitUnverify}>
+            تأكيد سحب التوثيق
+          </Button>
+          <Button variant="ghost" onClick={() => setUnverifTarget(null)}>إلغاء</Button>
         </div>
       </Modal>
 

@@ -6,6 +6,7 @@ import { createContext, useContext, useState } from "react";
 import { ToastProvider } from "@/components/ui";
 import { PushToggle } from "@/components/push-toggle";
 import { SovereignTerminal } from "@/components/sovereign-terminal";
+import { SOCIAL_LINKS } from "@/lib/constants/socials";
 
 /**
  * حالة فتح القائمة الجانبية — يقرأها أي مكوّن داخل الغلاف
@@ -148,6 +149,37 @@ export function DashboardShell({
             </nav>
 
             <div className="border-t border-steel-800 p-4">
+              {/* الحسابات التقنية الرسمية — من المصدر الموحد للروابط */}
+              <div className="mb-3 flex items-center gap-2 px-2">
+                <a
+                  href={SOCIAL_LINKS.github}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="flex items-center gap-1.5 rounded-lg px-2 py-1 text-[10px] font-semibold text-steel-400 transition-colors hover:text-white"
+                  title="جيت هاب"
+                >
+                  <svg width="13" height="13" viewBox="0 0 24 24" fill="currentColor"><path d="M12 1.5A10.5 10.5 0 0 0 8.7 22c.5.1.7-.2.7-.5v-1.8c-2.9.6-3.5-1.4-3.5-1.4-.5-1.2-1.2-1.5-1.2-1.5-.9-.7.1-.7.1-.7 1 .1 1.6 1.1 1.6 1.1.9 1.6 2.5 1.1 3.1.9.1-.7.4-1.1.7-1.4-2.3-.3-4.8-1.2-4.8-5.1 0-1.1.4-2 1-2.7-.1-.3-.4-1.3.1-2.7 0 0 .9-.3 2.8 1a9.4 9.4 0 0 1 5 0c1.9-1.3 2.8-1 2.8-1 .5 1.4.2 2.4.1 2.7.7.7 1 1.6 1 2.7 0 3.9-2.4 4.8-4.7 5.1.4.3.7.9.7 1.9V21.5c0 .3.2.6.7.5A10.5 10.5 0 0 0 12 1.5Z" /></svg>
+                  GitHub
+                </a>
+                <a
+                  href={SOCIAL_LINKS.portfolio}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="flex items-center gap-1.5 rounded-lg px-2 py-1 text-[10px] font-semibold text-steel-400 transition-colors hover:text-white"
+                  title="الموقع الشخصي"
+                >
+                  <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="12" cy="12" r="9.5" /><path d="M2.5 12h19M12 2.5c2.5 2.6 3.8 5.9 3.8 9.5S14.5 18.9 12 21.5c-2.5-2.6-3.8-5.9-3.8-9.5S9.5 5.1 12 2.5Z" /></svg>
+                  Portfolio
+                </a>
+                <a
+                  href={SOCIAL_LINKS.email}
+                  className="flex items-center gap-1.5 rounded-lg px-2 py-1 text-[10px] font-semibold text-steel-400 transition-colors hover:text-white"
+                  title="الدعم عبر البريد"
+                >
+                  <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><rect x="2.5" y="4.5" width="19" height="15" rx="2.5" /><path d="m3.5 6.5 8.5 6.5 8.5-6.5" /></svg>
+                  Support
+                </a>
+              </div>
               <div className="mb-3 flex items-center gap-3 px-2">
                 <div className="flex h-9 w-9 items-center justify-center rounded-full bg-steel-700 text-sm font-bold text-steel-100">
                   {username.charAt(0).toUpperCase()}
