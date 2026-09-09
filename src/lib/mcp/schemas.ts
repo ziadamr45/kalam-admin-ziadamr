@@ -16,7 +16,7 @@ export type McpToolSchema = {
 
 export const MCP_PROTOCOL_VERSION = "2025-03-26";
 export const MCP_SERVER_NAME = "kalam-sovereign-admin";
-export const MCP_SERVER_VERSION = "2.0.0";
+export const MCP_SERVER_VERSION = "2.1.0";
 
 export const MCP_TOOLS: McpToolSchema[] = [
   /* ==================== أ) أدوات المقالات ==================== */
@@ -219,10 +219,15 @@ export const MCP_TOOLS: McpToolSchema[] = [
       properties: {
         action: {
           type: "string",
-          enum: ["list", "approve", "reject", "delete"],
-          description: "list جلب | approve اعتماد | reject رفض | delete حذف نهائي",
+          enum: ["list", "approve", "reject", "delete", "list_reports", "clear_reports"],
+          description:
+            "list جلب | approve اعتماد | reject رفض | delete حذف نهائي | list_reports جلب البلاغات المرفقة بالتعليقات | clear_reports مسح بلاغات تعليق",
         },
-        commentId: { type: "string", description: "معرف التعليق — إلزامي لكل الأفعال عدا list" },
+        commentId: { type: "string", description: "معرف التعليق — إلزامي لكل الأفعال عدا list وlist_reports" },
+        dismissFlag: {
+          type: "boolean",
+          description: "مع clear_reports — مسح علامة الاشتباه الآلي (flagged) عن التعليق أيضًا",
+        },
         status: {
           type: "string",
           enum: ["PENDING", "APPROVED", "REJECTED"],
@@ -280,8 +285,16 @@ export const MCP_TOOLS: McpToolSchema[] = [
         userId: { type: "string", description: "معرف المستخدم — إلزامي" },
         action: {
           type: "string",
-          enum: ["ban", "unban", "adjust_impact", "reset_identity"],
-          description: "ban حظر | unban فك الحظر | adjust_impact منح/خصم أثر | reset_identity تصفير الهوية المخصصة",
+          enum: [
+            "ban",
+            "unban",
+            "adjust_impact",
+            "reset_identity",
+            "list_logins",
+            "revoke_logins",
+          ],
+          description:
+            "ban حظر | unban فك الحظر | adjust_impact منح/خصم أثر | reset_identity تصفير الهوية المخصصة | list_logins فحص دخولات Google وجلساته على المنصة العامة | revoke_logins إبطال جلساته وإجباره على إعادة الدخول",
         },
         reason: {
           type: "string",
@@ -480,6 +493,190 @@ export const MCP_TOOLS: McpToolSchema[] = [
         },
         hours: { type: "number", description: "المدة بالساعات الماضية (افتراضي 24)" },
         limit: { type: "number", description: "عدد الأحداث (افتراضي 30، أقصى 100)" },
+      },
+    },
+  },
+
+  /* ==================== ك) أتمتة التغطية الكاملة — كل ذرة في المنصة ==================== */
+  {
+    name: "delete_category",
+    description:
+      "حذف قسم نهائيًا من المنصة. مقالاته تبقى موجودة لكنها تنفصل عن الأقسام، أو مرر reassignToSlug لنقلها كلها إلى قسم آخر قبل الحذف. تُعاد ترندرة صفحات المنصة فورًا.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        id: { type: "string", description: "معرف القسم id — مرر id أو slug" },
+        slug: { type: "string", description: "معرف القسم النصي slug — بديل عن id" },
+        reassignToSlug: {
+          type: "string",
+          description: "نقل مقالات القسم إلى هذا القسم قبل حذفه (slug) — اختياري",
+        },
+      },
+    },
+  },
+  {
+    name: "manage_platform_errors",
+    description:
+      "عين العطل في المنصة: جلب أخطاء برمجية المتصفح المبلّغ عنها مجمعة بالبصمة (الرسالة، المكدس، المسار، العدد، آخر ظهور)، وحذف سجل خطأ بعينه أو مسح السجل كله بعد معالجته.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        action: {
+          type: "string",
+          enum: ["list", "delete", "clear_all"],
+          description: "list جلب (افتراضي) | delete حذف سجل | clear_all مسح السجل كله",
+        },
+        digest: { type: "string", description: "بصمة الخطأ — إلزامي مع delete" },
+        path: { type: "string", description: "فلتر قائمة الجلب بمسار الصفحة" },
+        limit: { type: "number", description: "عدد النتائج (افتراضي 30، أقصى 100)" },
+      },
+    },
+  },
+  {
+    name: "list_impact_ledger",
+    description:
+      "دفتر أثر القراء الموثق نقطة بنقطة: كل منح وخصم وقراءة مكتملة وتعليق معتمد وتمييز ملهم ومشاركة اقتباس، بفاعله وسببه ومقاله ومفتاح منع التكرار — فلترة بمستخدم أو نوع فعل.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        userId: { type: "string", description: "فلترة بمستخدم بعينه" },
+        actionType: {
+          type: "string",
+          description:
+            "فلترة بنوع الفعل: READ_COMPLETE | AI_DISCUSS | COMMENT_APPROVED | COMMENT_INSPIRING | QUOTE_SHARE | ADMIN_ADJUST",
+        },
+        limit: { type: "number", description: "عدد النتائج (افتراضي 40، أقصى 100)" },
+        offset: { type: "number", description: "إزاحة الترقيم للصفحات" },
+      },
+    },
+  },
+  {
+    name: "manage_social_graph",
+    description:
+      "ذرات التفاعل الاجتماعي الخام: إعجابات/عدم إعجابات (التصويتات) ومشاركات الاقتباس على منصاتها ومكتبة المحفوظات لكل قارئ — جلبها لمقال أو مستخدم، وإزالة أي سجل بعينه (تصويت مزعج، مشاركة وهمية، محفوظة).",
+    inputSchema: {
+      type: "object",
+      properties: {
+        action: {
+          type: "string",
+          enum: ["list", "remove"],
+          description: "list جلب (افتراضي) | remove إزالة سجل بعينه",
+        },
+        kind: {
+          type: "string",
+          enum: ["votes", "shares", "saved"],
+          description: "votes التصويتات | shares المشاركات | saved المحفوظات — إلزامي مع remove",
+        },
+        recordId: { type: "string", description: "معرف السجل — إلزامي مع remove" },
+        articleId: { type: "string", description: "فلترة بمقال" },
+        userId: { type: "string", description: "فلترة بمستخدم (أو visitorFp للضيوف في التصويتات)" },
+        limit: { type: "number", description: "عدد النتائج (افتراضي 40، أقصى 100)" },
+      },
+    },
+  },
+  {
+    name: "manage_reading_data",
+    description:
+      "بيانات القراءة الخام سجلًا سجلًا: كل زيارة بمسارها وجهازها ومصدرها ومدة قراءتها واكتمالها — مع إمكانية حذف أي سجل، أو محو كل آثار زائر عبر بصمته (حق النسيان)، أو تفريغ بيانات مقال.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        action: {
+          type: "string",
+          enum: ["list", "delete"],
+          description: "list جلب (افتراضي) | delete حذف",
+        },
+        id: { type: "string", description: "معرف السجل — إلزامي مع delete إذا لم تمرر visitorFp أو articleId" },
+        visitorFp: {
+          type: "string",
+          description: "بصمة زائر — مع delete تمحو كل آثاره (حق النسيان)، ومع list تفلتر سجلاته",
+        },
+        articleId: { type: "string", description: "فلترة بمقال — ومع delete تمحو كل سجلاته" },
+        path: { type: "string", description: "فلترة بمسار الصفحة" },
+        completedOnly: { type: "boolean", description: "القراءات المكتملة فقط" },
+        limit: { type: "number", description: "عدد النتائج (افتراضي 40، أقصى 100)" },
+        offset: { type: "number", description: "إزاحة الترقيم" },
+      },
+    },
+  },
+  {
+    name: "manage_notifications_inbox",
+    description:
+      "جرس إشعارات القراء الداخلي من حيث لا يتوقع: جلب إشعارات كل المستخدمين أو مستخدم بعينه (غير المقروء أولًا)، وتعليم أي إشعار مقروءًا أو إرجاعه، أو حذفه من الجرس نهائيًا.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        action: {
+          type: "string",
+          enum: ["list", "mark_read", "mark_unread", "delete"],
+          description: "list جلب (افتراضي) | بقية الأفعال تتطلب id الإشعار",
+        },
+        id: { type: "string", description: "معرف الإشعار — إلزامي مع mark_read وmark_unread وdelete" },
+        userId: { type: "string", description: "فلترة قائمة الجلب بمستخدم" },
+        unreadOnly: { type: "boolean", description: "غير المقروءة فقط" },
+        limit: { type: "number", description: "عدد النتائج (افتراضي 40، أقصى 100)" },
+      },
+    },
+  },
+  {
+    name: "manage_push_subscriptions",
+    description:
+      "سجل أجهزة الإشعارات الفورية: اشتراكات القراء المشتركة بهواتفها واشتراكات الأدمن، بنقاط نهايتها وأجهزتها وآخر ظهور — مع إزالة أي اشتراك منتهٍ أو مزعج.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        action: {
+          type: "string",
+          enum: ["list", "remove"],
+          description: "list جلب (افتراضي) | remove إزالة اشتراك",
+        },
+        kind: {
+          type: "string",
+          enum: ["user", "admin"],
+          description: "user اشتراكات القراء | admin اشتراكات الأدمن — افتراضي user",
+        },
+        id: { type: "string", description: "معرف الاشتراك — إلزامي مع remove" },
+        userId: { type: "string", description: "فلترة قائمة القراء بمستخدم" },
+        limit: { type: "number", description: "عدد النتائج (افتراضي 50، أقصى 100)" },
+      },
+    },
+  },
+  {
+    name: "manage_admin_account",
+    description:
+      "ذرات حساب الإدارة نفسه: نظرة شاملة على حسابات الأدمن وجلسات اللوحة الحية بأجهزتها وعناوينها والأجهزة الموثوقة وحالة التحقق الثنائي، مع إبطال أي جلسة، وإزالة جهاز موثوق، وتغيير كلمة المرور (يتطلب كلمة المرور الحالية للتحقق).",
+    inputSchema: {
+      type: "object",
+      properties: {
+        action: {
+          type: "string",
+          enum: ["overview", "revoke_session", "remove_device", "change_password"],
+          description:
+            "overview نظرة شاملة (افتراضي) | revoke_session إبطال جلسة | remove_device إزالة جهاز موثوق | change_password تغيير كلمة المرور",
+        },
+        sessionId: { type: "string", description: "معرف الجلسة — إلزامي مع revoke_session" },
+        deviceId: { type: "string", description: "معرف الجهاز — إلزامي مع remove_device" },
+        currentPassword: { type: "string", description: "كلمة المرور الحالية — إلزامية مع change_password للتحقق" },
+        newPassword: { type: "string", description: "كلمة المرور الجديدة — إلزامية مع change_password" },
+      },
+    },
+  },
+  {
+    name: "manage_discussion_quota",
+    description:
+      "حصص نقاش الذكاء الاصطناعي سجلًا سجلًا: من ناقش أي مقال وكم رسالة أرسل ومتى — مع تصفير حصة قارئ في مقال بعينه (حذف السجل يفتح له نقاشًا جديدًا).",
+    inputSchema: {
+      type: "object",
+      properties: {
+        action: {
+          type: "string",
+          enum: ["list", "reset"],
+          description: "list جلب (افتراضي) | reset تصفير حصة",
+        },
+        id: { type: "string", description: "معرف السجل — بديل عن userId+articleId مع reset" },
+        userId: { type: "string", description: "فلترة/تصفير بمستخدم" },
+        articleId: { type: "string", description: "فلترة/تصفير بمقال" },
+        limit: { type: "number", description: "عدد النتائج (افتراضي 40، أقصى 100)" },
       },
     },
   },

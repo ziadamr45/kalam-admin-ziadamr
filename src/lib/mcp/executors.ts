@@ -18,6 +18,7 @@ import {
   saveChecklist,
 } from "@/lib/settings";
 import { awardImpact, IMPACT_POINTS } from "@/lib/impact";
+import { hashPassword, verifyPassword, validatePasswordStrength } from "@/lib/password";
 import { pushUsers } from "@/lib/push";
 import {
   revalidatePublicPaths,
@@ -660,6 +661,98 @@ async function listAndModerateComments(args: McpArgs, meta: McpRequestMeta) {
     };
   }
 
+  if (action === "list_reports") {
+    const limit = Math.min(num(args, "limit") ?? 30, 100);
+    const commentId = str(args, "commentId");
+    const reports = await prisma.commentReport.findMany({
+      where: commentId ? { commentId } : {},
+      orderBy: { createdAt: "desc" },
+      take: limit,
+      include: {
+        comment: {
+          select: {
+            id: true,
+            content: true,
+            status: true,
+            flagged: true,
+            reportCount: true,
+            article: { select: { id: true, title: true, slug: true } },
+          },
+        },
+      },
+    });
+    return { count: reports.length, reports };
+  }
+
+  if (action === "clear_reports") {
+    const commentId = str(args, "commentId");
+    if (!commentId) throw new McpToolError("معرف التعليق إلزامي للفعل clear_reports");
+    const removed = await prisma.commentReport.deleteMany({ where: { commentId } });
+    const dismissFlag = bool(args, "dismissFlag") === true;
+    await prisma.comment.update({
+      where: { id: commentId },
+      data: {
+        reportCount: 0,
+        ...(dismissFlag ? { flagged: false, flagReasons: [] } : {}),
+      },
+    });
+    await writeAudit({
+      adminId: null,
+      action: "mcp.comment_reports_cleared",
+      entity: "Comment",
+      entityId: commentId,
+      meta: { via: "gemini-spark-mcp", removed: removed.count, dismissFlag },
+      ip: meta.ip,
+    });
+    return { cleared: true, removedReports: removed.count, dismissFlag };
+  }
+
+  if (action === "list_reports") {
+    const limit = Math.min(num(args, "limit") ?? 30, 100);
+    const filterCommentId = str(args, "commentId");
+    const reports = await prisma.commentReport.findMany({
+      where: filterCommentId ? { commentId: filterCommentId } : {},
+      orderBy: { createdAt: "desc" },
+      take: limit,
+      include: {
+        comment: {
+          select: {
+            id: true,
+            content: true,
+            status: true,
+            flagged: true,
+            reportCount: true,
+            article: { select: { id: true, title: true, slug: true } },
+          },
+        },
+      },
+    });
+    return { count: reports.length, reports };
+  }
+
+  if (action === "clear_reports") {
+    const commentId = str(args, "commentId");
+    if (!commentId) throw new McpToolError("معرف التعليق إلزامي للفعل clear_reports");
+    const removed = await prisma.commentReport.deleteMany({ where: { commentId } });
+    const dismissFlag = bool(args, "dismissFlag") === true;
+    await prisma.comment.update({
+      where: { id: commentId },
+      data: {
+        reportCount: 0,
+        ...(dismissFlag ? { flagged: false, flagReasons: [] } : {}),
+      },
+    });
+    await writeAudit({
+      adminId: null,
+      action: "mcp.comment_reports_cleared",
+      entity: "Comment",
+      entityId: commentId,
+      meta: { via: "gemini-spark-mcp", removed: removed.count, dismissFlag },
+      ip: meta.ip,
+    });
+    return { cleared: true, removedReports: removed.count, dismissFlag };
+  }
+
   const commentId = str(args, "commentId");
   if (!commentId) throw new McpToolError(`معرف التعليق إلزامي للفعل «${action}»`);
   const comment = await prisma.comment.findUnique({
@@ -881,6 +974,52 @@ async function manageUser(args: McpArgs, meta: McpRequestMeta) {
       ip: meta.ip,
     });
     return { reset: true, user: { id: target.id, displayName: label } };
+  }
+
+  if (action === "list_logins") {
+    const [accounts, sessionCount] = await Promise.all([
+      prisma.account.findMany({
+        where: { userId: target.id },
+        select: {
+          provider: true,
+          providerAccountId: true,
+          type: true,
+          scope: true,
+          expires_at: true,
+        },
+      }),
+      prisma.session.count({
+        where: { userId: target.id, expires: { gt: new Date() } },
+      }),
+    ]);
+    return {
+      user: { id: target.id, displayName: label },
+      linkedAccounts: accounts.map((a) => ({
+        provider: a.provider,
+        providerAccountId: a.providerAccountId,
+        type: a.type,
+        scope: a.scope ?? null,
+        tokenExpiresAt: a.expires_at ? new Date(a.expires_at * 1000) : null,
+      })),
+      activeSiteSessions: sessionCount,
+    };
+  }
+
+  if (action === "revoke_logins") {
+    const removed = await prisma.session.deleteMany({ where: { userId: target.id } });
+    await writeAudit({
+      adminId: null,
+      action: "mcp.user_logins_revoked",
+      entity: "User",
+      entityId: target.id,
+      meta: { via: "gemini-spark-mcp", user: label, removed: removed.count },
+      ip: meta.ip,
+    });
+    return {
+      revoked: true,
+      removedSessions: removed.count,
+      user: { id: target.id, displayName: label },
+    };
   }
 
   throw new McpToolError(`فعل غير معروف: «${action}»`);
@@ -1465,6 +1604,619 @@ async function getLiveActivity(args: McpArgs) {
   return { total, count: events.length, windowHours: hours, events };
 }
 
+/* ============================ أتمتة التغطية الكاملة — كل ذرة في المنصة ============================ */
+
+async function deleteCategory(args: McpArgs, meta: McpRequestMeta) {
+  const id = str(args, "id");
+  const slug = str(args, "slug");
+  if (!id && !slug) throw new McpToolError("مرر id أو slug للقسم");
+  const section = await prisma.section.findFirst({
+    where: id ? { id } : { slug: slug! },
+    include: { _count: { select: { articles: true } } },
+  });
+  if (!section) throw new McpToolError("لا يوجد قسم بهذا المعرف");
+
+  const reassignToSlug = str(args, "reassignToSlug");
+  let reassigned = 0;
+  if (reassignToSlug) {
+    if (reassignToSlug === section.slug) {
+      throw new McpToolError("لا يمكن نقل المقالات إلى القسم ذاته المطلوب حذفه");
+    }
+    const target = await prisma.section.findUnique({ where: { slug: reassignToSlug }, select: { id: true } });
+    if (!target) throw new McpToolError(`لا يوجد قسم وجهة بالمعرف «${reassignToSlug}»`);
+    const moved = await prisma.article.updateMany({
+      where: { sectionId: section.id },
+      data: { sectionId: target.id },
+    });
+    reassigned = moved.count;
+  }
+
+  await prisma.section.delete({ where: { id: section.id } });
+  await revalidatePublicPaths(["/"], undefined, true);
+  await writeAudit({
+    adminId: null,
+    action: "mcp.section_deleted",
+    entity: "Section",
+    entityId: section.id,
+    meta: { via: "gemini-spark-mcp", slug: section.slug, reassigned },
+    ip: meta.ip,
+  });
+  return {
+    deleted: true,
+    section: { id: section.id, slug: section.slug, name: section.name },
+    reassignedArticles: reassigned,
+  };
+}
+
+async function managePlatformErrors(args: McpArgs, meta: McpRequestMeta) {
+  const action = str(args, "action") ?? "list";
+
+  if (action === "list") {
+    const path = str(args, "path");
+    const limit = Math.min(num(args, "limit") ?? 30, 100);
+    const where: Prisma.ErrorReportWhereInput = { ...(path ? { path } : {}) };
+    const [total, reports] = await Promise.all([
+      prisma.errorReport.count({ where }),
+      prisma.errorReport.findMany({ where, orderBy: { lastSeenAt: "desc" }, take: limit }),
+    ]);
+    return {
+      total,
+      count: reports.length,
+      totalOccurrences: reports.reduce((s, r) => s + r.count, 0),
+      reports,
+    };
+  }
+
+  if (action === "delete") {
+    const digest = str(args, "digest");
+    if (!digest) throw new McpToolError("بصمة الخطأ digest إلزامية للفعل delete");
+    const removed = await prisma.errorReport.deleteMany({ where: { digest } });
+    if (removed.count === 0) throw new McpToolError("لا يوجد سجل خطأ بهذه البصمة");
+    await writeAudit({
+      adminId: null,
+      action: "mcp.error_report_deleted",
+      entity: "ErrorReport",
+      entityId: digest,
+      meta: { via: "gemini-spark-mcp" },
+      ip: meta.ip,
+    });
+    return { deleted: true, digest };
+  }
+
+  if (action === "clear_all") {
+    const removed = await prisma.errorReport.deleteMany({});
+    await writeAudit({
+      adminId: null,
+      action: "mcp.error_reports_cleared",
+      entity: "ErrorReport",
+      entityId: null,
+      meta: { via: "gemini-spark-mcp", removed: removed.count },
+      ip: meta.ip,
+    });
+    return { cleared: true, removed: removed.count };
+  }
+
+  throw new McpToolError(`فعل غير معروف: «${action}»`);
+}
+
+async function listImpactLedger(args: McpArgs) {
+  const userId = str(args, "userId");
+  const actionType = str(args, "actionType");
+  const limit = Math.min(num(args, "limit") ?? 40, 100);
+  const offset = Math.max(num(args, "offset") ?? 0, 0);
+  const where: Prisma.ImpactLogWhereInput = {
+    ...(userId ? { userId } : {}),
+    ...(actionType ? { actionType } : {}),
+  };
+  const [total, entries] = await prisma.$transaction([
+    prisma.impactLog.count({ where }),
+    prisma.impactLog.findMany({
+      where,
+      orderBy: { createdAt: "desc" },
+      take: limit,
+      skip: offset,
+      include: {
+        user: { select: { customName: true, name: true, intellectualRank: true } },
+        article: { select: { slug: true, title: true } },
+      },
+    }),
+  ]);
+  return {
+    total,
+    count: entries.length,
+    entries: entries.map((e) => ({
+      id: e.id,
+      actionType: e.actionType,
+      points: e.points,
+      reason: e.reason,
+      dedupKey: e.dedupKey,
+      createdAt: e.createdAt,
+      user: e.user
+        ? { name: e.user.customName ?? e.user.name, rank: e.user.intellectualRank }
+        : null,
+      article: e.article,
+    })),
+  };
+}
+
+async function manageSocialGraph(args: McpArgs, meta: McpRequestMeta) {
+  const action = str(args, "action") ?? "list";
+  const articleId = str(args, "articleId");
+  const userId = str(args, "userId");
+  const limit = Math.min(num(args, "limit") ?? 40, 100);
+
+  if (action === "list") {
+    const [votes, shares, saved] = await Promise.all([
+      prisma.interaction.findMany({
+        where: { ...(articleId ? { articleId } : {}), ...(userId ? { userId } : {}) },
+        orderBy: { createdAt: "desc" },
+        take: limit,
+        include: {
+          article: { select: { slug: true, title: true } },
+          user: { select: { customName: true, name: true } },
+        },
+      }),
+      prisma.socialShare.findMany({
+        where: articleId ? { articleId } : {},
+        orderBy: { createdAt: "desc" },
+        take: limit,
+        include: { article: { select: { slug: true, title: true } } },
+      }),
+      prisma.savedArticle.findMany({
+        where: { ...(articleId ? { articleId } : {}), ...(userId ? { userId } : {}) },
+        orderBy: { createdAt: "desc" },
+        take: limit,
+        include: {
+          article: { select: { slug: true, title: true } },
+          user: { select: { customName: true, name: true } },
+        },
+      }),
+    ]);
+    return {
+      votes: votes.map((v) => ({
+        id: v.id,
+        value: v.value,
+        createdAt: v.createdAt,
+        actor: v.user ? { name: v.user.customName ?? v.user.name } : { visitorFp: v.visitorFp },
+        article: v.article,
+      })),
+      shares: shares.map((s) => ({
+        id: s.id,
+        platform: s.platform,
+        quoteLen: s.quoteLen,
+        createdAt: s.createdAt,
+        article: s.article,
+      })),
+      saved: saved.map((s) => ({
+        id: s.id,
+        createdAt: s.createdAt,
+        user: s.user ? { name: s.user.customName ?? s.user.name } : null,
+        article: s.article,
+      })),
+    };
+  }
+
+  if (action === "remove") {
+    const kind = str(args, "kind");
+    const recordId = str(args, "recordId");
+    if (!kind || !recordId) throw new McpToolError("kind وrecordId إلزاميان للفعل remove");
+    if (kind === "votes") {
+      const removed = await prisma.interaction.delete({ where: { id: recordId } });
+      await writeAudit({
+        adminId: null,
+        action: "mcp.interaction_removed",
+        entity: "Interaction",
+        entityId: recordId,
+        meta: { via: "gemini-spark-mcp", article: removed.articleId, value: removed.value },
+        ip: meta.ip,
+      });
+      return { removed: true, kind, recordId };
+    }
+    if (kind === "shares") {
+      await prisma.socialShare.delete({ where: { id: recordId } });
+      await writeAudit({
+        adminId: null,
+        action: "mcp.share_removed",
+        entity: "SocialShare",
+        entityId: recordId,
+        meta: { via: "gemini-spark-mcp" },
+        ip: meta.ip,
+      });
+      return { removed: true, kind, recordId };
+    }
+    if (kind === "saved") {
+      await prisma.savedArticle.delete({ where: { id: recordId } });
+      await writeAudit({
+        adminId: null,
+        action: "mcp.saved_removed",
+        entity: "SavedArticle",
+        entityId: recordId,
+        meta: { via: "gemini-spark-mcp" },
+        ip: meta.ip,
+      });
+      return { removed: true, kind, recordId };
+    }
+    throw new McpToolError(`نوع غير معروف: «${kind}»`);
+  }
+
+  throw new McpToolError(`فعل غير معروف: «${action}»`);
+}
+
+async function manageReadingData(args: McpArgs, meta: McpRequestMeta) {
+  const action = str(args, "action") ?? "list";
+
+  if (action === "list") {
+    const articleId = str(args, "articleId");
+    const path = str(args, "path");
+    const visitorFp = str(args, "visitorFp");
+    const completedOnly = bool(args, "completedOnly") === true;
+    const limit = Math.min(num(args, "limit") ?? 40, 100);
+    const offset = Math.max(num(args, "offset") ?? 0, 0);
+    const where: Prisma.PageViewWhereInput = {
+      ...(articleId ? { articleId } : {}),
+      ...(path ? { path } : {}),
+      ...(visitorFp ? { visitorFp } : {}),
+      ...(completedOnly ? { completed: true } : {}),
+    };
+    const [total, views] = await prisma.$transaction([
+      prisma.pageView.count({ where }),
+      prisma.pageView.findMany({
+        where,
+        orderBy: { createdAt: "desc" },
+        take: limit,
+        skip: offset,
+        include: { article: { select: { slug: true, title: true } } },
+      }),
+    ]);
+    return { total, count: views.length, views };
+  }
+
+  if (action === "delete") {
+    const id = str(args, "id");
+    const visitorFp = str(args, "visitorFp");
+    const articleId = str(args, "articleId");
+    if (!id && !visitorFp && !articleId) {
+      throw new McpToolError("مرر id أو visitorFp (حق النسيان) أو articleId للفعل delete");
+    }
+    const removed = await prisma.pageView.deleteMany({
+      where: id ? { id } : visitorFp ? { visitorFp } : { articleId: articleId! },
+    });
+    if (removed.count === 0) throw new McpToolError("لا توجد سجلات مطابقة للحذف");
+    await writeAudit({
+      adminId: null,
+      action: "mcp.pageviews_deleted",
+      entity: "PageView",
+      entityId: id ?? visitorFp ?? articleId,
+      meta: { via: "gemini-spark-mcp", removed: removed.count },
+      ip: meta.ip,
+    });
+    return { deleted: true, removed: removed.count };
+  }
+
+  throw new McpToolError(`فعل غير معروف: «${action}»`);
+}
+
+async function manageNotificationsInbox(args: McpArgs, meta: McpRequestMeta) {
+  const action = str(args, "action") ?? "list";
+
+  if (action === "list") {
+    const userId = str(args, "userId");
+    const unreadOnly = bool(args, "unreadOnly") === true;
+    const limit = Math.min(num(args, "limit") ?? 40, 100);
+    const where: Prisma.UserNotificationWhereInput = {
+      ...(userId ? { userId } : {}),
+      ...(unreadOnly ? { readAt: null } : {}),
+    };
+    const [total, notifications] = await prisma.$transaction([
+      prisma.userNotification.count({ where }),
+      prisma.userNotification.findMany({
+        where,
+        orderBy: { createdAt: "desc" },
+        take: limit,
+        include: { user: { select: { customName: true, name: true, email: true } } },
+      }),
+    ]);
+    return {
+      total,
+      count: notifications.length,
+      notifications: notifications.map((n) => ({
+        id: n.id,
+        title: n.title,
+        body: n.body,
+        url: n.url,
+        kind: n.kind,
+        readAt: n.readAt,
+        createdAt: n.createdAt,
+        user: n.user
+          ? { name: n.user.customName ?? n.user.name, email: n.user.email }
+          : null,
+      })),
+    };
+  }
+
+  const id = str(args, "id");
+  if (!id) throw new McpToolError(`معرف الإشعار إلزامي للفعل «${action}»`);
+  if (action === "mark_read" || action === "mark_unread") {
+    await prisma.userNotification.update({
+      where: { id },
+      data: { readAt: action === "mark_read" ? new Date() : null },
+    });
+    await writeAudit({
+      adminId: null,
+      action: `mcp.notification_${action}`,
+      entity: "UserNotification",
+      entityId: id,
+      meta: { via: "gemini-spark-mcp" },
+      ip: meta.ip,
+    });
+    return { updated: true, id, read: action === "mark_read" };
+  }
+  if (action === "delete") {
+    await prisma.userNotification.delete({ where: { id } });
+    await writeAudit({
+      adminId: null,
+      action: "mcp.notification_deleted",
+      entity: "UserNotification",
+      entityId: id,
+      meta: { via: "gemini-spark-mcp" },
+      ip: meta.ip,
+    });
+    return { deleted: true, id };
+  }
+  throw new McpToolError(`فعل غير معروف: «${action}»`);
+}
+
+async function managePushSubscriptions(args: McpArgs, meta: McpRequestMeta) {
+  const action = str(args, "action") ?? "list";
+  const kind = str(args, "kind") === "admin" ? "admin" : "user";
+
+  if (action === "list") {
+    const userId = str(args, "userId");
+    const limit = Math.min(num(args, "limit") ?? 50, 100);
+    if (kind === "admin") {
+      const subs = await prisma.adminPushSubscription.findMany({
+        orderBy: { lastSeenAt: "desc" },
+        take: limit,
+      });
+      return {
+        kind,
+        count: subs.length,
+        subscriptions: subs.map((s) => ({
+          id: s.id,
+          endpoint: s.endpoint,
+          deviceLabel: s.deviceLabel,
+          userAgent: s.userAgent,
+          lastSeenAt: s.lastSeenAt,
+          createdAt: s.createdAt,
+        })),
+      };
+    }
+    const subs = await prisma.userPushSubscription.findMany({
+      where: userId ? { userId } : {},
+      orderBy: { lastSeenAt: "desc" },
+      take: limit,
+      include: { user: { select: { customName: true, name: true, email: true } } },
+    });
+    return {
+      kind,
+      count: subs.length,
+      subscriptions: subs.map((s) => ({
+        id: s.id,
+        endpoint: s.endpoint,
+        userAgent: s.userAgent,
+        lastSeenAt: s.lastSeenAt,
+        createdAt: s.createdAt,
+        user: s.user
+          ? { id: s.userId, name: s.user.customName ?? s.user.name, email: s.user.email }
+          : null,
+      })),
+    };
+  }
+
+  if (action === "remove") {
+    const id = str(args, "id");
+    if (!id) throw new McpToolError("معرف الاشتراك id إلزامي للفعل remove");
+    if (kind === "admin") {
+      await prisma.adminPushSubscription.delete({ where: { id } });
+    } else {
+      await prisma.userPushSubscription.delete({ where: { id } });
+    }
+    await writeAudit({
+      adminId: null,
+      action: "mcp.push_subscription_removed",
+      entity: kind === "admin" ? "AdminPushSubscription" : "UserPushSubscription",
+      entityId: id,
+      meta: { via: "gemini-spark-mcp", kind },
+      ip: meta.ip,
+    });
+    return { removed: true, kind, id };
+  }
+
+  throw new McpToolError(`فعل غير معروف: «${action}»`);
+}
+
+async function manageAdminAccount(args: McpArgs, meta: McpRequestMeta) {
+  const action = str(args, "action") ?? "overview";
+
+  if (action === "overview") {
+    const [admins, sessions, devices] = await Promise.all([
+      prisma.adminUser.findMany({
+        select: {
+          id: true,
+          username: true,
+          totpEnabled: true,
+          lastLoginAt: true,
+          createdAt: true,
+          _count: { select: { sessions: true, devices: true } },
+        },
+      }),
+      prisma.adminSession.findMany({
+        where: { expiresAt: { gt: new Date() } },
+        orderBy: { createdAt: "desc" },
+        include: { admin: { select: { username: true } } },
+      }),
+      prisma.trustedDevice.findMany({
+        orderBy: { lastSeenAt: "desc" },
+        include: { admin: { select: { username: true } } },
+      }),
+    ]);
+    return {
+      admins: admins.map((a) => ({
+        id: a.id,
+        username: a.username,
+        totpEnabled: a.totpEnabled,
+        lastLoginAt: a.lastLoginAt,
+        activeSessions: a._count.sessions,
+        trustedDevices: a._count.devices,
+      })),
+      sessions: sessions.map((s) => ({
+        id: s.id,
+        admin: s.admin.username,
+        ip: s.ip,
+        userAgent: s.userAgent,
+        trusted: s.trusted,
+        createdAt: s.createdAt,
+        expiresAt: s.expiresAt,
+      })),
+      trustedDevices: devices.map((d) => ({
+        id: d.id,
+        admin: d.admin.username,
+        label: d.label,
+        lastIp: d.lastIp,
+        lastSeenAt: d.lastSeenAt,
+      })),
+    };
+  }
+
+  if (action === "revoke_session") {
+    const sessionId = str(args, "sessionId");
+    if (!sessionId) throw new McpToolError("معرف الجلسة sessionId إلزامي");
+    const removed = await prisma.adminSession.deleteMany({ where: { id: sessionId } });
+    if (removed.count === 0) throw new McpToolError("لا توجد جلسة بهذا المعرف (ربما انتهت أصلًا)");
+    await writeAudit({
+      adminId: null,
+      action: "mcp.admin_session_revoked",
+      entity: "AdminSession",
+      entityId: sessionId,
+      meta: { via: "gemini-spark-mcp" },
+      ip: meta.ip,
+    });
+    return { revoked: true, sessionId };
+  }
+
+  if (action === "remove_device") {
+    const deviceId = str(args, "deviceId");
+    if (!deviceId) throw new McpToolError("معرف الجهاز deviceId إلزامي");
+    const removed = await prisma.trustedDevice.deleteMany({ where: { id: deviceId } });
+    if (removed.count === 0) throw new McpToolError("لا يوجد جهاز موثوق بهذا المعرف");
+    await writeAudit({
+      adminId: null,
+      action: "mcp.trusted_device_removed",
+      entity: "TrustedDevice",
+      entityId: deviceId,
+      meta: { via: "gemini-spark-mcp" },
+      ip: meta.ip,
+    });
+    return { removed: true, deviceId };
+  }
+
+  if (action === "change_password") {
+    const currentPassword = str(args, "currentPassword") ?? "";
+    const newPassword = str(args, "newPassword") ?? "";
+    const admin = await prisma.adminUser.findFirst({
+      select: { id: true, username: true, passwordHash: true },
+    });
+    if (!admin) throw new McpToolError("لا يوجد حساب أدمن في المنصة");
+    const ok = await verifyPassword(admin.passwordHash, currentPassword);
+    if (!ok) throw new McpToolError("كلمة المرور الحالية غير صحيحة — رُفض التغيير");
+    const strength = validatePasswordStrength(newPassword);
+    if (!strength.ok) throw new McpToolError(strength.message ?? "كلمة المرور الجديدة ضعيفة");
+    const newHash = await hashPassword(newPassword);
+    await prisma.$transaction([
+      prisma.adminUser.update({ where: { id: admin.id }, data: { passwordHash: newHash } }),
+      prisma.adminSession.deleteMany({ where: { adminId: admin.id } }),
+    ]);
+    await writeAudit({
+      adminId: admin.id,
+      action: "mcp.admin_password_changed",
+      entity: "AdminUser",
+      entityId: admin.id,
+      meta: { via: "gemini-spark-mcp" },
+      ip: meta.ip,
+    });
+    return {
+      changed: true,
+      note: "تم تغيير كلمة المرور وإبطال كل جلسات اللوحة — سجّل الدخول من جديد",
+    };
+  }
+
+  throw new McpToolError(`فعل غير معروف: «${action}»`);
+}
+
+async function manageDiscussionQuota(args: McpArgs, meta: McpRequestMeta) {
+  const action = str(args, "action") ?? "list";
+
+  if (action === "list") {
+    const userId = str(args, "userId");
+    const articleId = str(args, "articleId");
+    const limit = Math.min(num(args, "limit") ?? 40, 100);
+    const where: Prisma.AiDiscussionUsageWhereInput = {
+      ...(userId ? { userId } : {}),
+      ...(articleId ? { articleId } : {}),
+    };
+    const [total, rows] = await prisma.$transaction([
+      prisma.aiDiscussionUsage.count({ where }),
+      prisma.aiDiscussionUsage.findMany({
+        where,
+        orderBy: { lastMessageAt: "desc" },
+        take: limit,
+        include: {
+          user: { select: { customName: true, name: true, email: true } },
+          article: { select: { slug: true, title: true } },
+        },
+      }),
+    ]);
+    return {
+      total,
+      count: rows.length,
+      totalMessages: rows.reduce((s, r) => s + r.messageCount, 0),
+      rows: rows.map((r) => ({
+        id: r.id,
+        messageCount: r.messageCount,
+        lastMessageAt: r.lastMessageAt,
+        user: r.user
+          ? { id: r.userId, name: r.user.customName ?? r.user.name, email: r.user.email }
+          : null,
+        article: r.article,
+      })),
+    };
+  }
+
+  if (action === "reset") {
+    const id = str(args, "id");
+    const userId = str(args, "userId");
+    const articleId = str(args, "articleId");
+    if (!id && !(userId && articleId)) {
+      throw new McpToolError("مرر id أو (userId وarticleId معًا) للفعل reset");
+    }
+    const removed = await prisma.aiDiscussionUsage.deleteMany({
+      where: id ? { id } : { userId: userId!, articleId: articleId! },
+    });
+    if (removed.count === 0) throw new McpToolError("لا يوجد سجل حصة مطابق");
+    await writeAudit({
+      adminId: null,
+      action: "mcp.discussion_quota_reset",
+      entity: "AiDiscussionUsage",
+      entityId: id ?? `${userId}:${articleId}`,
+      meta: { via: "gemini-spark-mcp", removed: removed.count },
+      ip: meta.ip,
+    });
+    return { reset: true, removed: removed.count };
+  }
+
+  throw new McpToolError(`فعل غير معروف: «${action}»`);
+}
+
 /* ============================ سجل التنفيذ ============================ */
 
 export async function executeMcpTool(
@@ -1519,6 +2271,24 @@ export async function executeMcpTool(
       return manageSecurity(args, meta);
     case "get_live_activity":
       return getLiveActivity(args);
+    case "delete_category":
+      return deleteCategory(args, meta);
+    case "manage_platform_errors":
+      return managePlatformErrors(args, meta);
+    case "list_impact_ledger":
+      return listImpactLedger(args);
+    case "manage_social_graph":
+      return manageSocialGraph(args, meta);
+    case "manage_reading_data":
+      return manageReadingData(args, meta);
+    case "manage_notifications_inbox":
+      return manageNotificationsInbox(args, meta);
+    case "manage_push_subscriptions":
+      return managePushSubscriptions(args, meta);
+    case "manage_admin_account":
+      return manageAdminAccount(args, meta);
+    case "manage_discussion_quota":
+      return manageDiscussionQuota(args, meta);
     default:
       throw new McpToolError(`أداة غير معروفة: «${name}»`);
   }
