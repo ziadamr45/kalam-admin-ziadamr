@@ -3609,15 +3609,22 @@ async function generateAuditPdfTool(args: McpArgs, meta: McpRequestMeta) {
 
   const ledgerRange = resolveLedgerRange(range);
   const { entries, summary } = await loadLedger({ range: ledgerRange, take: 500 });
-  const buffer = await renderAuditReportPdf({
-    entries,
-    summary,
-    range: ledgerRange,
-    extractedBy: "gemini-spark (MCP)",
-    reportNo: makeReportNo(),
-  });
+  let buffer;
+  try {
+    buffer = await renderAuditReportPdf({
+      entries,
+      summary,
+      range: ledgerRange,
+      extractedBy: "gemini-spark (MCP)",
+      reportNo: makeReportNo(),
+    });
+  } catch (e) {
+    throw new McpToolError(`تعذر توليد التقرير: ${e instanceof Error ? e.message : String(e)}`);
+  }
   const stamp = new Date().toISOString().slice(0, 16).replace(/[:T]/g, "-");
-  const uploaded = await uploadRaw(buffer, `kalam-audit-report-${stamp}.pdf`);
+  const uploaded = await uploadRaw(buffer, `kalam-audit-report-${stamp}.pdf`).catch((e) => {
+    throw new McpToolError(`تعذر رفع التقرير إلى مجلد الأدلة: ${e instanceof Error ? e.message : String(e)}`);
+  });
 
   await writeAudit({
     adminId: null,

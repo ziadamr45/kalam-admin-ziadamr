@@ -19,6 +19,8 @@ const nextConfig = {
   reactStrictMode: true,
   poweredByHeader: false,
   eslint: { ignoreDuringBuilds: true },
+  /* استثناء محرك PDF من تجميع webpack — يحتاج تحميل وحداته ESM الأصلية وقت التشغيل */
+  serverExternalPackages: ["@react-pdf/renderer"],
   /* ضم خطوط التقرير الرقابي PDF إلى حزمة الـserverless — مسارا
      التصدير المباشر وأداة MCP kalam_generate_audit_pdf */
   outputFileTracingIncludes: {

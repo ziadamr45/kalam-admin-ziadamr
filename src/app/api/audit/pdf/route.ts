@@ -61,7 +61,7 @@ export async function GET(request: Request) {
       url: `${process.env.NEXT_PUBLIC_SITE_URL ?? ""}/ledger`,
     });
     return NextResponse.json(
-      { error: err instanceof Error ? err.message : "تعذر توليد التقرير الرقابي" },
+      { error: `تعذر توليد التقرير الرقابي: ${err instanceof Error ? err.message : String(err)}` },
       { status: 400 },
     );
   }
