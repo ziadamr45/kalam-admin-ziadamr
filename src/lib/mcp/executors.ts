@@ -2115,6 +2115,25 @@ async function runMaintenance(args: McpArgs, meta: McpRequestMeta) {
     };
   }
 
+
+  if (action === "prune_logs") {
+    const keepDays = Math.min(Math.max(num(args, "keepDays") ?? 14, 3), 90);
+    const result = await pruneLogs(keepDays);
+    await writeAudit({
+      adminId: null,
+      action: "mcp.prune_logs",
+      entity: "RequestLog",
+      meta: { keepDays, ...result, via: "gemini-spark-mcp" },
+      ip: meta.ip,
+    });
+    return {
+      action,
+      keepDays,
+      prunedRequestLogs: result.requestLogs,
+      prunedServerErrors: result.serverErrors,
+      note: "\u0642\u064f\u0644\u0651\u0650\u0645\u062a \u0633\u062c\u0644\u0627\u062a \u0627\u0644\u0645\u0631\u0627\u0642\u0628\u0629 \u0627\u0644\u0623\u0642\u062f\u0645 \u0645\u0646 ${keepDays} \u064a\u0648\u0645\u064b\u0627",
+    };
+  }
   throw new McpToolError(`فعل غير معروف: «${action}»`);
 }
 
@@ -2972,8 +2991,6 @@ async function manageDiscussionQuota(args: McpArgs, meta: McpRequestMeta) {
   throw new McpToolError(`فعل غير معروف: «${action}»`);
 }
 
-/* ============================ سجل التنفيذ ============================ */
-
 export async function executeMcpTool(
   name: string,
   args: McpArgs,
@@ -3056,7 +3073,169 @@ export async function executeMcpTool(
       return manageCommentVotes(args, meta);
     case "manage_login_logs":
       return manageLoginLogs(args, meta);
+    case "get_system_telemetry":
+      return getSystemTelemetry();
+    case "get_traffic_log":
+      return getTrafficLog(args);
+    case "get_server_errors":
+      return getServerErrors(args);
+    case "get_api_quotas":
+      return getApiQuotas();
+    case "get_site_config":
+      return getSiteConfigTool(args);
+    case "set_site_config":
+      return setSiteConfigTool(args, meta);
+    case "admin_cli":
+      return adminCliTool(args, meta);
     default:
       throw new McpToolError(`أداة غير معروفة: «${name}»`);
   }
+}
+
+/* ============================================================
+   أدوات مركز السيطرة السيادي — Observability + SiteConfig + CLI
+   (كل ميزة جديدة في لوحة الأدمن = أدوات MCP مكافئة لـ Gemini Spark)
+   ============================================================ */
+
+import { dbHealth, trafficSnapshot, externalQuotas, recentErrors, listRequestLogs, pruneLogs } from "@/lib/system";
+import { runCliCommand } from "@/lib/cli";
+import {
+  SITE_CONFIG_SCHEMA,
+  getSiteConfigMap,
+  saveSiteConfigEntries,
+} from "@/lib/site-config";
+
+/** نبض النظام الحي: صحة Neon + الحركة + الحصص + آخر الأخطاء */
+async function getSystemTelemetry(): Promise<unknown> {
+  const [db, traffic, quotas, errors] = await Promise.all([
+    dbHealth(),
+    trafficSnapshot(60),
+    externalQuotas(),
+    recentErrors(8),
+  ]);
+  return {
+    db,
+    traffic,
+    quotas,
+    recentErrors: errors.map((e) => ({
+      digest: e.digest,
+      message: e.message,
+      path: e.path,
+      app: e.app,
+      count: e.count,
+      lastSeenAt: e.lastSeenAt,
+    })),
+    checkedAt: new Date().toISOString(),
+  };
+}
+
+/** مستكشف حركة الخادم الحي — تصفية بالثواني أو القارئ أو الأخطاء فقط */
+async function getTrafficLog(args: McpArgs): Promise<unknown> {
+  const rows = await listRequestLogs({
+    seconds: Math.min(Math.max(num(args, "seconds") ?? 600, 60), 86400),
+    userId: str(args, "userId"),
+    errorOnly: bool(args, "errorOnly") === true,
+    path: str(args, "path"),
+    limit: Math.min(Math.max(num(args, "limit") ?? 60, 1), 200),
+  });
+  return {
+    count: rows.length,
+    rows: rows.map((r) => ({
+      requestId: r.requestId,
+      app: r.app,
+      method: r.method,
+      path: r.path,
+      status: r.status,
+      durationMs: r.durationMs,
+      ip: r.ip,
+      device: r.device,
+      userEmail: r.userEmail,
+      country: r.country,
+      isError: r.isError,
+      createdAt: r.createdAt,
+    })),
+  };
+}
+
+/** سجل الأخطاء التشغيلية — Stack Trace كامل فور الوقوع */
+async function getServerErrors(args: McpArgs): Promise<unknown> {
+  const rows = await recentErrors(Math.min(Math.max(num(args, "limit") ?? 25, 1), 100));
+  return {
+    count: rows.length,
+    errors: rows.map((e) => ({
+      digest: e.digest,
+      message: e.message,
+      stack: e.stack,
+      path: e.path,
+      method: e.method,
+      routeType: e.routeType,
+      app: e.app,
+      count: e.count,
+      lastSeenAt: e.lastSeenAt,
+    })),
+  };
+}
+
+/** حصص الواجهات الخارجية: Gemini/Resend/Cloudinary بعدّادات يومية */
+async function getApiQuotas(): Promise<unknown> {
+  return externalQuotas();
+}
+
+/** قراءة التكوين السيادي — كله أو تصنيفًا أو مفتاحًا */
+async function getSiteConfigTool(args: McpArgs): Promise<unknown> {
+  const map = await getSiteConfigMap();
+  const key = str(args, "key");
+  const category = str(args, "category");
+  if (key) {
+    if (!(key in map)) throw new McpToolError(`مفتاح غير معروف: ${key} — استعرض المفاتيح بترك key فارغًا`);
+    return { key, value: map[key], schema: SITE_CONFIG_SCHEMA.find((d) => d.key === key) ?? null };
+  }
+  const entries = SITE_CONFIG_SCHEMA.filter((d) => !category || d.category === category).map((d) => ({
+    key: d.key,
+    category: d.category,
+    type: d.type,
+    label: d.label,
+    value: map[d.key],
+  }));
+  return { count: entries.length, entries };
+}
+
+/** تعديل التكوين السيادي وتطبيقه لحظيًا على الإنتاج دون إعادة نشر */
+async function setSiteConfigTool(args: McpArgs, meta: McpRequestMeta): Promise<unknown> {
+  const raw = args.entries;
+  if (!Array.isArray(raw) || raw.length === 0) {
+    throw new McpToolError("مرر مصفوفة entries: [{ key, value }] — على الأقل مفتاحًا واحدًا");
+  }
+  const entries = (raw as { key?: unknown; value?: unknown }[]).map((e) => ({
+    key: String(e.key ?? ""),
+    value: e.value,
+  }));
+  const { saved } = await saveSiteConfigEntries(entries, "mcp");
+
+  const { revalidateTag, revalidatePath } = await import("next/cache");
+  revalidateTag("site-config");
+  revalidatePath("/", "layout");
+  await revalidatePublicPaths(["/"], undefined, true);
+
+  await writeAudit({
+    adminId: null,
+    action: "mcp.site_config_set",
+    entity: "SiteConfig",
+    meta: { keys: saved, via: "gemini-spark-mcp" },
+    ip: meta.ip,
+  });
+  return { saved: true, keys: saved, note: "طُبِّق لحظيًا على المنصة العامة عبر إعادة تحقق الكاش" };
+}
+
+/** تنفيذ أوامر التيرمينال السيادي عبر MCP — نفس محرك واجهة الويب */
+async function adminCliTool(args: McpArgs, meta: McpRequestMeta): Promise<unknown> {
+  const command = str(args, "command");
+  if (!command) throw new McpToolError("مرر نص الأمر في command — مثال: sys info أو user inspect <email>");
+  const lines = await runCliCommand(command, {
+    adminUsername: "gemini-spark",
+    adminId: "mcp",
+    ip: meta.ip,
+    source: "mcp",
+  });
+  return { command, lines };
 }

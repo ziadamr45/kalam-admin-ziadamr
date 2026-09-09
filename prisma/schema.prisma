@@ -600,3 +600,74 @@ model ReadingProgress {
   @@unique([userId, articleId])
   @@index([userId, updatedAt(sort: Desc)])
 }
+
+// ============ مركز السيطرة السيادي (Sovereign Control Center) ============
+
+/* جدول التكوين السيادي — كل نص وعلم ومعيار اقتصادي في المنصة يُعدَّل
+   من استوديو التكوين أو التيرمينال أو MCP ويُطبَّق لحظيًا دون إعادة نشر */
+model SiteConfig {
+  key       String   @id
+  value     Json
+  category  String   @default("GENERAL") // BRANDING | TEXTS | FLAGS | IMPACT | GOVERNANCE
+  label     String? // وصف عربي مقتضب للقيمة — يظهر في استوديو التكوين
+  updatedBy String? // من آخر من عدّل: admin:<username> | cli | mcp
+  updatedAt DateTime @updatedAt
+
+  @@index([category])
+}
+
+/* مرصد الحركة الحي — كل استدعاءات الخادم (Route Handlers و Server Actions
+   وصفحات SSR) بـ IP والمسار ونوع الجهاز وربط معرف القارئ */
+model RequestLog {
+  id         String   @id @default(cuid())
+  requestId  String   @unique // معرف ارتباط يربط الطلب بأخطائه (x-kalam-rid)
+  app        String   @default("PUBLIC") // PUBLIC | ADMIN
+  method     String
+  path       String
+  status     Int? // null = اكتمل بلا كود مرصود؛ يُثبَّت 500 فور خطأ مرتبط
+  durationMs Int?
+  ip         String?
+  device     String? // mobile | desktop | tablet | bot
+  userId     String?
+  userEmail  String?
+  userAgent  String?  @db.Text
+  country    String?
+  isError    Boolean  @default(false)
+  createdAt  DateTime @default(now())
+
+  @@index([createdAt(sort: Desc)])
+  @@index([isError, createdAt(sort: Desc)])
+  @@index([userId, createdAt(sort: Desc)])
+  @@index([path])
+}
+
+/* أخطاء التشغيل اللحظية — Stack Trace كامل فور الوقوع (instrumentation) */
+model ServerErrorLog {
+  id         String   @id @default(cuid())
+  digest     String // بصمة تجميع الأخطاء المتطابقة — لعدّ التكرار
+  message    String
+  stack      String?  @db.Text
+  path       String?
+  method     String?
+  routeType  String? // route-handler | server-action | render | middleware
+  requestId  String?
+  app        String   @default("PUBLIC") // PUBLIC | ADMIN
+  count      Int      @default(1)
+  lastSeenAt DateTime @default(now())
+  createdAt  DateTime @default(now())
+
+  @@index([digest])
+  @@index([lastSeenAt(sort: Desc)])
+}
+
+/* عدادات الاستهلاك اليومي للواجهات الخارجية — Gemini/Resend/Cloudinary
+   تُحتسب بتوقيت القاهرة وتُعرض في شاشة الحصص الحية */
+model ApiUsageCounter {
+  id       String @id @default(cuid())
+  provider String // GEMINI_CHAT | GEMINI_TTS | RESEND_EMAIL | CLOUDINARY_UPLOAD
+  day      String // YYYY-MM-DD بتوقيت القاهرة
+  count    Int    @default(0)
+
+  @@unique([provider, day])
+  @@index([day])
+}

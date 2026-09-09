@@ -19,10 +19,12 @@
 
 import { prisma } from "@/lib/prisma";
 import { rankForScore } from "@/lib/ranks";
+import { getImpactParams } from "@/lib/site-config";
 
-/** عتبة رتبة «أهل الكلمة» — قناة المقترحات الخاصة */
+/** عتبة رتبة «أهل الكلمة» الافتراضية — الحية تُقرأ من التكوين السيادي (getImpactParams) */
 export const ELDERS_THRESHOLD = 350;
 
+/** الأوزان الافتراضية — الحية تُقرأ من التكوين السيادي (getImpactParams) */
 export const IMPACT_POINTS = {
   READ_COMPLETE: 1,
   AI_DISCUSS: 1,
@@ -112,12 +114,20 @@ async function celebrateEldersThreshold(userId: string): Promise<void> {
 export async function awardImpact(opts: {
   userId: string;
   actionType: ImpactActionType;
-  points: number;
+  points?: number;
   articleId?: string | null;
   dedupKey?: string | null;
   reason?: string | null;
   dailyCap?: number;
 }): Promise<AwardResult> {
+  /* الأوزان الحية من التكوين السيادي — إن لم يُمرر points صراحةً */
+  const params = await getImpactParams().catch(() => null);
+  const weightKey = opts.actionType as keyof typeof IMPACT_POINTS;
+  const resolvedPoints =
+    opts.points ?? (params && weightKey in IMPACT_POINTS ? Number(params[weightKey] ?? 0) : 0);
+  const threshold = params?.ELDERS_THRESHOLD ?? ELDERS_THRESHOLD;
+  const dailyCap = opts.dailyCap ?? (opts.actionType === "READ_COMPLETE" ? params?.READ_DAILY_CAP ?? 0 : 0);
+
   const before = await prisma.user.findUnique({
     where: { id: opts.userId },
     select: { impactScore: true, intellectualRank: true },
@@ -129,7 +139,7 @@ export async function awardImpact(opts: {
   try {
     const result = await prisma.$transaction(async (tx) => {
       /* السقف اليومي — يُفحص داخل المعاملة لمنع السباق */
-      if (opts.dailyCap && opts.dailyCap > 0) {
+      if (dailyCap && dailyCap > 0) {
         const todayCount = await tx.impactLog.count({
           where: {
             userId: opts.userId,
@@ -137,7 +147,7 @@ export async function awardImpact(opts: {
             createdAt: { gte: startOfCairoDay() },
           },
         });
-        if (todayCount >= opts.dailyCap) {
+        if (todayCount >= dailyCap) {
           return null;
         }
       }
@@ -146,14 +156,14 @@ export async function awardImpact(opts: {
         data: {
           userId: opts.userId,
           actionType: opts.actionType,
-          points: opts.points,
+          points: resolvedPoints,
           articleId: opts.articleId ?? null,
           dedupKey: opts.dedupKey ?? null,
           reason: opts.reason ?? null,
         },
       });
 
-      const newScore = Math.max(0, before.impactScore + opts.points);
+      const newScore = Math.max(0, before.impactScore + resolvedPoints);
       const newRank = rankForScore(newScore);
 
       await tx.user.update({
@@ -165,7 +175,7 @@ export async function awardImpact(opts: {
         impactScore: newScore,
         rank: newRank,
         crossedThreshold:
-          before.impactScore < ELDERS_THRESHOLD && newScore >= ELDERS_THRESHOLD,
+          before.impactScore < threshold && newScore >= threshold,
       } as const;
     });
 
@@ -188,7 +198,7 @@ export async function awardImpact(opts: {
       impactScore: result.impactScore,
       rank: result.rank,
       rankUp: result.rank !== before.intellectualRank,
-      points: opts.points,
+      points: resolvedPoints,
     };
   } catch (err) {
     /* ازدواج مفتاح UNIQUE → مُكافأ سابقًا، وليس عطلًا */
@@ -240,9 +250,11 @@ export async function setCommentFeatured(opts: {
     return { ok: false, error: "التمييز للتعليقات المسجلة بحساب نشط فقط", status: 400 };
   }
 
-  const points = opts.featured
-    ? IMPACT_POINTS.COMMENT_INSPIRING
-    : IMPACT_POINTS.COMMENT_UNFEATURED;
+  /* الأوزان الحية من التكوين السيادي — إن لم تُقرأ عادت الافتراضية */
+  const params = await getImpactParams().catch(() => null);
+  const inspiringPoints = params?.COMMENT_INSPIRING ?? IMPACT_POINTS.COMMENT_INSPIRING;
+  const unfeaturedPoints = params?.COMMENT_UNFEATURED ?? IMPACT_POINTS.COMMENT_UNFEATURED;
+  const points = opts.featured ? inspiringPoints : unfeaturedPoints;
 
   try {
     const outcome = await prisma.$transaction(async (tx) => {
@@ -286,8 +298,8 @@ export async function setCommentFeatured(opts: {
             ? "تم تمييز تعليقك كتعليق ملهم ✦"
             : "أُلغي تمييز تعليقك",
           body: opts.featured
-            ? `تم تمييز تعليقك بمقال «${comment.article.title}» وحصلت على +${IMPACT_POINTS.COMMENT_INSPIRING} نقاط أثر! السبب: ${opts.reason}`
-            : `تم إلغاء تمييز تعليقك بمقال «${comment.article.title}» وخُصمت ${Math.abs(IMPACT_POINTS.COMMENT_UNFEATURED)} نقاط من رصيدك. السبب: ${opts.reason}`,
+            ? `تم تمييز تعليقك بمقال «${comment.article.title}» وحصلت على +${inspiringPoints} نقاط أثر! السبب: ${opts.reason}`
+            : `تم إلغاء تمييز تعليقك بمقال «${comment.article.title}» وخُصمت ${Math.abs(unfeaturedPoints)} نقاط من رصيدك. السبب: ${opts.reason}`,
           url: `/article/${comment.article.slug}`,
           kind: "TARGETED",
         },

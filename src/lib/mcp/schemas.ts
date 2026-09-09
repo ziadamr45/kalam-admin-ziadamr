@@ -16,7 +16,7 @@ export type McpToolSchema = {
 
 export const MCP_PROTOCOL_VERSION = "2025-03-26";
 export const MCP_SERVER_NAME = "kalam-sovereign-admin";
-export const MCP_SERVER_VERSION = "2.6.0";
+export const MCP_SERVER_VERSION = "2.7.0";
 
 export const MCP_TOOLS: McpToolSchema[] = [
   /* ==================== أ) أدوات المقالات ==================== */
@@ -790,4 +790,130 @@ export const MCP_TOOLS: McpToolSchema[] = [
       },
     },
   },
+{
+  "name": "get_system_telemetry",
+  "description": "نبض النظام الحي الشامل: صحة قاعدة Neon PostgreSQL (زمن الاستجابة، الاتصالات النشطة مقابل السقف الأقصى، حجم القاعدة، إصدار المحرك)، لقطة حركة آخر 60 دقيقة (إجمالي الطلبات والأخطاء والمعدل الدقيق وأكثر المسارات مرورًا وتوزيع الأجهزة والدول)، نبض أخطاء التشغيل الأخيرة، مع طابع لحظة القياس.",
+  "inputSchema": {
+    "type": "object",
+    "properties": {}
+  }
+},
+{
+  "name": "get_traffic_log",
+  "description": "سجل حركة الخادم الحي: كل استدعاءات Route Handlers وServer Actions بمنصة عامة ولوحة تحكم معًا — المسار والطريقة وكود الاستجابة ونوع الجهاز (هاتف/حاسوب/لوحي/روبوت) وIP والدولة والمدة، مع تصفية بالنافذة الزمنية أو معرف/بريد القارئ أو الأخطاء فقط.",
+  "inputSchema": {
+    "type": "object",
+    "properties": {
+      "seconds": {
+        "type": "number",
+        "description": "نافذة الزمن بالثواني (افتراضي 600 — أقصى 86400)"
+      },
+      "userId": {
+        "type": "string",
+        "description": "تصفية بمعرف القارئ أو بريده الإلكتروني"
+      },
+      "errorOnly": {
+        "type": "boolean",
+        "description": "قصر النتائج على الطلبات التي اصطدمت بخطأ 500"
+      },
+      "path": {
+        "type": "string",
+        "description": "بحث جزئي في مسار الطلب"
+      },
+      "limit": {
+        "type": "number",
+        "description": "عدد السجلات (افتراضي 60 — أقصى 200)"
+      }
+    }
+  }
+},
+{
+  "name": "get_server_errors",
+  "description": "سجل أخطاء التشغيل اللحظية (instrumentation): الرسالة والـ Stack Trace الكامل وطريق الحدث ونوعه (route-handler/server-action/render) وعدد التكرارات وبصمة التجميع — فور وقوعها.",
+  "inputSchema": {
+    "type": "object",
+    "properties": {
+      "limit": {
+        "type": "number",
+        "description": "عدد الأخطاء (افتراضي 25 — أقصى 100)"
+      }
+    }
+  }
+},
+{
+  "name": "get_api_quotas",
+  "description": "حصص واستهلاك الواجهات الخارجية اليومي وآخر 7 أيام: محاورة Gemini النصية، توليد الصوت Gemini TTS، تسليم بريد Resend (مع حالة النطاقات من API رسمي عند توفر المفتاح)، وتخزين الوسائط Cloudinary (الخطة ورصيد الاستخدام والتخزين والباندودث وعدد الأصول).",
+  "inputSchema": {
+    "type": "object",
+    "properties": {}
+  }
+},
+{
+  "name": "get_site_config",
+  "description": "قراءة التكوين السيادي للمنصة من جدول SiteConfig: الهوية والعلامة (الاسم والوثائق والتذييل وروابط التواصل)، النصوص (الترحيب وشرائح التهيئة وشارة المحاور وتنويهه)، مفاتيح الميزات (المحاورة الذكية والتعليقات والمشغل الصوتي وقناة أهل الكلمة)، ومعايير اقتصاد الأثر (الأوزان والعتبة) — كله أو تصنيفًا أو مفتاحًا.",
+  "inputSchema": {
+    "type": "object",
+    "properties": {
+      "category": {
+        "type": "string",
+        "enum": [
+          "BRANDING",
+          "TEXTS",
+          "FLAGS",
+          "IMPACT"
+        ],
+        "description": "تصفية بتصنيف واحد — تُترك فارغة للكل"
+      },
+      "key": {
+        "type": "string",
+        "description": "قراءة مفتاح بعينه بقيمته وتعريفه"
+      }
+    }
+  }
+},
+{
+  "name": "set_site_config",
+  "description": "تعديل التكوين السيادي وتطبيقه لحظيًا على الإنتاج دون إعادة نشر (Zero-Deploy): يتحقق من نوع كل مفتاح، يكتب في جدول SiteConfig، يفرغ كاش التكوين عبر revalidateTag، ويعيد تحقق المنصة العامة عابرة للتطبيقات — كل ذلك موثق في سجل التدقيق.",
+  "inputSchema": {
+    "type": "object",
+    "properties": {
+      "entries": {
+        "type": "array",
+        "items": {
+          "type": "object",
+          "properties": {
+            "key": {
+              "type": "string"
+            },
+            "value": {}
+          },
+          "required": [
+            "key",
+            "value"
+          ]
+        },
+        "description": "مصفوفة المفاتيح المعدلة [{ key, value }] — مثال: [{\"key\":\"AI_DISCUSS_ENABLED\",\"value\":false}]"
+      }
+    },
+    "required": [
+      "entries"
+    ]
+  }
+},
+{
+  "name": "admin_cli",
+  "description": "تنفيذ أوامر التيرمينال السيادي Interactive CLI: sys info (نبض النظام والبيئة)، cache purge [all|path] (إفراغ الكاش فورًا)، user inspect <email|id> (السجل الأمني الكامل ونقاط الأثر والجلسات)، user ban/unban <email> [سبب] (تعطيل/تفعيل الحساب)، config list|get|set (سيادة التكوين)، db stats (الجداول والسجلات والأحجام)، traffic tail [n] وerrors tail [n] (آخر الحركة والأخطاء)، help (القائمة) — كل فعل مُغيِّر يوثق في دفتر التدقيق.",
+  "inputSchema": {
+    "type": "object",
+    "properties": {
+      "command": {
+        "type": "string",
+        "description": "نص الأمر الكامل — مثل: user inspect user@mail.com أو config set IMPACT_ELDERS_THRESHOLD 400"
+      }
+    },
+    "required": [
+      "command"
+    ]
+  }
+},
 ];

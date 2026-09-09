@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { revalidatePath, revalidateTag } from "next/cache";
 import { requireSession, isRejected, writeAudit, getClientIp } from "@/lib/guard";
 import { getSiteConfig, saveSiteConfig, type SiteConfig } from "@/lib/site-config";
 import { revalidatePublicPaths } from "@/lib/revalidate";
@@ -39,8 +40,11 @@ export async function POST(request: Request) {
       ip: getClientIp(request),
     });
 
-    /* انعكاس فوري على كل صفحات المنصة العامة */
+    /* انعكاس فوري على كل صفحات المنصة العامة + إبطال كاش التكوين السيادي */
+    revalidateTag("site-config");
+    revalidatePath("/", "layout");
     revalidatePublicPaths(["/", "/about", "/contact", "/privacy", "/terms", "/dialogue-ethics"]);
+    await revalidatePublicPaths(["/"], undefined, true);
 
     return NextResponse.json({ config });
   } catch {

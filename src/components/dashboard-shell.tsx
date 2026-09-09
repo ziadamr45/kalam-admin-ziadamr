@@ -5,6 +5,7 @@ import { usePathname, useRouter } from "next/navigation";
 import { createContext, useContext, useState } from "react";
 import { ToastProvider } from "@/components/ui";
 import { PushToggle } from "@/components/push-toggle";
+import { SovereignTerminal } from "@/components/sovereign-terminal";
 
 /**
  * حالة فتح القائمة الجانبية — يقرأها أي مكوّن داخل الغلاف
@@ -16,6 +17,7 @@ export const useSidebarOpen = () => useContext(SidebarOpenContext);
 const NAV = [
   { href: "/", label: "التحليلات الحية", icon: "chart" },
   { href: "/analytics", label: "تحليلات الأداء", icon: "pulse" },
+  { href: "/system", label: "مرصد النظام الحي", icon: "monitor" },
   { href: "/articles", label: "المقالات", icon: "doc" },
   { href: "/sections", label: "الأقسام والتصنيفات", icon: "tag" },
   { href: "/comments", label: "مركز التعليقات", icon: "chat" },
@@ -25,12 +27,13 @@ const NAV = [
   { href: "/proposals", label: "المقترحات الفكرية", icon: "star" },
   { href: "/notifications", label: "مركز الإشعارات الجماهيرية", icon: "bell" },
   { href: "/legal-pages", label: "الصفحات القانونية", icon: "scroll" },
+  { href: "/config", label: "استوديو التكوين السيادي", icon: "globe" },
   { href: "/site-settings", label: "إعدادات الموقع", icon: "sliders" },
   { href: "/checklist", label: "معايير النشر", icon: "check" },
   { href: "/security", label: "الأمن والحماية", icon: "shield" },
 ] as const;
 
-function NavIcon({ name }: { name: (typeof NAV)[number]["icon"] }) {
+function NavIcon({ name }: { name: string }) {
   const common = { width: 18, height: 18, viewBox: "0 0 24 24", fill: "none", stroke: "currentColor", strokeWidth: 2, strokeLinecap: "round" as const, strokeLinejoin: "round" as const };
   switch (name) {
     case "chart":
@@ -61,6 +64,12 @@ function NavIcon({ name }: { name: (typeof NAV)[number]["icon"] }) {
       return <svg {...common}><path d="M9 11l3 3L22 4" /><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11" /></svg>;
     case "shield":
       return <svg {...common}><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z" /></svg>;
+    case "monitor":
+      return <svg {...common}><rect x="2" y="3" width="20" height="14" rx="2" /><path d="M8 21h8M12 17v4" /></svg>;
+    case "globe":
+      return <svg {...common}><circle cx="12" cy="12" r="10" /><path d="M2 12h20M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z" /></svg>;
+    case "terminal":
+      return <svg {...common}><path d="m4 17 6-6-6-6M12 19h8" /></svg>;
   }
 }
 
@@ -74,6 +83,9 @@ export function DashboardShell({
   const pathname = usePathname();
   const router = useRouter();
   const [sidebarOpen, setSidebarOpen] = useState(false);
+  const [terminalOpen, setTerminalOpen] = useState(false);
+
+  const toggleTerminal = () => setTerminalOpen((v) => !v);
 
   const logout = async () => {
     await fetch("/api/auth/logout", { method: "POST" }).catch(() => {});
@@ -143,8 +155,21 @@ export function DashboardShell({
                 </div>
               </div>
               <button
+                onClick={toggleTerminal}
+                className={`flex w-full items-center gap-3 rounded-xl px-4 py-3 text-sm font-bold transition-all ${
+                  terminalOpen
+                    ? "bg-emerald-500/20 text-emerald-300"
+                    : "bg-steel-800/60 text-steel-200 hover:bg-steel-800 hover:text-emerald-300"
+                }`}
+                title="اختصار: Ctrl + ~"
+              >
+                <NavIcon name="terminal" />
+                التيرمينال السيادي
+                <span className="mr-auto rounded-md border border-steel-600 px-1.5 py-0.5 font-mono text-[9px] text-steel-400">Ctrl+~</span>
+              </button>
+              <button
                 onClick={logout}
-                className="w-full rounded-xl bg-steel-800 px-4 py-2.5 text-xs font-bold text-steel-200 transition-colors hover:bg-danger-600 hover:text-white"
+                className="mt-2 w-full rounded-xl bg-steel-800 px-4 py-2.5 text-xs font-bold text-steel-200 transition-colors hover:bg-danger-600 hover:text-white"
               >
                 تسجيل الخروج
               </button>
@@ -175,6 +200,19 @@ export function DashboardShell({
             <div className="flex items-center gap-2">
               {/* تفعيل الإشعارات الفورية — هاتف الأدمن وحاسوبه (المحور الأول) */}
               <PushToggle />
+              {/* فتح التيرمينال السيادي من الشريط العلوي أيضًا */}
+              <button
+                onClick={toggleTerminal}
+                className={`flex items-center gap-2 rounded-xl border px-3 py-1.5 text-xs font-bold transition-all ${
+                  terminalOpen
+                    ? "border-emerald-400/40 bg-emerald-400/10 text-emerald-600"
+                    : "border-steel-200 text-steel-500 hover:border-emerald-400/40 hover:text-emerald-600"
+                }`}
+                title="التيرمينال السيادي (Ctrl + ~)"
+              >
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><path d="m4 17 6-6-6-6M12 19h8" /></svg>
+                <span className="hidden sm:inline">CLI</span>
+              </button>
               <span
                 className="flex items-center gap-2 rounded-xl border border-success-400/30 bg-success-400/10 px-3 py-1.5 text-xs font-bold text-success-600"
                 title="جلسة JWT محصنة — HttpOnly + Secure + SameSite=Strict"
@@ -188,6 +226,9 @@ export function DashboardShell({
           <main className="flex-1 p-4 lg:p-8">{children}</main>
         </div>
       </div>
+
+      {/* التيرمينال السيادي — طبقة عليا فوق كل شيء (z-80) */}
+      <SovereignTerminal open={terminalOpen} onToggle={toggleTerminal} />
       </SidebarOpenContext.Provider>
     </ToastProvider>
   );
