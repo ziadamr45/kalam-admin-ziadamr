@@ -16,7 +16,7 @@ export type McpToolSchema = {
 
 export const MCP_PROTOCOL_VERSION = "2025-03-26";
 export const MCP_SERVER_NAME = "kalam-sovereign-admin";
-export const MCP_SERVER_VERSION = "2.7.0";
+export const MCP_SERVER_VERSION = "2.8.0";
 
 export const MCP_TOOLS: McpToolSchema[] = [
   /* ==================== أ) أدوات المقالات ==================== */
@@ -914,6 +914,56 @@ export const MCP_TOOLS: McpToolSchema[] = [
     "required": [
       "command"
     ]
+  }
+},
+{
+  "name": "admin_cli",
+  "description": "تنفيذ أوامر التيرمينال السيادي Interactive CLI: sys info (نبض النظام والبيئة)، cache purge [all|path] (إفراغ الكاش فورًا)، user inspect <email|id> (السجل الأمني الكامل ونقاط الأثر والجلسات)، user ban/unban <email> [سبب] (تعطيل/تفعيل الحساب)، config list|get|set (سيادة التكوين)، db stats (الجداول والسجلات والأحجام)، traffic tail [n] وerrors tail [n] (آخر الحركة والأخطاء)، security tail [n] (اللوحة الأمنية: التنبيهات ومحاولات الاختراق واصطياد البوتات)، help (القائمة) — كل فعل مُغيِّر يوثق في دفتر التدقيق.",
+  "inputSchema": {
+    "type": "object",
+    "properties": {
+      "command": {
+        "type": "string",
+        "description": "نص الأمر الكامل — مثل: user inspect user@mail.com أو config set IMPACT_ELDERS_THRESHOLD 400 أو security tail"
+      }
+    },
+    "required": [
+      "command"
+    ]
+  }
+},
+{
+  "name": "send_test_push",
+  "description": "بث إشعار ويب Push فوري تجريبي إلى كل أجهزة الإدارة المسجلة (AdminPushSubscription) للتحقق من أن قناة التنبيهات حية — تُستخدم بعد النشر أو قبل الفعاليات للتأكد من وصول التنبيهات لهواتف الإدارة. يوثق في سجل التدقيق.",
+  "inputSchema": {
+    "type": "object",
+    "properties": {
+      "title": {
+        "type": "string",
+        "description": "عنوان الإشعار (اختياري — افتراضي: اختبار قناة التنبيهات)"
+      },
+      "body": {
+        "type": "string",
+        "description": "نص الإشعار (اختياري)"
+      }
+    }
+  }
+},
+{
+  "name": "get_security_overview",
+  "description": "اللوحة الأمنية المجمعة لآخر 24 ساعة: عدّاد محاولات الدخول الفاشلة (LoginAttempt) وحظور التسجيل العنيف BRUTE_FORCE وبوتات فخ Honeypot المصطادة وتجاوزات حدود المعدل RATE_LIMIT، آخر التنبيهات الأمنية SecurityAlert بدرجات خطورتها (INFO/WARN/CRITICAL)، وأحدث بصمات أخطاء 500 من ServerErrorLog — صورة الحصانة الكاملة في استدعاء واحد.",
+  "inputSchema": {
+    "type": "object",
+    "properties": {
+      "alertsLimit": {
+        "type": "number",
+        "description": "عدد التنبيهات الأخيرة المراد جلبها (افتراضي 15، أقصى 50)"
+      },
+      "errorsLimit": {
+        "type": "number",
+        "description": "عدد أخطاء الخادم الأخيرة المراد جلبها (افتراضي 10، أقصى 30)"
+      }
+    }
   }
 },
 ];

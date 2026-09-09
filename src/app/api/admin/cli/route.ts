@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { z } from "zod";
 import { requireSession, isRejected, writeAudit, getClientIp } from "@/lib/guard";
 import { runCliCommand } from "@/lib/cli";
 
@@ -7,16 +8,20 @@ import { runCliCommand } from "@/lib/cli";
  * نفس المحرك يخدم أداة admin_cli في MCP، وكل فعل مُغيِّر يُوثَّق.
  */
 
+const cliSchema = z.object({
+  command: z.string().min(1).max(500),
+});
+
 export async function POST(request: Request) {
   const guard = await requireSession(request);
   if (isRejected(guard)) return guard;
 
   try {
-    const body = (await request.json()) as { command?: string };
-    const command = String(body.command ?? "").slice(0, 500);
-    if (!command.trim()) {
-      return NextResponse.json({ error: "أمر فارغ" }, { status: 400 });
+    const parsed = cliSchema.safeParse(await request.json().catch(() => null));
+    if (!parsed.success) {
+      return NextResponse.json({ error: "أمر فارغ أو غير صالح — 500 حرف كحد أقصى" }, { status: 400 });
     }
+    const command = parsed.data.command;
 
     const lines = await runCliCommand(command, {
       adminUsername: guard.username,

@@ -1,6 +1,8 @@
 import { NextResponse } from "next/server";
 import { cookies } from "next/headers";
+import { z } from "zod";
 import { prisma } from "@/lib/prisma";
+import { rateLimit } from "@/lib/rate-limit";
 import {
   hashPassword,
   verifyPassword,
@@ -21,23 +23,42 @@ import { decideIpAccess } from "@/lib/iprules";
 const MAX_FAILS_15MIN = 5;
 const MAX_FAILS_HOUR = 12;
 
+/* درع الاندفاع السريع: 10 محاولات/دقيقة لكل IP بلا أي استعلام DB —
+   يمتص الضوضاء قبل فحص الحد الدائم (LoginAttempt) وليس بدلًا منه */
+const BURST_PER_MIN = 10;
+
+const loginSchema = z.object({
+  username: z.string().min(1).max(80),
+  password: z.string().min(1).max(200),
+  fingerprint: z.string().max(200).optional().default(""),
+});
+
 export async function POST(request: Request) {
   const ip = getClientIp(request);
   const userAgent = request.headers.get("user-agent") || "unknown";
 
   try {
-    const body = (await request.json()) as {
-      username?: string;
-      password?: string;
-      fingerprint?: string;
-    };
-    const username = body.username?.trim() || "";
-    const password = body.password || "";
-    const fingerprint = body.fingerprint || "";
+    /* 0) درع الاندفاع — رفض فوري بلا قاعدة بيانات */
+    if (!rateLimit(`login:${ip}`, BURST_PER_MIN, 60_000).ok) {
+      await raiseAlert({
+        type: "LOGIN_BURST",
+        severity: "WARN",
+        message: `اندفاع دخول من ${ip} — أكثر من ${BURST_PER_MIN} محاولات/دقيقة`,
+        meta: { ip },
+      });
+      return NextResponse.json(
+        { error: "محاولات كثيرة جدًا — انتظر دقيقة" },
+        { status: 429, headers: { "Retry-After": "60" } },
+      );
+    }
 
-    if (!username || !password) {
+    const parsed = loginSchema.safeParse(await request.json().catch(() => null));
+    if (!parsed.success) {
       return NextResponse.json({ error: "أدخل اسم المستخدم وكلمة المرور" }, { status: 400 });
     }
+    const username = parsed.data.username.trim();
+    const password = parsed.data.password;
+    const fingerprint = parsed.data.fingerprint;
 
     /* 1) جدار IP */
     const ipDecision = await decideIpAccess(ip);

@@ -19,7 +19,7 @@ import {
 } from "@/lib/settings";
 import { awardImpact, setCommentFeatured } from "@/lib/impact";
 import { hashPassword, verifyPassword, validatePasswordStrength } from "@/lib/password";
-import { pushUsers } from "@/lib/push";
+import { pushUsers, pushAdmins } from "@/lib/push";
 import {
   revalidatePublicPaths,
   articleRevalidatePaths,
@@ -3087,6 +3087,10 @@ export async function executeMcpTool(
       return setSiteConfigTool(args, meta);
     case "admin_cli":
       return adminCliTool(args, meta);
+    case "send_test_push":
+      return sendTestPushTool(args, meta);
+    case "get_security_overview":
+      return getSecurityOverviewTool(args);
     default:
       throw new McpToolError(`أداة غير معروفة: «${name}»`);
   }
@@ -3238,4 +3242,58 @@ async function adminCliTool(args: McpArgs, meta: McpRequestMeta): Promise<unknow
     source: "mcp",
   });
   return { command, lines };
+}
+
+/** بث إشعار تجريبي لأجهزة الإدارة — فحص حيوية قناة التنبيهات */
+async function sendTestPushTool(args: McpArgs, meta: McpRequestMeta): Promise<unknown> {
+  const subs = await prisma.adminPushSubscription.count();
+  if (subs === 0) {
+    return {
+      sent: false,
+      note: "لا توجد أجهزة إدارة مشتركة بعد — فعّل زر الإشعارات في ترويسة اللوحة أولًا",
+    };
+  }
+  const title = str(args, "title") ?? "اختبار قناة التنبيهات — كلام له لازمة";
+  const body = str(args, "body") ?? "إن وصلك هذا الإشعار فقناة التنبيهات الفورية حية وتعمل بنجاح — الأخطاء 500 الجديدة ستبلغك فورًا";
+  await pushAdmins({ title, body, url: "/system?tab=errors", tag: "test-push" });
+  await writeAudit({
+    adminId: null,
+    action: "mcp.send_test_push",
+    meta: { subscriptions: subs, via: "gemini-spark-mcp" },
+    ip: meta.ip,
+  });
+  return { sent: true, subscriptions: subs, note: `بُث الإشعار إلى ${subs} جهاز إدارة مسجل` };
+}
+
+/** اللوحة الأمنية المجمعة — حصانة آخر 24 ساعة في استدعاء واحد */
+async function getSecurityOverviewTool(args: McpArgs): Promise<unknown> {
+  const alertsLimit = Math.min(Math.max(Number(args.alertsLimit ?? 15) || 15, 1), 50);
+  const errorsLimit = Math.min(Math.max(Number(args.errorsLimit ?? 10) || 10, 1), 30);
+  const since24h = new Date(Date.now() - 24 * 60 * 60_000);
+
+  const [failedLogins, bruteForce, honeypot, rateLimited, ipBlocked,
+    alerts, errorDigests] = await Promise.all([
+    prisma.loginAttempt.count({ where: { success: false, createdAt: { gte: since24h } } }),
+    prisma.securityAlert.count({ where: { type: "BRUTE_FORCE", createdAt: { gte: since24h } } }),
+    prisma.securityAlert.count({ where: { type: "HONEYPOT", createdAt: { gte: since24h } } }),
+    prisma.securityAlert.count({ where: { type: "RATE_LIMIT", createdAt: { gte: since24h } } }),
+    prisma.securityAlert.count({ where: { type: "IP_BLOCKED", createdAt: { gte: since24h } } }),
+    prisma.securityAlert.findMany({ orderBy: { createdAt: "desc" }, take: alertsLimit }),
+    prisma.serverErrorLog.findMany({ orderBy: { lastSeenAt: "desc" }, take: errorsLimit,
+      select: { digest: true, message: true, path: true, app: true, count: true, lastSeenAt: true } }),
+  ]);
+
+  return {
+    window: "آخر 24 ساعة",
+    counters: { failedLogins, bruteForce, honeypotCaught: honeypot, rateLimitHits: rateLimited, ipBlocked },
+    alerts: alerts.map((a) => ({
+      type: a.type, severity: a.severity, message: a.message,
+      meta: a.meta ?? null, resolved: a.resolved, at: a.createdAt.toISOString(),
+    })),
+    recentServerErrors: errorDigests.map((e) => ({
+      digest: e.digest, app: e.app, path: e.path, count: e.count,
+      message: e.message.slice(0, 160), lastSeenAt: e.lastSeenAt.toISOString(),
+    })),
+    note: "كل ميزة أمنية جديدة في لوحة الأدمن لها أدوات MCP مكافئة — هذه اللوحة تعكس دروع rate-limit وhoneypot الحية",
+  };
 }

@@ -1,3 +1,4 @@
+import "server-only";
 import { prisma } from "@/lib/prisma";
 import { writeAudit } from "@/lib/guard";
 import { revalidatePath } from "next/cache";
@@ -41,6 +42,7 @@ const HELP_LINES: CliLine[] = [
   { type: "muted", text: "  db stats                    — جداول القاعدة وسجلاتها وأحجامها" },
   { type: "muted", text: "  traffic tail [n]            — آخر n حركة خادم حية (افتراضي 15)" },
   { type: "muted", text: "  errors tail [n]             — آخر n خطأ تشغيلي مع بصمته" },
+  { type: "muted", text: "  security tail [n]           — لوحة أمنية: التنبيهات ومحاولات الاختراق واصطياد البوتات والحدود" },
   { type: "muted", text: "  help                        — هذه القائمة" },
   { type: "muted", text: "  clear                       — تنظيف الشاشة (محلي)" },
 ];
@@ -228,6 +230,35 @@ async function cmdErrorsTail(n: number): Promise<CliLine[]> {
   }));
 }
 
+/** اللوحة الأمنية الحية — تنبيهات + محاولات اختراق + اصطياد بوتات + حدود معدل */
+async function cmdSecurityTail(n: number): Promise<CliLine[]> {
+  const take = Math.min(Math.max(n, 1), 40);
+  const since24h = new Date(Date.now() - 24 * 60 * 60_000);
+  const [alerts, fails24h, brute24h, honeypot24h, throttle24h] = await Promise.all([
+    prisma.securityAlert.findMany({ orderBy: { createdAt: "desc" }, take }),
+    prisma.loginAttempt.count({ where: { success: false, createdAt: { gte: since24h } } }),
+    prisma.securityAlert.count({ where: { type: "BRUTE_FORCE", createdAt: { gte: since24h } } }),
+    prisma.securityAlert.count({ where: { type: "HONEYPOT", createdAt: { gte: since24h } } }),
+    prisma.securityAlert.count({ where: { type: "RATE_LIMIT", createdAt: { gte: since24h } } }),
+  ]);
+
+  const lines: CliLine[] = [
+    { type: "info", text: `اللوحة الأمنية — آخر 24 ساعة: ${fails24h} محاولة دخول فاشلة | ${brute24h} حظر تسجيل دخول | ${honeypot24h} بوت ماصوص | ${throttle24h} تجاوز حد معدل` },
+  ];
+  if (!alerts.length) {
+    lines.push({ type: "ok", text: "لا تنبيهات أمنية — الأسوار صامتة والنظام صافٍ" });
+    return lines;
+  }
+  for (const a of alerts) {
+    const sev = a.severity === "CRITICAL" ? "error" : a.severity === "WARN" ? "warn" : "muted";
+    lines.push({
+      type: sev as CliLineType,
+      text: `${a.createdAt.toISOString().slice(11, 19)} [${a.severity}] ${a.type} — ${a.message.slice(0, 110)}`,
+    });
+  }
+  return lines;
+}
+
 /* ==================== المحلل الرئيسي ==================== */
 
 export async function runCliCommand(raw: string, ctx: CliContext): Promise<CliLine[]> {
@@ -307,6 +338,12 @@ export async function runCliCommand(raw: string, ctx: CliContext): Promise<CliLi
         const sub = (rest[0] ?? "tail").toLowerCase();
         if (sub !== "tail") return [{ type: "error", text: "الصيغة: errors tail [n]" }];
         return cmdErrorsTail(Number(rest[1]) || 10);
+      }
+
+      case "security": {
+        const sub = (rest[0] ?? "tail").toLowerCase();
+        if (sub !== "tail") return [{ type: "error", text: "الصيغة: security tail [n]" }];
+        return cmdSecurityTail(Number(rest[1]) || 10);
       }
 
       case "clear":

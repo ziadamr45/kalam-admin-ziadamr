@@ -161,6 +161,14 @@ export const SITE_CONFIG_SCHEMA: SiteConfigKeyDef[] = [
     label: "تجربة التهيئة والجولة التفاعلية للأعضاء الجدد",
     default: true,
   },
+  {
+    key: "ERROR_ALERTS_ENABLED",
+    category: "FLAGS",
+    type: "boolean",
+    label: "تنبيه Push فوري عند أي خطأ 500 جديد",
+    hint: "البث لهواتف الإدارة عند أول ظهور لكل بصمة خطأ — تكراراته تُجمَّع بلا بث",
+    default: true,
+  },
 
   /* ---------- معايير اقتصاد الأثر ---------- */
   {

@@ -1,27 +1,17 @@
 /**
  * instrumentation لوحة التحكم — onRequestError يلتقط كل خطأ تشغيلي
  * (Route Handlers و Server Actions والرندر) لحظة وقوعه مع Stack Trace
- * الكامل، ويوثقه في ServerErrorLog ويربطه بسجل الحركة بمعرف الارتباط.
+ * الكامل، ويحوّله عبر fetch لمسار داخلي محمي بالسر ينفذ: التوثيق المجمّع
+ * في ServerErrorLog + ربط سجل الحركة + بث Push فوري لهواتف الإدارة
+ * عند أول ظهور لكل بصمة خطأ جديدة.
  * app = ADMIN
+ *
+ * لماذا fetch؟ instrumentation يُجمَّع لبيئة الحافة أيضًا ومحرك التنبيه
+ * Node-only — التقسيم المعماري يبقي الحزمة نظيفة والمنبه حيًّا في القناتين.
  */
 
 export async function register() {
   /* لا تهيئة دورية — الالتقاط حصريًا عبر onRequestError */
-}
-
-/** Web Crypto (متاحة في Node 18+ وعلى الحافة) — بلا اعتماد node:crypto */
-async function digestOf(message: string, stack: string | null): Promise<string> {
-  const top = (stack ?? "").split("\n").slice(0, 3).join("|");
-  try {
-    const data = new TextEncoder().encode(`${message}\n${top}`);
-    const buf = await crypto.subtle.digest("SHA-256", data);
-    return Array.from(new Uint8Array(buf))
-      .map((b) => b.toString(16).padStart(2, "0"))
-      .join("")
-      .slice(0, 32);
-  } catch {
-    return `${message.length}`.padEnd(32, "0");
-  }
 }
 
 function headerOf(headers: unknown, name: string): string | null {
@@ -44,31 +34,31 @@ export async function onRequestError(
   context?: { routeType?: string; routePath?: string; routerKind?: string },
 ) {
   try {
-    const { prisma } = await import("@/lib/prisma");
     const message = err instanceof Error ? err.message : String(err);
     const stack = err instanceof Error ? (err.stack ?? null) : null;
-    const digest = await digestOf(message, stack);
-    const requestId = headerOf(request?.headers, "x-kalam-rid");
 
-    await prisma.serverErrorLog.create({
-      data: {
-        digest,
-        message: message.slice(0, 2000),
-        stack: stack?.slice(0, 8000) ?? null,
+    const proto = headerOf(request?.headers, "x-forwarded-proto") ?? (process.env.NODE_ENV === "production" ? "https" : "http");
+    const host = headerOf(request?.headers, "host");
+    if (!host) return;
+
+    await fetch(`${proto}://${host}/api/internal/error-alert`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "x-traffic-secret": process.env.REVALIDATE_SECRET ?? "",
+      },
+      body: JSON.stringify({
+        app: "ADMIN",
+        message,
+        stack,
         path: request?.path ?? null,
         method: request?.method ?? null,
         routeType: context?.routeType ?? context?.routerKind ?? null,
-        requestId,
-        app: "ADMIN",
-      },
+        requestId: headerOf(request?.headers, "x-kalam-rid"),
+        url: "/system?tab=errors",
+      }),
+      signal: AbortSignal.timeout(8000),
     });
-
-    if (requestId) {
-      await prisma.requestLog.updateMany({
-        where: { requestId },
-        data: { status: 500, isError: true },
-      });
-    }
   } catch {
     /* التوثيق لا يرفع الأخطاء أبدًا */
   }

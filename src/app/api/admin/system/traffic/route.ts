@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { requireSession, isRejected } from "@/lib/guard";
 import { listRequestLogs } from "@/lib/system";
+import { recordServerError } from "@/lib/error-alert";
 
 /**
  * مستكشف حركة الخادم الحي — كل استدعاءات Route Handlers و Server Actions
@@ -21,7 +22,8 @@ export async function GET(request: Request) {
       limit: Math.min(Math.max(Number(url.searchParams.get("limit")) || 80, 10), 200),
     });
     return NextResponse.json({ rows }, { headers: { "Cache-Control": "no-store" } });
-  } catch {
+  } catch (err) {
+    await recordServerError({ err, app: "ADMIN", path: "/api/admin/system/traffic", method: request.method, requestId: request.headers.get("x-kalam-rid"), url: "/system?tab=errors" });
     return NextResponse.json({ error: "تعذر جلب سجل الحركة" }, { status: 500 });
   }
 }

@@ -19,6 +19,12 @@ const nextConfig = {
   reactStrictMode: true,
   poweredByHeader: false,
   eslint: { ignoreDuringBuilds: true },
+  /* تطهير حزم الإنتاج من رسائل التصحيح — console.* تُستأصل من bundles
+     العميل تلقائيًا ما عدا console.error لرسائل الحارس */
+  compiler: {
+    removeConsole:
+      process.env.NODE_ENV === "production" ? { exclude: ["error"] } : false,
+  },
   async rewrites() {
     /* اكتشاف OAuth القياسي — يوجّه /.well-known/* إلى المسار الجامع */
     return [{ source: "/.well-known/:path*", destination: "/api/well-known/:path*" }];

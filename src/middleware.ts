@@ -1,13 +1,12 @@
-import { NextResponse, type NextRequest, after } from "next/server";
+import { NextResponse, type NextRequest } from "next/server";
 import { jwtVerify } from "jose";
 
 /**
  * Middleware لوحة التحكم — الخط الدفاعي الأول على الحافة (Edge)
  * 1. تحقق توقيع JWT لكل الصفحات الإدارية (بدون DB)
  * 2. فحص CSRF (Origin) لكل طلبات API المتغيرة
- * 3. ترويسات أمان صارمة
- * 4. مرصد الحركة الحي: معرف ارتباط x-kalam-rid لكل طلب + توثيق
- *    فوري في سجل الحركة بعد انتهاء الاستجابة (after) — app=ADMIN
+ * 3. ترويسات أمان صارمة + CSP مضبوطة المصادر
+ * 4. منع الكاش نهائيًا (no-store) — لا أثر للوحة في سجل/كاش المتصفح
  */
 
 const SECRET = process.env.ADMIN_SESSION_SECRET || "dev-only-insecure-secret";
@@ -26,10 +25,35 @@ const PUBLIC_PATHS = [
   /* بوابة MCP + طبقة OAuth القياسية (ليجرب Gemini الاكتشاف والتسجيل والتفويض) */
   "/api/mcp",
   "/.well-known",
+  /* البوابات الداخلية بين طبقات النظام (traffic/alerts/worker) —
+     لا جلسة لها بطبيعتها، وحمايتها السر الداخلي x-traffic-secret
+     وx-worker-secret على مستوى المسار نفسه (403 عند أي خلل) */
+  "/api/internal",
+  "/api/audio/worker",
 ];
 
-/** المسارات المستثناة من مرصد الحركة (لا تُسجل نفسها) */
-const UNTRACKED = ["/api/internal", "/_next/image"];
+/**
+ * سياسة أمان المحتوى الصارمة للوحة:
+ * - كل المصادر محصورة بالأصل — لا سكربت ولا إطار خارجي إطلاقًا
+ * - object-src 'none' + base-uri/form-action 'self' — سد حقن XSS
+ * - frame-ancestors 'none' — اللوحة لا تُضمَّن في أي iframe خارجي
+ * (الصور https: لأغلفة المقالات من مصادر التحرير، وblob: لمعاينات الرفع)
+ */
+const CSP = [
+  "default-src 'self'",
+  "script-src 'self' 'unsafe-inline'",
+  "style-src 'self' 'unsafe-inline'",
+  "img-src 'self' data: blob: https:",
+  "media-src 'self' https: blob:",
+  "font-src 'self' data:",
+  "connect-src 'self' https:",
+  "worker-src 'self' blob:",
+  "object-src 'none'",
+  "base-uri 'self'",
+  "form-action 'self'",
+  "frame-ancestors 'none'",
+  "upgrade-insecure-requests",
+].join("; ");
 
 async function verifySessionToken(token: string): Promise<boolean> {
   try {
@@ -44,45 +68,6 @@ export async function middleware(request: NextRequest) {
   const { pathname } = request.nextUrl;
   const method = request.method;
 
-  /* ===== هوية المرصد: معرف ارتباط فريد + زمن البداية ===== */
-  const requestId = crypto.randomUUID();
-  const startAt = Date.now();
-  const trackable = !UNTRACKED.some((p) => pathname.startsWith(p));
-
-  const track = (response: NextResponse, status?: number): NextResponse => {
-    response.headers.set("x-kalam-rid", requestId);
-    if (!trackable) return response;
-    const entry = {
-      requestId,
-      app: "ADMIN",
-      method,
-      path: pathname,
-      status: status ?? null,
-      ip:
-        request.headers.get("x-forwarded-for")?.split(",")[0]?.trim() ||
-        request.headers.get("x-real-ip") ||
-        null,
-      userAgent: request.headers.get("user-agent"),
-      country: request.headers.get("x-vercel-ip-country"),
-    };
-    after(async () => {
-      try {
-        await fetch(new URL("/api/internal/traffic", request.url), {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            "x-traffic-secret": process.env.REVALIDATE_SECRET ?? "",
-          },
-          body: JSON.stringify({ ...entry, durationMs: Date.now() - startAt }),
-          signal: AbortSignal.timeout(4000),
-        });
-      } catch {
-        /* المرصدة زينة رقابية — لا تمس مسار الطلب أبدًا */
-      }
-    });
-    return response;
-  };
-
   /* حماية CSRF على مستوى الحافة لكل مسارات API المتغيرة */
   if (pathname.startsWith("/api/") && !["GET", "HEAD", "OPTIONS"].includes(method)) {
     const isPublic = PUBLIC_PATHS.some((p) => pathname === p || pathname.startsWith(p + "/"));
@@ -96,10 +81,10 @@ export async function middleware(request: NextRequest) {
             const originHost = new URL(origin).host;
             const host = request.headers.get("host");
             if (!host || originHost !== host) {
-              return track(NextResponse.json({ error: "طلب مرفوض (CSRF)" }, { status: 403 }), 403);
+              return NextResponse.json({ error: "طلب مرفوض (CSRF)" }, { status: 403 });
             }
           } catch {
-            return track(NextResponse.json({ error: "طلب مرفوض (CSRF)" }, { status: 403 }), 403);
+            return NextResponse.json({ error: "طلب مرفوض (CSRF)" }, { status: 403 });
           }
         }
       }
@@ -120,7 +105,7 @@ export async function middleware(request: NextRequest) {
       } catch {}
     }
     if (!ok) {
-      return track(NextResponse.redirect(new URL("/login", request.url)));
+      return NextResponse.redirect(new URL("/login", request.url));
     }
   }
 
@@ -131,11 +116,11 @@ export async function middleware(request: NextRequest) {
 
     if (!valid) {
       if (pathname.startsWith("/api/")) {
-        return track(NextResponse.json({ error: "جلسة غير صالحة" }, { status: 401 }), 401);
+        return NextResponse.json({ error: "جلسة غير صالحة" }, { status: 401 });
       }
       const loginUrl = new URL("/login", request.url);
       if (pathname !== "/") loginUrl.searchParams.set("next", pathname);
-      return track(NextResponse.redirect(loginUrl));
+      return NextResponse.redirect(loginUrl);
     }
   }
 
@@ -147,9 +132,26 @@ export async function middleware(request: NextRequest) {
   response.headers.set("Referrer-Policy", "no-referrer");
   response.headers.set("Cross-Origin-Opener-Policy", "same-origin");
 
-  /* تمرير معرف الارتباط للتطبيق كي يرتبط بالأخطاء في instrumentation */
-  response.headers.set("x-kalam-rid", requestId);
-  return track(response);
+  /**
+   * CSP: صارمة على كل المسارات ما عدا صفحات تفويض MCP OAuth —
+   * تلك يحتاج Gemini عرضها داخل إطار الربط (next.config يضبط لهم
+   * frame-ancestors * وحدهم؛ لو ضفنا CSP ثانية هنا لتماس الاستثناء
+   * لأن المتصفح يطبق تقاطع كل ترويسات CSP).
+   */
+  const isOauthConsent = pathname.startsWith("/api/mcp/oauth");
+  if (!isOauthConsent) {
+    response.headers.set("Content-Security-Policy", CSP);
+  }
+
+  /* لا كاش نهائي — لا صفحة ولا استجابة إدارية تُحفظ في سجل المتصفح */
+  response.headers.set(
+    "Cache-Control",
+    "no-store, no-cache, must-revalidate, proxy-revalidate",
+  );
+  response.headers.set("Pragma", "no-cache");
+  response.headers.set("Expires", "0");
+
+  return response;
 }
 
 export const config = {
