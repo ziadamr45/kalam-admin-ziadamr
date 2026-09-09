@@ -1702,6 +1702,137 @@ async function viewAsReader(args: McpArgs) {
     };
   }
 
+  /* عين القارئ على مقال بعينه — صفحة المقال بعيون الجمهور + بؤبؤ القارئ عليها */
+  if (action === "article") {
+    const idOrSlug = str(args, "articleId") ?? str(args, "slug");
+    if (!idOrSlug) throw new McpToolError("مرّر articleId أو slug للمقال المطلوب");
+    const article = await prisma.article.findFirst({
+      where: { OR: [{ id: idOrSlug }, { slug: idOrSlug }] },
+      include: { section: { select: { name: true, slug: true } } },
+    });
+    if (!article) throw new McpToolError("لا يوجد مقال بهذا المعرف — ابحث عنه أولًا عبر list_articles");
+
+    const now = new Date();
+    const visibleToPublic =
+      article.status === "PUBLISHED" ||
+      (article.status === "SCHEDULED" && !!article.scheduledAt && article.scheduledAt <= now);
+
+    const [likes, dislikes, sharesTotal, approvedTotal, inspiringTotal, pendingTotal, latestApproved, related] =
+      await Promise.all([
+        prisma.interaction.count({ where: { articleId: article.id, value: 1 } }),
+        prisma.interaction.count({ where: { articleId: article.id, value: -1 } }),
+        prisma.socialShare.count({ where: { articleId: article.id } }),
+        prisma.comment.count({ where: { articleId: article.id, status: "APPROVED" } }),
+        prisma.comment.count({ where: { articleId: article.id, status: "APPROVED", isInspiring: true } }),
+        prisma.comment.count({ where: { articleId: article.id, status: "PENDING" } }),
+        prisma.comment.findMany({
+          where: { articleId: article.id, status: "APPROVED" },
+          orderBy: { createdAt: "desc" },
+          take: cap,
+          select: {
+            content: true,
+            isInspiring: true,
+            createdAt: true,
+            user: { select: { customName: true, name: true } },
+          },
+        }),
+        prisma.article.findMany({
+          where: { status: "PUBLISHED", sectionId: article.sectionId, id: { not: article.id } },
+          orderBy: { publishedAt: "desc" },
+          take: 5,
+          select: { title: true, slug: true },
+        }),
+      ]);
+
+    /* بؤبؤ القارئ على هذه الصفحة تحديدًا — إن مُرّر قارئ */
+    const uid = str(args, "userId");
+    const uemail = str(args, "email");
+    let readerLens: unknown = null;
+    if (uid || uemail) {
+      const reader = await prisma.user.findUnique({ where: uid ? { id: uid } : { email: uemail! } });
+      if (!reader) throw new McpToolError("لا يوجد قارئ مطابق — ابحث عنه أولًا عبر list_users");
+      const [vote, savedRec, quotaRec, hisComments] = await Promise.all([
+        prisma.interaction.findUnique({
+          where: { articleId_userId: { articleId: article.id, userId: reader.id } },
+          select: { value: true, updatedAt: true },
+        }),
+        prisma.savedArticle.findUnique({
+          where: { userId_articleId: { userId: reader.id, articleId: article.id } },
+          select: { createdAt: true },
+        }),
+        prisma.aiDiscussionUsage.findUnique({
+          where: { userId_articleId: { userId: reader.id, articleId: article.id } },
+          select: { messageCount: true, lastMessageAt: true },
+        }),
+        prisma.comment.findMany({
+          where: { articleId: article.id, userId: reader.id },
+          orderBy: { createdAt: "desc" },
+          select: { content: true, status: true, createdAt: true },
+        }),
+      ]);
+      const perLimit = reader.banned ? 0 : AI_QUOTA_BY_RANK[reader.intellectualRank] ?? 6;
+      readerLens = {
+        displayName: reader.customName || reader.name,
+        hisVote: vote ? (vote.value === 1 ? "إعجاب" : "عدم إعجاب") : null,
+        votedAt: vote?.updatedAt ?? null,
+        inHisLibrary: !!savedRec,
+        discussionQuotaForThisArticle: {
+          used: quotaRec?.messageCount ?? 0,
+          remaining: Math.max(0, perLimit - (quotaRec?.messageCount ?? 0)),
+          lastMessageAt: quotaRec?.lastMessageAt ?? null,
+        },
+        hisComments: hisComments.map((c) => ({
+          excerpt: c.content.slice(0, 120),
+          status: c.status,
+          publiclyVisible: c.status === "APPROVED",
+          at: c.createdAt,
+        })),
+      };
+    }
+
+    return {
+      note: "صفحة المقال كما يراها الجمهور — وحالة الظهور الفعلية بنفس منطق الموقع العام (شبكة الأمان تعرض المجدول فور حلّ وقته حتى قبل مرور الكرون)",
+      article: {
+        title: article.title,
+        slug: article.slug,
+        section: article.section?.name ?? null,
+        status: article.status,
+        visibleToPublic,
+        visibilityNote:
+          article.status === "SCHEDULED"
+            ? visibleToPublic
+              ? "مجدول حلّ وقته — يظهر للقراء فورًا (أمان الموقع الاحتياطي)"
+              : `مجدول ولم يحل وقته بعد (${article.scheduledAt?.toISOString()}) — لا يراه أحد حتى الآن`
+            : null,
+        publishedAt: article.publishedAt,
+        readingMinutes: Math.max(1, Math.round(article.readingTimeSec / 60)),
+        views: article.views,
+        completedReads: article.completedReads,
+        hasCover: !!article.coverImage,
+        audio: {
+          status: article.audioStatus,
+          ready: article.audioStatus === "READY",
+          durationSec: article.audioDurationSec,
+        },
+        votes: { likes, dislikes },
+        sharesTotal,
+        comments: {
+          publicCount: approvedTotal,
+          inspiringCount: inspiringTotal,
+          pendingModerationCount: pendingTotal,
+          latest: latestApproved.map((c) => ({
+            by: c.user?.customName || c.user?.name || "ضيف",
+            excerpt: c.content.slice(0, 140),
+            inspiring: c.isInspiring,
+            at: c.createdAt,
+          })),
+        },
+        relatedFromSameSection: related,
+      },
+      readerLens,
+    };
+  }
+
   /* شاشة قارئ بعينه */
   const userId = str(args, "userId");
   const email = str(args, "email");
@@ -1821,6 +1952,152 @@ async function viewAsReader(args: McpArgs) {
     login: { providers: providers.map((a) => a.provider), activeSessions: sessions },
     impactLedger: ledger.map((l) => ({ action: l.actionType, points: l.points, article: l.article?.title ?? null, reason: l.reason, at: l.createdAt })),
   };
+}
+
+/* ============================ الفحص الذاتي الشامل — استدلالات قبل الكارثة ============================ */
+
+async function getSiteHealth() {
+  const now = new Date();
+  const t0 = Date.now();
+  await prisma.$queryRaw`SELECT 1`;
+  const dbLatencyMs = Date.now() - t0;
+
+  const dayAgo = new Date(Date.now() - 24 * 60 * 60 * 1000);
+  const weekAhead = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000);
+  const staleDraftBefore = new Date(Date.now() - 14 * 24 * 60 * 60 * 1000);
+  const stalePushBefore = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000);
+  const audioStaleBefore = new Date(Date.now() - 30 * 60 * 1000);
+  const pendingOldBefore = new Date(Date.now() - 48 * 60 * 60 * 1000);
+
+  const [scheduledDue, upcoming, staleDrafts, commentsPending, oldestPending, commentsFlagged, contactUnread, proposalsPending, alertsOpen, criticalAlerts, failedLogins, ipRules, errorTotal, errorOccurrences, latestError, bannedUsers, stalePushes, audioProcessing, audioStuck, audioFailed] =
+    await Promise.all([
+      prisma.article.findMany({
+        where: { status: "SCHEDULED", scheduledAt: { lte: now } },
+        select: { title: true, slug: true, scheduledAt: true },
+      }),
+      prisma.article.findMany({
+        where: { status: "SCHEDULED", scheduledAt: { gt: now, lte: weekAhead } },
+        orderBy: { scheduledAt: "asc" },
+        select: { title: true, slug: true, scheduledAt: true },
+      }),
+      prisma.article.count({ where: { status: "DRAFT", updatedAt: { lt: staleDraftBefore } } }),
+      prisma.comment.count({ where: { status: "PENDING" } }),
+      prisma.comment.findFirst({ where: { status: "PENDING" }, orderBy: { createdAt: "asc" }, select: { createdAt: true } }),
+      prisma.comment.count({ where: { OR: [{ flagged: true }, { reportCount: { gt: 0 } }] } }),
+      prisma.contactMessage.count({ where: { read: false, archived: false } }),
+      prisma.userProposal.count({ where: { handled: false } }),
+      prisma.securityAlert.count({ where: { resolved: false } }),
+      prisma.securityAlert.count({ where: { resolved: false, severity: "CRITICAL" } }),
+      prisma.loginAttempt.count({ where: { success: false, createdAt: { gte: dayAgo } } }),
+      prisma.ipRule.count(),
+      prisma.errorReport.count(),
+      prisma.errorReport.aggregate({ _sum: { count: true } }),
+      prisma.errorReport.findFirst({ orderBy: { lastSeenAt: "desc" }, select: { message: true, path: true, count: true, lastSeenAt: true } }),
+      prisma.user.count({ where: { banned: true } }),
+      prisma.userPushSubscription.count({ where: { lastSeenAt: { lt: stalePushBefore } } }),
+      prisma.article.count({ where: { audioStatus: "PROCESSING" } }),
+      prisma.article.findMany({
+        where: {
+          audioStatus: "PROCESSING",
+          OR: [{ audioUpdatedAt: null }, { audioUpdatedAt: { lt: audioStaleBefore } }],
+        },
+        select: { title: true, slug: true, audioUpdatedAt: true, audioProgress: true, audioTotal: true },
+      }),
+      prisma.article.count({ where: { audioStatus: "FAILED" } }),
+    ]);
+
+  const issues: string[] = [];
+  if (scheduledDue.length) issues.push("SCHEDULED_DUE_NOT_PUBLISHED");
+  if (audioStuck.length) issues.push("AUDIO_JOBS_STUCK");
+  if (audioFailed) issues.push("AUDIO_FAILED_ARTICLES");
+  if (commentsPending && oldestPending && oldestPending.createdAt < pendingOldBefore) issues.push("COMMENTS_PENDING_OVER_48H");
+  if (commentsFlagged) issues.push("COMMENTS_FLAGGED");
+  if (contactUnread) issues.push("CONTACT_MESSAGES_UNREAD");
+  if (proposalsPending) issues.push("PROPOSALS_UNHANDLED");
+  if (criticalAlerts) issues.push("CRITICAL_SECURITY_ALERTS");
+  else if (alertsOpen) issues.push("SECURITY_ALERTS_UNRESOLVED");
+  if (failedLogins >= 10) issues.push("FAILED_LOGINS_SPIKE");
+  if (errorTotal) issues.push("ERROR_REPORTS_OPEN");
+
+  return {
+    verdict: issues.length === 0 ? "المنصة سليمة" : "تحتاج نظر — راجع البنود المرمّزة",
+    checkedAt: now,
+    dbLatencyMs,
+    issues,
+    publishing: {
+      scheduledDueNow: scheduledDue,
+      scheduledNext7Days: upcoming,
+      staleDraftsCount: staleDrafts,
+    },
+    audioPipeline: { processing: audioProcessing, stuck: audioStuck, failed: audioFailed },
+    moderation: {
+      commentsPending,
+      oldestPendingAt: oldestPending?.createdAt ?? null,
+      commentsFlaggedOrReported: commentsFlagged,
+    },
+    inbox: { contactUnread, proposalsUnhandled: proposalsPending },
+    security: {
+      unresolvedAlerts: alertsOpen,
+      criticalAlerts,
+      failedLoginsLast24h: failedLogins,
+      ipRulesActive: ipRules,
+    },
+    errors: { totalReports: errorTotal, totalOccurrences: errorOccurrences._sum.count ?? 0, latest: latestError },
+    users: { banned: bannedUsers },
+    push: { staleSubscriptionsOver30Days: stalePushes },
+  };
+}
+
+/* ============================ التشغيل اليدوي — نشر المجدول فورًا ============================ */
+
+async function runMaintenance(args: McpArgs, meta: McpRequestMeta) {
+  const action = str(args, "action") ?? "publish_scheduled";
+
+  if (action === "publish_scheduled") {
+    const due = await prisma.article.findMany({
+      where: { status: "SCHEDULED", scheduledAt: { lte: new Date() } },
+      select: { id: true, title: true, slug: true, sectionId: true },
+    });
+    if (!due.length) {
+      return { action, published: 0, note: "لا توجد مقالات مجدولة حلّ وقتها — لا حاجة لأي إجراء" };
+    }
+
+    const sectionIds = [...new Set(due.map((a) => a.sectionId).filter(Boolean))] as string[];
+    const sections = sectionIds.length
+      ? await prisma.section.findMany({ where: { id: { in: sectionIds } }, select: { id: true, slug: true } })
+      : [];
+    const slugById = new Map(sections.map((s) => [s.id, s.slug]));
+
+    const paths = new Set<string>(["/"]);
+    for (const article of due) {
+      await prisma.article.update({
+        where: { id: article.id },
+        data: { status: "PUBLISHED", publishedAt: new Date() },
+      });
+      paths.add(`/article/${article.slug}`);
+      const sectionSlug = article.sectionId ? slugById.get(article.sectionId) : null;
+      if (sectionSlug) paths.add(`/section/${sectionSlug}`);
+    }
+
+    await revalidatePublicPaths([...paths]);
+    await writeAudit({
+      adminId: null,
+      action: "mcp.maintenance_publish_scheduled",
+      entity: "Article",
+      entityId: due.map((a) => a.id).join(","),
+      meta: { via: "gemini-spark-mcp", count: due.length },
+      ip: meta.ip,
+    });
+
+    return {
+      action,
+      published: due.length,
+      articles: due.map((a) => ({ title: a.title, slug: a.slug })),
+      revalidatedPaths: [...paths],
+    };
+  }
+
+  throw new McpToolError(`فعل غير معروف: «${action}»`);
 }
 
 async function getLiveActivity(args: McpArgs) {
@@ -2535,6 +2812,10 @@ export async function executeMcpTool(
       return manageAdminAccount(args, meta);
     case "manage_discussion_quota":
       return manageDiscussionQuota(args, meta);
+    case "get_site_health":
+      return getSiteHealth();
+    case "run_maintenance":
+      return runMaintenance(args, meta);
     default:
       throw new McpToolError(`أداة غير معروفة: «${name}»`);
   }
