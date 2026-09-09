@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { requireSession, isRejected, writeAudit, getClientIp } from "@/lib/guard";
 import { awardImpact } from "@/lib/impact";
+import { grantVip, revokeVip, type VipPrivileges, type GrantableRole } from "@/lib/vip";
 
 /**
  * إدارة المستخدمين: قائمة + حظر/فك حظر + تعديل رصيد الأثر يدويًا
@@ -33,12 +34,68 @@ export async function PATCH(request: Request) {
       userId?: string;
       banned?: boolean;
       banReason?: string;
-      action?: "adjust-impact" | "reset-identity";
+      action?: "adjust-impact" | "reset-identity" | "grant-vip" | "revoke-vip";
       delta?: number;
       reason?: string;
+      /* حقول استوديو الحسابات المميزة */
+      role?: GrantableRole;
+      badgeTitle?: string;
+      badgeColor?: string;
+      privileges?: VipPrivileges;
+      welcomePoints?: number;
     };
     if (!body.userId) {
       return NextResponse.json({ error: "بيانات ناقصة" }, { status: 400 });
+    }
+
+    /* ============ منح/تحديث تمييز حساب — استوديو VIP ============ */
+    if (body.action === "grant-vip") {
+      try {
+        const result = await grantVip(
+          {
+            userId: body.userId,
+            role: body.role,
+            badgeTitle: body.badgeTitle ?? "",
+            badgeColor: body.badgeColor ?? "",
+            reason: body.reason ?? "",
+            privileges: body.privileges,
+            welcomePoints: body.welcomePoints,
+          },
+          {
+            adminId: guard.adminId,
+            adminUsername: guard.username ?? "admin",
+            ip: getClientIp(request),
+            via: "studio",
+          },
+        );
+        return NextResponse.json(result);
+      } catch (e) {
+        return NextResponse.json(
+          { error: e instanceof Error ? e.message : "تعذر المنح" },
+          { status: 400 },
+        );
+      }
+    }
+
+    /* ============ سحب التوثيق والتمييز كليًا ============ */
+    if (body.action === "revoke-vip") {
+      try {
+        const result = await revokeVip(
+          { userId: body.userId, reason: body.reason ?? "" },
+          {
+            adminId: guard.adminId,
+            adminUsername: guard.username ?? "admin",
+            ip: getClientIp(request),
+            via: "studio",
+          },
+        );
+        return NextResponse.json(result);
+      } catch (e) {
+        return NextResponse.json(
+          { error: e instanceof Error ? e.message : "تعذر السحب" },
+          { status: 400 },
+        );
+      }
     }
 
     /* ============ تعديل رصيد الأثر يدويًا (منح/خصم بسبب موثق) ============ */

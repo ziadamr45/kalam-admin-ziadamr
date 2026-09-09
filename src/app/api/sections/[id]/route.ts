@@ -70,7 +70,7 @@ export async function PATCH(
       take: 100,
     });
     for (const a of arts) paths.push(`/article/${a.slug}`);
-    revalidatePublicPaths(paths, undefined, true);
+    revalidatePublicPaths(paths, undefined, true, ["sections"]);
 
     return NextResponse.json({ section });
   } catch {
@@ -126,7 +126,7 @@ export async function DELETE(
       ip: getClientIp(request),
     });
 
-    revalidatePublicPaths(["/", `/section/${existing.slug}`], undefined, true);
+    revalidatePublicPaths(["/", `/section/${existing.slug}`], undefined, true, ["sections"]);
 
     return NextResponse.json({ ok: true, movedCount });
   } catch {

@@ -7,6 +7,7 @@ export async function revalidatePublicPaths(
   paths: string[],
   slug?: string,
   layout?: boolean,
+  tags?: string[],
 ): Promise<void> {
   const publicUrl = process.env.PUBLIC_URL;
   const secret = process.env.REVALIDATE_SECRET;
@@ -22,8 +23,9 @@ export async function revalidatePublicPaths(
         "x-revalidate-secret": secret,
       },
       /* layout: إعادة تحقق على مستوى التخطيط المشترك — تُحدّث القائمة
-         الجانبية الحية (الأقسام) في كل صفحات المنصة فورًا */
-      body: JSON.stringify({ paths, slug, layout }),
+         الجانبية الحية (الأقسام) في كل صفحات المنصة فورًا
+         tags: إبطال وسوم الكاش المسماة (مثل «sections» للتذييل الديناميكي) */
+      body: JSON.stringify({ paths, slug, layout, tags }),
       signal: controller.signal,
     });
     clearTimeout(timeout);

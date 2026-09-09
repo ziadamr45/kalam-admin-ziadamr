@@ -13,6 +13,7 @@ import {
   getFlags,
 } from "@/lib/site-config";
 import { dbHealth, dbStats, cairoDayKey } from "@/lib/system";
+import { grantVip, revokeVip, PRIVILEGE_KEYS, VERIFIED_TYPES, type VipPrivileges, type VerifiedType, type GrantableRole, roleLabelAr } from "@/lib/vip";
 
 /**
  * ============================================================
@@ -30,22 +31,74 @@ export type CliLine = { type: CliLineType; text: string };
 export type CliContext = { adminUsername: string; adminId: string; ip: string; source: "web" | "mcp" };
 
 const HELP_LINES: CliLine[] = [
-  { type: "info", text: "قائمة الأوامر السيادية المتاحة:" },
-  { type: "muted", text: "  sys info                    — نبض النظام: الإصدار، البيئة، زمن استجابة Neon، الحالة" },
-  { type: "muted", text: "  cache purge [all | <path>]  — إفراغ كاش الصفحات فورًا (all افتراضيًا)" },
-  { type: "muted", text: "  user inspect <email | id>   — السجل الأمني الكامل ونقاط الأثر والجلسات" },
-  { type: "muted", text: "  user ban <email> [سبب]      — تعطيل حساب القارئ فورًا" },
-  { type: "muted", text: "  user unban <email>          — تفعيل الحساب من جديد" },
-  { type: "muted", text: "  config list                 — عرض كل مفاتيح التكوين السيادي وقيمها" },
-  { type: "muted", text: "  config get <key>            — قراءة قيمة مفتاح محدد" },
-  { type: "muted", text: "  config set <key> <value>    — تعديل أي إعداد وتطبيقه لحظيًا دون نشر" },
-  { type: "muted", text: "  db stats                    — جداول القاعدة وسجلاتها وأحجامها" },
-  { type: "muted", text: "  traffic tail [n]            — آخر n حركة خادم حية (افتراضي 15)" },
-  { type: "muted", text: "  errors tail [n]             — آخر n خطأ تشغيلي مع بصمته" },
-  { type: "muted", text: "  security tail [n]           — لوحة أمنية: التنبيهات ومحاولات الاختراق واصطياد البوتات والحدود" },
-  { type: "muted", text: "  help                        — هذه القائمة" },
-  { type: "muted", text: "  clear                       — تنظيف الشاشة (محلي)" },
+  { type: "info", text: "قائمة الأوامر السيادية المتاحة — اكتب help <command> للشرح المفصل:" },
+  { type: "muted", text: "  sys info | ping | env        — النظام: النبض، زمن استجابة Neon، تدقيق البيئة الصحي" },
+  { type: "muted", text: "  cache purge [all|<path>] | purge-all — إفراغ الكاش الشامل أو لمسار محدد" },
+  { type: "muted", text: "  user inspect <email|id>      — السجل الأمني الكامل ونقاط الأثر والجلسات" },
+  { type: "muted", text: "  user grant-vip <email> --title \"..\" --color \"#..\" --points N --role R --unlimited-ai" },
+  { type: "muted", text: "  user set-points <email> <n>  — تعديل رصيد الأثر بقيمة مطلقة موثقة" },
+  { type: "muted", text: "  user verify <email> --type <TYPE> --badge \"..\" — منح التوثيق فقط" },
+  { type: "muted", text: "  user ban <email> [سبب] | unban <email> — تعطيل/تفعيل الحساب" },
+  { type: "muted", text: "  article status <slug> | toggle-comments <slug> — إحصاءات المقال وباب التعليق" },
+  { type: "muted", text: "  config list | get <key> | set <key> <value> — التكوين السيادي اللحظي" },
+  { type: "muted", text: "  db stats | slow-queries      — القاعدة: الجداول والحجم والعمليات البطيئة" },
+  { type: "muted", text: "  traffic tail [n] | errors tail [n] | security tail [n] — المراصد الحية" },
+  { type: "muted", text: "  sec audit | block-ip <ip> | active-logins — الأمن: فحص الرؤوس، الحجب، الدخولات" },
+  { type: "muted", text: "  spark exec \"<طلب بالطبيعي>\" — انطة طبيعية يحولها الذكاء السيادي لأمر وينفذه" },
+  { type: "muted", text: "  help [command] | clear       — الدليل المفصل / تنظيف الشاشة" },
 ];
+
+/* شرح مفصل لكل أمر — help <command> */
+const HELP_TOPICS: Record<string, CliLine[]> = {
+  sys: [
+    { type: "info", text: "sys — أوامر النظام والخادم:" },
+    { type: "muted", text: "  sys info   — إصدار المنصة، البيئة، المنطقة، الذاكرة، نبض Neon، حالة التكوين" },
+    { type: "muted", text: "  sys ping   — ثلاث قياسات متتالية لزمن استجابة Neon مع المتوسط" },
+    { type: "muted", text: "  sys env    — تدقيق صحي لمتغيرات البيئة: الموجود والناقص دون كشف أي قيمة" },
+  ],
+  user: [
+    { type: "info", text: "user — إدارة المستخدمين والسيادة:" },
+    { type: "muted", text: "  user inspect <email|id>    — سجل استخباري شامل: الرصيد، الشارة، الدخولات، الأثر" },
+    { type: "muted", text: "  user grant-vip <email> --title \"كاتب ضيف\" --color \"#6B8E23\" [--role EDITOR] [--points 350] [--unlimited-ai]" },
+    { type: "muted", text: "                             — منح التوثيق والشارة والنقاط فورًا (السبب إلزامي بـ --reason)" },
+    { type: "muted", text: "  user set-points <email> <n> — تعديل الرصيد قيمة مطلقة (يُسجل الفرق في سجل الأثر)" },
+    { type: "muted", text: "  user verify <email> --type VIP_GRANT --badge \"باحث معرفي\" — توثيق فقط بلا صلاحيات" },
+    { type: "muted", text: "  user ban <email> [سبب] | user unban <email> — الحظر والفك" },
+    { type: "muted", text: "  أنواع التوثيق: SOVEREIGN | ADMIN_STAFF | IMPACT_ELITE | VIP_GRANT | GUEST_AUTHOR | COMMUNITY" },
+  ],
+  article: [
+    { type: "info", text: "article — عمليات المحتوى:" },
+    { type: "muted", text: "  article status <slug>          — قراءات، قراءات مكتملة، تعليقات، محفوظات، حالة التعليق" },
+    { type: "muted", text: "  article toggle-comments <slug> — فتح/إغلاق باب التعليق على المقال لحظيًا دون نشر" },
+  ],
+  cache: [
+    { type: "info", text: "cache — عمليات الكاش:" },
+    { type: "muted", text: "  cache purge all     — إفراغ شامل (كل الصفحات + التكوين)" },
+    { type: "muted", text: "  cache purge <path>  — إفراغ مسار محدد مثل /articles/trend-master" },
+    { type: "muted", text: "  cache purge-all     — اختصار للإفراغ الشامل" },
+  ],
+  db: [
+    { type: "info", text: "db — قاعدة البيانات:" },
+    { type: "muted", text: "  db stats         — الجداول والسجلات والأحجام والعدادات الدقيقة" },
+    { type: "muted", text: "  db slow-queries  — أبطأ 12 عملية في آخر 24 ساعة (فوق 1.5 ثانية أو خاطئة)" },
+  ],
+  sec: [
+    { type: "info", text: "sec — الأمن وجدار الحماية:" },
+    { type: "muted", text: "  sec audit              — فحص حي للترويسات الأمنية (CSP/XFO/nosniff/HSTS) للمنصة العامة" },
+    { type: "muted", text: "  sec block-ip <ip> [سبب] — إضافة عنوان للقائمة السوداء فورًا" },
+    { type: "muted", text: "  sec active-logins      — آخر 10 دخولات: الجهاز، المتصفح، الموقع الجغرافي" },
+    { type: "muted", text: "  security tail [n]      — اللوحة الأمنية المجملة للتنبيهات" },
+  ],
+  spark: [
+    { type: "info", text: "spark — الذكاء السيادي:" },
+    { type: "muted", text: "  spark exec \"امنع التعليقات على مقال كذا\" — يحول الذكاء الاصطناعي الطلب لأمر سيادي وينفذه فورًا" },
+    { type: "muted", text: "  إشعار: التنفيذ الفعلي يبقى محكومًا ببوابات الصلاحيات نفسها — لا تجاوز للتوثيق" },
+  ],
+  config: [
+    { type: "info", text: "config — التكوين السيادي:" },
+    { type: "muted", text: "  config list | config get <key> | config set <key> <value> — عرض/قراءة/تعديل لحظي" },
+  ],
+};
 
 function bytes(n: number): string {
   if (n >= 1_073_741_824) return `${(n / 1_073_741_824).toFixed(2)} GB`;
@@ -259,6 +312,357 @@ async function cmdSecurityTail(n: number): Promise<CliLine[]> {
   return lines;
 }
 
+/* ==================== المنفذون — الموجة السيادية الموسعة ==================== */
+
+/** sys ping — ثلاث قياسات دقيقة لزمن استجابة Neon والخادم */
+async function cmdSysPing(): Promise<CliLine[]> {
+  const samples: number[] = [];
+  for (let i = 0; i < 3; i++) {
+    const t0 = Date.now();
+    await prisma.$queryRaw`SELECT 1`;
+    samples.push(Date.now() - t0);
+  }
+  const avg = Math.round(samples.reduce((a, b) => a + b, 0) / samples.length);
+  const verdict = avg < 100 ? "ممتاز" : avg < 300 ? "جيد" : avg < 800 ? "مقبول" : "بطيء — افحص الشبكة";
+  return [
+    { type: "info", text: `زمن استجابة Neon: ${samples.join("ms | ")}ms — المتوسط ${avg}ms (${verdict})` },
+    { type: avg < 300 ? "ok" : "warn", text: `القياسات من خادم ${process.env.VERCEL_REGION ?? "local"} — اتصال مباشر بقاعدة الإنتاج` },
+  ];
+}
+
+/** sys env — تدقيق صحي للمتغيرات دون كشف أي قيمة */
+async function cmdSysEnv(): Promise<CliLine[]> {
+  const required: { key: string; label: string; critical: boolean }[] = [
+    { key: "DATABASE_URL", label: "قاعدة Neon", critical: true },
+    { key: "AUTH_SECRET", label: "سر الجلسات الإدارية", critical: true },
+    { key: "GOOGLE_CLIENT_ID", label: "OAuth Google", critical: false },
+    { key: "PUBLIC_URL", label: "رابط المنصة العامة", critical: false },
+    { key: "REVALIDATE_SECRET", label: "سر إعادة التحقق", critical: false },
+    { key: "GEMINI_API_KEY", label: "الذكاء الاصطناعي", critical: false },
+    { key: "RESEND_API_KEY", label: "البريد الإلكتروني", critical: false },
+    { key: "CLOUDINARY_CLOUD_NAME", label: "الوسائط", critical: false },
+    { key: "VAPID_PUBLIC_KEY", label: "بث الإشعارات", critical: false },
+    { key: "NEXT_PUBLIC_ADMIN_URL", label: "رابط اللوحة", critical: false },
+  ];
+  const lines: CliLine[] = [{ type: "info", text: "تدقيق البيئة — الحالة فقط بلا أي قيم:" }];
+  for (const v of required) {
+    const present = Boolean(process.env[v.key]);
+    lines.push({
+      type: present ? "ok" : v.critical ? "error" : "warn",
+      text: `  ${present ? "✓" : "✗"} ${v.key.padEnd(24)} ${v.label}${present ? " — مُهيأ" : v.critical ? " — ناقص حرج!" : " — غير مُهيأ (اختياري)"}`,
+    });
+  }
+  return lines;
+}
+
+/** مستخرج أعلام --key <value> / --flag من بقية الأمر */
+function parseFlags(parts: string[]): { positional: string[]; flags: Map<string, string | true> } {
+  const positional: string[] = [];
+  const flags = new Map<string, string | true>();
+  let i = 0;
+  while (i < parts.length) {
+    const p = parts[i];
+    if (p.startsWith("--")) {
+      const key = p.slice(2).toLowerCase();
+      const next = parts[i + 1];
+      if (next !== undefined && !next.startsWith("--")) {
+        flags.set(key, next.replace(/^"|"$/g, ""));
+        i += 2;
+      } else {
+        flags.set(key, true);
+        i += 1;
+      }
+    } else {
+      positional.push(p.replace(/^"|"$/g, ""));
+      i += 1;
+    }
+  }
+  return { positional, flags };
+}
+
+/** user grant-vip — منح التوثيق والشارة والرتبة والنقاط عبر المنطق الموحد */
+async function cmdUserGrantVip(query: string, flags: Map<string, string | true>, ctx: CliContext): Promise<CliLine[]> {
+  if (!query) return [{ type: "error", text: "الصيغة: user grant-vip <email> --title \"..\" --color \"#..\" --reason \"..\" [--points N] [--role R] [--unlimited-ai]" }];
+  const user = await resolveUser(query);
+  if (!user) return [{ type: "error", text: `لا يوجد قارئ مطابق لـ «${query}»` }];
+
+  const title = String(flags.get("title") ?? flags.get("badge") ?? "");
+  const color = String(flags.get("color") ?? "#7C3AED");
+  const reason = String(flags.get("reason") ?? `منح تمييز عبر التيرمينال السيادي بيد ${ctx.adminUsername}`);
+  const points = Number(flags.get("points") ?? 0) || 0;
+  const roleRaw = String(flags.get("role") ?? "").toUpperCase();
+
+  const privileges: VipPrivileges = {};
+  if (flags.has("unlimited-ai") || flags.has("unlimited_ai")) privileges.unlimitedAiChat = true;
+
+  try {
+    const result = await grantVip(
+      {
+        userId: user.id,
+        badgeTitle: title,
+        badgeColor: color,
+        reason,
+        privileges,
+        welcomePoints: points,
+        role: (["USER", "MODERATOR", "EDITOR", "ADMIN"].includes(roleRaw) ? roleRaw : undefined) as GrantableRole | undefined,
+      },
+      { adminId: ctx.adminId, adminUsername: ctx.adminUsername, ip: ctx.ip, via: `cli:${ctx.source}` },
+    );
+    return [
+      { type: "ok", text: `مُنحت شارة «${result.badgeTitle}» بلون ${result.badgeColor} للحساب ${result.user.label}${roleRaw ? ` — الرتبة: ${roleLabelAr(roleRaw)}` : ""}` },
+      {
+        type: "muted",
+        text: `الإشعارات: جرس ${result.dispatch.inApp ? "✓" : "×"} | بث ${result.dispatch.pushSent ? "✓" : "×"} | بريد ${result.dispatch.emailSent ? "✓" : "×"}${
+          result.impactScore !== undefined ? ` | الرصيد الآن ${result.impactScore}` : ""
+        }`,
+      },
+    ];
+  } catch (e) {
+    return [{ type: "error", text: e instanceof Error ? e.message : "تعذر المنح" }];
+  }
+}
+
+/** user set-points — تعديل الرصيد بقيمة مطلقة موثقة */
+async function cmdUserSetPoints(query: string, value: string, ctx: CliContext): Promise<CliLine[]> {
+  const user = await resolveUser(query);
+  if (!user) return [{ type: "error", text: `لا يوجد قارئ مطابق لـ «${query}»` }];
+  const target = Math.floor(Number(value));
+  if (!Number.isFinite(target) || target < 0 || target > 1_000_000) {
+    return [{ type: "error", text: "القيمة المطلوبة غير صالحة (0 إلى 1,000,000)" }];
+  }
+  const delta = target - user.impactScore;
+  if (delta === 0) return [{ type: "info", text: `الرصيد ${target} أصلًا — لا تعديل` }];
+  const { awardImpact } = await import("@/lib/impact");
+  const result = await awardImpact({
+    userId: user.id,
+    actionType: "ADMIN_ADJUST",
+    points: delta,
+    reason: `تعديل يدوي بقيمة مطلقة ${target} عبر التيرمينال السيادي (${delta > 0 ? "+" : ""}${delta})`,
+  });
+  await writeAudit({
+    adminId: ctx.adminId,
+    action: "cli.user_set_points",
+    entity: "User",
+    entityId: user.id,
+    meta: { via: ctx.source, by: ctx.adminUsername, target, delta, newScore: result.impactScore },
+    ip: ctx.ip,
+  });
+  return [
+    { type: "ok", text: `عُدّل رصيد ${user.email ?? user.id}: ${user.impactScore} → ${result.impactScore} (${delta > 0 ? "+" : ""}${delta})` },
+    { type: "muted", text: `الرتبة الآن: ${result.rank}` },
+  ];
+}
+
+/** user verify — منح التوثيق فقط (بلا صلاحيات ولا نقاط) */
+async function cmdUserVerify(query: string, flags: Map<string, string | true>, ctx: CliContext): Promise<CliLine[]> {
+  const user = await resolveUser(query);
+  if (!user) return [{ type: "error", text: `لا يوجد قارئ مطابق لـ «${query}»` }];
+  const typeRaw = String(flags.get("type") ?? "VIP_GRANT").toUpperCase() as VerifiedType;
+  if (!VERIFIED_TYPES.includes(typeRaw)) {
+    return [{ type: "error", text: `نوع توثيق غير معروف: ${typeRaw} — المتاح: ${VERIFIED_TYPES.join(" | ")}` }];
+  }
+  const badge = String(flags.get("badge") ?? "حساب موثّق");
+  try {
+    await grantVip(
+      {
+        userId: user.id,
+        badgeTitle: badge,
+        badgeColor: String(flags.get("color") ?? "#2563EB"),
+        reason: String(flags.get("reason") ?? `منح توثيق (${typeRaw}) عبر التيرمينال السيادي`),
+        privileges: {},
+        vipBadgeKind: typeRaw,
+      },
+      { adminId: ctx.adminId, adminUsername: ctx.adminUsername, ip: ctx.ip, via: `cli:${ctx.source}` },
+    );
+    return [{ type: "ok", text: `وُثّق ${user.email ?? user.id} بنوع ${typeRaw} وشارة «${badge}» — أُرسل الإشعار` }];
+  } catch (e) {
+    return [{ type: "error", text: e instanceof Error ? e.message : "تعذر التوثيق" }];
+  }
+}
+
+/** user un-vip — سحب كامل عبر المنطق الموحد */
+async function cmdUserRevokeVip(query: string, reason: string | undefined, ctx: CliContext): Promise<CliLine[]> {
+  const user = await resolveUser(query);
+  if (!user) return [{ type: "error", text: `لا يوجد قارئ مطابق لـ «${query}»` }];
+  try {
+    await revokeVip(
+      { userId: user.id, reason: reason?.trim() || "سحب التوثيق بقرار إداري من التيرمينال السيادي" },
+      { adminId: ctx.adminId, adminUsername: ctx.adminUsername, ip: ctx.ip, via: `cli:${ctx.source}` },
+    );
+    return [{ type: "ok", text: `سُحب التوثيق من ${user.email ?? user.id} وأُرسل إشعار التحديث` }];
+  } catch (e) {
+    return [{ type: "error", text: e instanceof Error ? e.message : "تعذر السحب" }];
+  }
+}
+
+/** article status — إحصاءات مقال بالـ slug */
+async function cmdArticleStatus(slug: string): Promise<CliLine[]> {
+  const article = await prisma.article.findUnique({
+    where: { slug },
+    select: {
+      id: true,
+      title: true, status: true, views: true, completedReads: true, commentsEnabled: true,
+      _count: { select: { comments: true, savedBy: true, shares: true } },
+    },
+  });
+  if (!article) return [{ type: "error", text: `لا مقال بالـ slug «${slug}»` }];
+  const [approved, pending] = await Promise.all([
+    prisma.comment.count({ where: { articleId: article.id, status: "APPROVED" } }),
+    prisma.comment.count({ where: { articleId: article.id, status: "PENDING" } }),
+  ]);
+  return [
+    { type: "info", text: `«${article.title}» — الحالة: ${article.status}` },
+    { type: "muted", text: `القراءات: ${article.views} | المكتملة: ${article.completedReads} | المحفوظات: ${article._count.savedBy} | المشاركات: ${article._count.shares}` },
+    { type: "muted", text: `التعليقات: ${approved} معتمد، ${pending} منتظر (${article._count.comments} كلي) | باب التعليق: ${article.commentsEnabled ? "مفتوح" : "مغلق"}` },
+  ];
+}
+
+/** article toggle-comments — فتح/إغلاق باب التعليق لحظيًا */
+async function cmdArticleToggleComments(slug: string, ctx: CliContext): Promise<CliLine[]> {
+  const article = await prisma.article.findUnique({ where: { slug }, select: { id: true, title: true, commentsEnabled: true } });
+  if (!article) return [{ type: "error", text: `لا مقال بالـ slug «${slug}»` }];
+  const next = !article.commentsEnabled;
+  await prisma.article.update({ where: { id: article.id }, data: { commentsEnabled: next } });
+  await writeAudit({
+    adminId: ctx.adminId,
+    action: "cli.article_toggle_comments",
+    entity: "Article",
+    entityId: article.id,
+    meta: { via: ctx.source, slug, commentsEnabled: next },
+    ip: ctx.ip,
+  });
+  revalidatePath(`/article/${slug}`);
+  await revalidatePublicPaths([`/article/${slug}`]);
+  return [
+    { type: "ok", text: `${next ? "فُتح" : "أُغلق"} باب التعليق على «${article.title}» — انعكس على المنصة العامة فورًا` },
+  ];
+}
+
+/** db slow-queries — أبطأ العمليات في آخر 24 ساعة من سجل الحركة */
+async function cmdDbSlowQueries(): Promise<CliLine[]> {
+  const since = new Date(Date.now() - 24 * 60 * 60_000);
+  const rows = await prisma.requestLog.findMany({
+    where: { createdAt: { gte: since }, durationMs: { not: null } },
+    orderBy: { durationMs: "desc" },
+    take: 12,
+  });
+  const slow = rows.filter((r) => (r.durationMs ?? 0) > 1500 || r.isError);
+  if (!slow.length) {
+    return [{ type: "ok", text: "لا عمليات بطيئة مرصودة في آخر 24 ساعة — كل الاستجابات تحت 1.5 ثانية" }];
+  }
+  return slow.map((r) => ({
+    type: (r.isError ? "error" : "warn") as CliLineType,
+    text: `${String(r.durationMs ?? 0).padStart(6)}ms  ${(r.method ?? "?").padEnd(5)} ${(r.path ?? "").slice(0, 44).padEnd(46)} ${r.status ?? "—"} ${r.createdAt.toISOString().slice(11, 19)}`,
+  }));
+}
+
+/** sec audit — فحص حي لترويسات المنصة العامة الأمنية */
+async function cmdSecAudit(): Promise<CliLine[]> {
+  const url = process.env.PUBLIC_URL || "https://kalam-ziadamr.vercel.app";
+  const lines: CliLine[] = [{ type: "info", text: `فحص الترويسات الأمنية الحية: ${url}` }];
+  try {
+    const res = await fetch(url, { redirect: "manual", signal: AbortSignal.timeout(8000) });
+    const h = res.headers;
+    const checks: { name: string; value: string | null; required: boolean }[] = [
+      { name: "Content-Security-Policy", value: h.get("content-security-policy"), required: true },
+      { name: "X-Frame-Options", value: h.get("x-frame-options"), required: true },
+      { name: "X-Content-Type-Options", value: h.get("x-content-type-options"), required: true },
+      { name: "Strict-Transport-Security", value: h.get("strict-transport-security"), required: true },
+      { name: "Referrer-Policy", value: h.get("referrer-policy"), required: true },
+      { name: "Permissions-Policy", value: h.get("permissions-policy"), required: false },
+    ];
+    for (const c of checks) {
+      lines.push({
+        type: c.value ? "ok" : c.required ? "error" : "warn",
+        text: `  ${c.value ? "✓" : c.required ? "✗" : "⚠"} ${c.name.padEnd(28)} ${c.value ? c.value.slice(0, 80) : "غائبة!"}`,
+      });
+    }
+    const csp = h.get("content-security-policy") ?? "";
+    if (csp) {
+      lines.push({
+        type: csp.includes("object-src 'none'") ? "ok" : "warn",
+        text: `  ${csp.includes("object-src 'none'") ? "✓" : "⚠"} CSP: object-src 'none' ${csp.includes("default-src 'self'") ? "| default-src 'self' ✓" : "| default-src غير صارم ⚠"}`,
+      });
+    }
+    lines.push({ type: "info", text: `كود الاستجابة: ${res.status}` });
+  } catch {
+    lines.push({ type: "error", text: "تعذر الوصول للمنصة العامة من هذه البيئة — الفحص الحي يتطلب شبكة مفتوحة" });
+  }
+  return lines;
+}
+
+/** sec block-ip — حجب عنوان فورًا */
+async function cmdSecBlockIp(ip: string, note: string | undefined, ctx: CliContext): Promise<CliLine[]> {
+  if (!/^[0-9a-fA-F:.]+$/.test(ip)) return [{ type: "error", text: `عنوان IP غير سليم: ${ip}` }];
+  await prisma.ipRule.upsert({
+    where: { ip },
+    create: { ip, mode: "DENY", note: note || "حجب عبر التيرمينال السيادي" },
+    update: { mode: "DENY", note: note || "حجب عبر التيرمينال السيادي" },
+  });
+  await writeAudit({
+    adminId: ctx.adminId,
+    action: "cli.sec_block_ip",
+    entity: "IpRule",
+    entityId: ip,
+    meta: { via: ctx.source, ip, note },
+    ip: ctx.ip,
+  });
+  return [{ type: "ok", text: `أُضيف ${ip} للقائمة السوداء — الوسيط يرفضه من اللحظة التالية${note ? ` — ${note}` : ""}` }];
+}
+
+/** sec active-logins — آخر 10 دخولات موثقة */
+async function cmdSecActiveLogins(): Promise<CliLine[]> {
+  const rows = await prisma.loginLog.findMany({ orderBy: { createdAt: "desc" }, take: 10 });
+  if (!rows.length) return [{ type: "muted", text: "لا دخولات موثقة بعد" }];
+  return [
+    { type: "info", text: "آخر 10 دخولات موثقة:" },
+    ...rows.map((l) => ({
+      type: "muted" as const,
+      text: `  ${l.createdAt.toISOString().slice(0, 16).replace("T", " ")}  ${(l.browser ?? "?").padEnd(14)} ${(l.deviceType ?? "?").padEnd(8)} ${[l.city, l.country].filter(Boolean).join(", ") || "موقع غير معروف"}${l.isNewDevice ? "  ← جهاز جديد!" : ""}`,
+    })),
+  ];
+}
+
+/** spark exec — انطة طبيعية → أمر سيادي عبر الذكاء ثم تنفيذ */
+async function cmdSparkExec(query: string, ctx: CliContext): Promise<CliLine[]> {
+  if (!query) return [{ type: "error", text: "الصيغة: spark exec \"<طلبك باللغة الطبيعية>\"" }];
+  const { geminiChat, geminiConfigured } = await import("@/lib/gemini-inference");
+  if (!geminiConfigured()) {
+    return [{ type: "error", text: "محرك الذكاء غير مُهيأ في هذه البيئة (GEMINI_API_KEY)" }];
+  }
+  const catalog =
+    "الأوامر المتاحة: sys info | sys ping | sys env | cache purge all|<path> | user inspect <email> | user grant-vip <email> --title \"..\" --color \"#hex\" --reason \"..\" [--points N] [--role USER|MODERATOR|EDITOR|ADMIN] [--unlimited-ai] | user set-points <email> <n> | user verify <email> --type SOVEREIGN|ADMIN_STAFF|IMPACT_ELITE|VIP_GRANT|GUEST_AUTHOR|COMMUNITY --badge \"..\" | user un-vip <email> --reason \"..\" | user ban <email> [سبب] | user unban <email> | article status <slug> | article toggle-comments <slug> | config list|get <key>|set <key> <value> | db stats | db slow-queries | sec audit | sec block-ip <ip> | sec active-logins | traffic tail [n] | errors tail [n] | security tail [n] | help";
+  const raw = await geminiChat({
+    system:
+      "أنت محول أوامر لترمينال إداري عربي. حوّل طلب المستخدم الطبيعي إلى أمر واحد فقط من الكتالوج. أعد JSON فقط بالصيغة {\"command\":\"...\"} وإن كان الطلب خارج الكتالوج أو خطرًا أعد {\"command\":null,\"why\":\"سبب\"}. لا تضف أي شرح.",
+    turns: [{ role: "user", text: `الكتالوج:\n${catalog}\n\nالطلب: ${query}` }],
+    jsonMode: true,
+    temperature: 0.1,
+    maxOutputTokens: 400,
+    memoKind: "spark_exec",
+  });
+  let command: string | null = null;
+  let why: string | null = null;
+  try {
+    const parsed = JSON.parse(raw) as { command?: string | null; why?: string | null };
+    command = parsed.command ?? null;
+    why = parsed.why ?? null;
+  } catch {
+    why = "استجابة غير مفهومة من المحرك";
+  }
+  if (!command) {
+    return [
+      { type: "warn", text: `الذكاء السيادي لم يولّد أمرًا${why ? ` — ${why}` : ""}` },
+      { type: "muted", text: "أعد الصياغة أو نفّذ الأمر يدويًا عبر help" },
+    ];
+  }
+  const lines: CliLine[] = [
+    { type: "info", text: `فهم الذكاء السيادي: ${command}` },
+  ];
+  const result = await runCliCommand(command, ctx);
+  return [...lines, ...result];
+}
+
 /* ==================== المحلل الرئيسي ==================== */
 
 export async function runCliCommand(raw: string, ctx: CliContext): Promise<CliLine[]> {
@@ -271,36 +675,83 @@ export async function runCliCommand(raw: string, ctx: CliContext): Promise<CliLi
   try {
     switch (cmd) {
       case "help":
-      case "?":
+      case "?": {
+        const topic = (rest[0] ?? "").toLowerCase();
+        if (topic && HELP_TOPICS[topic]) return HELP_TOPICS[topic];
+        if (topic) return [{ type: "error", text: `لا شرح مفصل لـ «${topic}» — القائمة الكاملة أدناه:` }, ...HELP_LINES];
         return HELP_LINES;
+      }
 
       case "sys":
       case "sysinfo": {
         const sub = (rest[0] ?? "info").toLowerCase();
-        if (sub !== "info") return [{ type: "error", text: `أمر sys غير معروف: sys ${sub} — المتاح: sys info` }];
-        return cmdSysInfo();
+        if (sub === "info") return cmdSysInfo();
+        if (sub === "ping") return cmdSysPing();
+        if (sub === "env") return cmdSysEnv();
+        return [{ type: "error", text: `أمر sys غير معروف: sys ${sub} — المتاح: sys info | sys ping | sys env` }];
       }
 
       case "cache": {
         const [sub, ...pathParts] = rest;
+        if ((sub ?? "").toLowerCase() === "purge-all")
+          return cmdCachePurge("all");
         if ((sub ?? "").toLowerCase() !== "purge")
-          return [{ type: "error", text: "الصيغة: cache purge [all | <path>]" }];
+          return [{ type: "error", text: "الصيغة: cache purge [all | <path>] | cache purge-all" }];
         return cmdCachePurge(pathParts.join(" ") || "all");
       }
 
       case "user": {
-        const [sub, target, ...reasonParts] = rest;
+        const [sub, target, ...tail] = rest;
         if (!target && sub !== "help")
-          return [{ type: "error", text: "الصيغة: user inspect <email|id> | user ban <email> [سبب] | user unban <email>" }];
+          return [
+            {
+              type: "error",
+              text: "الصيغة: user inspect <email|id> | user grant-vip <email> --title \"..\" --reason \"..\" | user set-points <email> <n> | user verify <email> --type .. --badge \"..\" | user un-vip <email> --reason \"..\" | user ban <email> [سبب] | user unban <email>",
+            },
+          ];
         switch ((sub ?? "").toLowerCase()) {
           case "inspect":
             return cmdUserInspect(target);
+          case "grant-vip":
+          case "make-vip": {
+            const { flags } = parseFlags(tail);
+            return cmdUserGrantVip(target, flags, ctx);
+          }
+          case "set-points": {
+            const value = tail[0];
+            if (!value) return [{ type: "error", text: "الصيغة: user set-points <email> <points>" }];
+            return cmdUserSetPoints(target, value, ctx);
+          }
+          case "verify": {
+            const { flags } = parseFlags(tail);
+            return cmdUserVerify(target, flags, ctx);
+          }
+          case "un-vip":
+          case "revoke-vip": {
+            const { flags, positional } = parseFlags(tail);
+            const reason = String(flags.get("reason") ?? "") || positional.join(" ");
+            return cmdUserRevokeVip(target, reason, ctx);
+          }
           case "ban":
-            return cmdUserBan(target, reasonParts.join(" ") || undefined, ctx);
+            return cmdUserBan(target, tail.join(" ") || undefined, ctx);
           case "unban":
             return cmdUserUnban(target, ctx);
           default:
             return [{ type: "error", text: `أمر user غير معروف: user ${sub}` }];
+        }
+      }
+
+      case "article": {
+        const [sub, slug] = rest;
+        switch ((sub ?? "").toLowerCase()) {
+          case "status":
+            if (!slug) return [{ type: "error", text: "الصيغة: article status <slug>" }];
+            return cmdArticleStatus(slug);
+          case "toggle-comments":
+            if (!slug) return [{ type: "error", text: "الصيغة: article toggle-comments <slug>" }];
+            return cmdArticleToggleComments(slug, ctx);
+          default:
+            return [{ type: "error", text: "الصيغة: article status <slug> | article toggle-comments <slug>" }];
         }
       }
 
@@ -324,8 +775,9 @@ export async function runCliCommand(raw: string, ctx: CliContext): Promise<CliLi
 
       case "db": {
         const sub = (rest[0] ?? "stats").toLowerCase();
-        if (sub !== "stats") return [{ type: "error", text: "الصيغة: db stats" }];
-        return cmdDbStats();
+        if (sub === "stats") return cmdDbStats();
+        if (sub === "slow-queries") return cmdDbSlowQueries();
+        return [{ type: "error", text: "الصيغة: db stats | db slow-queries" }];
       }
 
       case "traffic": {
@@ -344,6 +796,31 @@ export async function runCliCommand(raw: string, ctx: CliContext): Promise<CliLi
         const sub = (rest[0] ?? "tail").toLowerCase();
         if (sub !== "tail") return [{ type: "error", text: "الصيغة: security tail [n]" }];
         return cmdSecurityTail(Number(rest[1]) || 10);
+      }
+
+      case "sec": {
+        const [sub, target, ...noteParts] = rest;
+        switch ((sub ?? "").toLowerCase()) {
+          case "audit":
+            return cmdSecAudit();
+          case "block-ip": {
+            if (!target) return [{ type: "error", text: "الصيغة: sec block-ip <ip> [سبب]" }];
+            return cmdSecBlockIp(target, noteParts.join(" ") || undefined, ctx);
+          }
+          case "active-logins":
+            return cmdSecActiveLogins();
+          default:
+            return [{ type: "error", text: "الصيغة: sec audit | sec block-ip <ip> [سبب] | sec active-logins" }];
+        }
+      }
+
+      case "spark": {
+        const sub = (rest[0] ?? "").toLowerCase();
+        if (sub !== "exec")
+          return [{ type: "error", text: "الصيغة: spark exec \"<طلبك باللغة الطبيعية>\"" }];
+        /* بقية السطر بعد exec — مع إسقاط الاقتباسات الخارجية */
+        const query = rest.slice(1).join(" ").replace(/^"|"$/g, "");
+        return cmdSparkExec(query, ctx);
       }
 
       case "clear":

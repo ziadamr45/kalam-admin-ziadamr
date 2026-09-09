@@ -3091,6 +3091,12 @@ export async function executeMcpTool(
       return sendTestPushTool(args, meta);
     case "get_security_overview":
       return getSecurityOverviewTool(args);
+    case "kalam_assign_user_vip":
+      return assignUserVipTool(args, meta);
+    case "kalam_manage_verification":
+      return manageVerificationTool(args, meta);
+    case "kalam_dispatch_vip_notification":
+      return dispatchVipNotificationTool(args, meta);
     default:
       throw new McpToolError(`أداة غير معروفة: «${name}»`);
   }
@@ -3296,4 +3302,210 @@ async function getSecurityOverviewTool(args: McpArgs): Promise<unknown> {
     })),
     note: "كل ميزة أمنية جديدة في لوحة الأدمن لها أدوات MCP مكافئة — هذه اللوحة تعكس دروع rate-limit وhoneypot الحية",
   };
+}
+
+/* ============================================================
+   منظومة التوثيق السيادي والحسابات المميزة — أدوات MCP 2.9.0
+   (kalam_assign_user_vip + kalam_manage_verification +
+    kalam_dispatch_vip_notification) — كلها تعبر من المنطق الموحد
+   في lib/vip.ts نفسه الذي تخدمه واجهة الاستوديو والتيرمينال
+   ============================================================ */
+
+import { grantVip, revokeVip, dispatchVipNotification, ensureOwnerSovereign, type VipPrivileges, type VerifiedType, type GrantableRole, VERIFIED_TYPES } from "@/lib/vip";
+
+/** kalam_assign_user_vip — منح/تحديث تمييز حساب مميز كامل */
+async function assignUserVipTool(args: McpArgs, meta: McpRequestMeta) {
+  const email = str(args, "email")?.toLowerCase().trim();
+  const badgeTitle = str(args, "badgeTitle");
+  const reason = str(args, "reason");
+  if (!email || !badgeTitle || !reason) {
+    throw new McpToolError("البريد ومسمى الشارة وسبب المنح كلها إلزامية");
+  }
+
+  const target = await prisma.user.findUnique({ where: { email }, select: { id: true } });
+  if (!target) throw new McpToolError(`لا يوجد قارئ بالبريد «${email}»`);
+
+  const roleRaw = str(args, "role")?.toUpperCase();
+  const privilegesRaw = (args.privileges ?? {}) as Record<string, unknown>;
+  const privileges: VipPrivileges = {};
+  for (const key of ["unlimitedAiChat", "bypassRateLimits", "bypassCooldowns", "ahlAlKalimaAccess", "selfPinComment", "vipCommentBorder", "betaFeatures"] as const) {
+    if (privilegesRaw[key] === true) privileges[key] = true;
+  }
+
+  const result = await grantVip(
+    {
+      userId: target.id,
+      badgeTitle,
+      badgeColor: str(args, "badgeColor") ?? "#7C3AED",
+      reason,
+      privileges,
+      welcomePoints: num(args, "welcomePoints") ?? 0,
+      role: (["USER", "MODERATOR", "EDITOR", "ADMIN"].includes(roleRaw ?? "") ? roleRaw : undefined) as GrantableRole | undefined,
+    },
+    { adminId: null, adminUsername: "gemini-spark", ip: meta.ip, via: "gemini-spark-mcp" },
+  );
+
+  await writeAudit({
+    adminId: null,
+    action: "mcp.vip_assigned",
+    entity: "User",
+    entityId: target.id,
+    meta: { via: "gemini-spark-mcp", email, badge: result.badgeTitle, color: result.badgeColor, privileges, reason },
+    ip: meta.ip,
+  });
+
+  return {
+    assigned: true,
+    user: { email, label: result.user.label },
+    badge: { title: result.badgeTitle, color: result.badgeColor, role: result.role },
+    privileges: result.privileges,
+    welcomePoints: result.welcomePoints,
+    impactScore: result.impactScore ?? null,
+    notifications: result.dispatch,
+  };
+}
+
+/** kalam_manage_verification — فحص/منح/سحب التوثيق */
+async function manageVerificationTool(args: McpArgs, meta: McpRequestMeta) {
+  const action = str(args, "action");
+  const email = str(args, "email")?.toLowerCase().trim();
+  if (!action || !email) throw new McpToolError("الفعل والبريد إلزاميان");
+
+  const target = await prisma.user.findUnique({
+    where: { email },
+    select: {
+      id: true, customName: true, name: true, email: true,
+      isVerified: true, verifiedType: true, vipBadgeTitle: true, vipBadgeColor: true,
+      vipReason: true, vipGrantedAt: true, role: true, impactScore: true, intellectualRank: true,
+    },
+  });
+  if (!target) throw new McpToolError(`لا يوجد قارئ بالبريد «${email}»`);
+  const label = target.customName ?? target.name ?? target.email ?? target.id;
+
+  if (action === "check") {
+    return {
+      email,
+      label,
+      isVerified: target.isVerified,
+      verifiedType: target.verifiedType,
+      badge: { title: target.vipBadgeTitle, color: target.vipBadgeColor },
+      grantedReason: target.vipReason,
+      grantedAt: target.vipGrantedAt?.toISOString() ?? null,
+      role: target.role,
+      impactScore: target.impactScore,
+      intellectualRank: target.intellectualRank,
+    };
+  }
+
+  if (action === "grant") {
+    const reason = str(args, "reason");
+    if (!reason) throw new McpToolError("سبب المنح إلزامي — يُحفظ في السجل ويظهر في إشعار المستخدم");
+    const typeRaw = str(args, "verifiedType")?.toUpperCase() as VerifiedType | undefined;
+    const verifiedType: VerifiedType = typeRaw && VERIFIED_TYPES.includes(typeRaw) ? typeRaw : "VIP_GRANT";
+    const result = await grantVip(
+      {
+        userId: target.id,
+        badgeTitle: str(args, "badgeTitle") ?? "حساب موثّق",
+        badgeColor: str(args, "badgeColor") ?? "#2563EB",
+        reason,
+        privileges: {},
+        vipBadgeKind: verifiedType,
+      },
+      { adminId: null, adminUsername: "gemini-spark", ip: meta.ip, via: "gemini-spark-mcp" },
+    );
+    await writeAudit({
+      adminId: null,
+      action: "mcp.verification_granted",
+      entity: "User",
+      entityId: target.id,
+      meta: { via: "gemini-spark-mcp", email, verifiedType, badge: result.badgeTitle, reason },
+      ip: meta.ip,
+    });
+    return {
+      granted: true,
+      user: { email, label },
+      verifiedType,
+      badge: { title: result.badgeTitle, color: result.badgeColor },
+      notifications: result.dispatch,
+    };
+  }
+
+  /* revoke */
+  const reason = str(args, "reason");
+  if (!reason) throw new McpToolError("سبب السحب إلزامي — يظهر في إشعار المستخدم");
+  const result = await revokeVip(
+    { userId: target.id, reason },
+    { adminId: null, adminUsername: "gemini-spark", ip: meta.ip, via: "gemini-spark-mcp" },
+  );
+  await writeAudit({
+    adminId: null,
+    action: "mcp.verification_revoked",
+    entity: "User",
+    entityId: target.id,
+    meta: { via: "gemini-spark-mcp", email, reason, oldBadge: target.vipBadgeTitle },
+    ip: meta.ip,
+  });
+  return { revoked: true, user: { email, label: result.user.label } };
+}
+
+/** kalam_dispatch_vip_notification — إطلاق إشعار التوثيق عبر القنوات الثلاث */
+async function dispatchVipNotificationTool(args: McpArgs, meta: McpRequestMeta) {
+  const email = str(args, "email")?.toLowerCase().trim();
+  const eventRaw = str(args, "event")?.toUpperCase() ?? "CUSTOM";
+  if (!email) throw new McpToolError("بريد المستخدم المستهدف إلزامي");
+
+  const target = await prisma.user.findUnique({ where: { email }, select: { id: true } });
+  if (!target) throw new McpToolError(`لا يوجد قارئ بالبريد «${email}»`);
+
+  const validEvents = ["GRANTED", "ELITE", "MODIFIED", "REVOKED", "CUSTOM"];
+  const event = validEvents.includes(eventRaw) ? eventRaw : "CUSTOM";
+
+  if (event === "CUSTOM") {
+    const customTitle = str(args, "customTitle");
+    const customBody = str(args, "customBody");
+    if (!customTitle || !customBody) {
+      throw new McpToolError("مع الحدث CUSTOM يلزم customTitle وcustomBody — أو اختر حدثًا جاهزًا");
+    }
+    /* إشعار مخصص: جرس + بث مباشرة (المسار المختصر الموثق) */
+    await prisma.userNotification.create({
+      data: { userId: target.id, title: customTitle, body: customBody, url: "/profile", kind: "TARGETED" },
+    });
+    const { pushUsers } = await import("@/lib/push");
+    const sent = await pushUsers(
+      { title: customTitle, body: customBody.slice(0, 220), url: "/profile", tag: "vip-custom" },
+      { userIds: [target.id] },
+    );
+    await prisma.auditEvent
+      .create({
+        data: {
+          type: "NOTIFICATION_DISPATCHED_VIP",
+          actorType: "SYSTEM",
+          actorId: target.id,
+          actorLabel: email,
+          message: customTitle,
+          meta: { event: "CUSTOM", via: "gemini-spark-mcp", channels: { inApp: true, push: sent > 0 } },
+        },
+      })
+      .catch(() => {});
+    return { dispatched: true, event: "CUSTOM", channels: { inApp: true, push: sent > 0, email: false } };
+  }
+
+  const result = await dispatchVipNotification({
+    event: event as "GRANTED" | "ELITE" | "MODIFIED" | "REVOKED",
+    userId: target.id,
+    badgeTitle: str(args, "badgeTitle") ?? null,
+    badgeColor: str(args, "badgeColor") ?? null,
+    reason: str(args, "reason") ?? null,
+  });
+
+  await writeAudit({
+    adminId: null,
+    action: "mcp.vip_notification_dispatched",
+    entity: "User",
+    entityId: target.id,
+    meta: { via: "gemini-spark-mcp", email, event, channels: result },
+    ip: meta.ip,
+  });
+
+  return { dispatched: true, event, channels: result };
 }

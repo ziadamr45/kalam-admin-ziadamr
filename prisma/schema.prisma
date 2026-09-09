@@ -61,6 +61,7 @@ model Article {
   audioUpdatedAt      DateTime?  // نبض آخر خطوة معالجة — لكشف التعليق وعرض stale
   readingTimeSec      Int           @default(60)
   status              ArticleStatus @default(DRAFT)
+  commentsEnabled     Boolean       @default(true) // باب التعليق لكل مقال — يُطوى ويُفتح لحظيًا من التيرمينال السيادي دون نشر
   authorIntent        String?       @db.Text // التغذية الفكرية السرية لمساعد النقاش — لا تُعرض للجمهور إطلاقًا، تُحقن في System Prompt حصريًا
   tashkeelEnabled     Boolean       @default(true)
   checklistPassed     Boolean       @default(false)
@@ -95,6 +96,17 @@ enum CommentStatus {
   REJECTED
 }
 
+/* الرتب الوظيفية للحسابات — سلّم السيادة المعتمد في المنصة
+   OWNER حصري لحساب صاحب المنصة السيادي، ثم ADMIN وEDITOR وMODERATOR
+   للمستخدمين المميزين من استوديو الحسابات المميزة بلوحة التحكم */
+enum Role {
+  USER
+  MODERATOR
+  EDITOR
+  ADMIN
+  OWNER
+}
+
 model User {
   id            String    @id @default(cuid())
   googleId      String?   @unique
@@ -116,6 +128,16 @@ model User {
   impactScore     Int     @default(0) // إجمالي رصيد الأثر المكتسب
   intellectualRank String @default("قارئ متأمل") // الرتبة الفكرية المحسوبة آليًا من الرصيد
   hasCompletedOnboarding Boolean @default(false) // ختم تجربة التهيئة والجولة التفاعلية — تُعرض مرة واحدة للأعضاء الجدد
+
+  /* ============ منظومة التوثيق السيادي والحسابات المميزة (VIP & Verification Engine) ============ */
+  role            Role      @default(USER)  // الرتبة الوظيفية — OWNER حصري لصاحب المنصة
+  isVerified      Boolean   @default(false) // علامة التوثيق الرسمية بجانب الاسم في كل الواجهات
+  verifiedType    String?   // تصنيف التوثيق: SOVEREIGN | ADMIN_STAFF | IMPACT_ELITE | VIP_GRANT | GUEST_AUTHOR | COMMUNITY
+  vipBadgeTitle   String?   // مسمى الشارة المعروض بجانب الاسم: «مؤسس المنصة»، «كاتب ضيف»، «عضو أهل الكلمة»
+  vipBadgeColor   String?   // لون الشارة السداسي: #D97706 ذهبي، #2563EB أزرق ملكي، #6B8E23 زيتي
+  vipReason       String?   // سبب منح التمييز — إلزامي، يُحفظ في السجل ويظهر في إشعار التهنئة
+  vipGrantedAt    DateTime? // لحظة منح التمييز
+  vipPrivileges   Json?     // مفاتيح الصلاحيات الممنوحة: unlimitedAiChat، bypassRateLimits، ahlAlKalimaAccess، selfPinComment، vipCommentBorder، betaFeatures
 
   accounts     Account[]
   sessions     Session[]
@@ -183,6 +205,7 @@ model Comment {
   reportCount   Int           @default(0)
   editedByAdmin Boolean       @default(false)
   isInspiring   Boolean       @default(false) // تمييز «تعليق فكري ملهم» بيد الأدمن — +30 نقطة أثر وثبوت أعلى المقال
+  selfPinnedAt  DateTime? // تثبيت ذاتي من كاتبه — حصري لحاملي صلاحية selfPinComment، واحد لكل كاتب في كل مقال
   createdAt     DateTime      @default(now())
   updatedAt     DateTime      @updatedAt
   reports       CommentReport[]
@@ -267,9 +290,12 @@ model PageView {
 // ============ محرك رصيد الأثر الفكري (Gamification & Reader Impact Engine) ============
 
 /* سجل الأثر — توثيق نقطة بنقطة لمنع التلاعب وتكرار الاحتساب.
-   أنواع الأفعال: READ_COMPLETE (قراءة متأنية +10) | AI_DISCUSS (نقاش عميق +5)
-   | COMMENT_APPROVED (تعليق هادف +15) | COMMENT_INSPIRING (تمييز إداري +30)
-   | QUOTE_SHARE (حفظ/مشاركة اقتباس +3) | ADMIN_ADJUST (منح/خصم إداري يدوي) */
+   الاقتصاد المعاير (أوزان رصينة):
+   READ_COMPLETE (قراءة متأنية +1 بسقف مرتين يوميًا) | AI_DISCUSS (نقاش عميق +1)
+   | COMMENT_APPROVED (تعليق هادف +2) | COMMENT_LIKED (إعجاب قارئ مسجل بتعليقك +1)
+   | COMMENT_INSPIRING (تمييز إداري +10) | COMMENT_UNFEATURED (إلغاء التمييز -10 عكسي موثق)
+   | QUOTE_SHARE (اقتباس +1) | CHANNEL_UNLOCKED (افتتاح قناة أهل الكلمة — توثيق احتفالي)
+   | CALIBRATION (معايرة) | ADMIN_ADJUST (منح/خصم إداري يدوي) */
 model ImpactLog {
   id         String   @id @default(cuid())
   userId     String

@@ -12,6 +12,14 @@
 
 export async function register() {
   /* لا تهيئة دورية — الالتقاط حصريًا عبر onRequestError */
+  /* البذر السيادي عند إقلاع الخادم: ضمان أن حساب صاحب المنصة سيادي
+     كامل الصلاحيات (رتبة OWNER + توثيق + شارة المؤسس الذهبية + رصيد
+     9999 + كل المفاتيح) — idempotent، لا كتابة إن كان مكتملًا */
+  if (process.env.NEXT_RUNTIME === "nodejs") {
+    import("@/lib/vip")
+      .then(({ ensureOwnerSovereign }) => ensureOwnerSovereign())
+      .catch(() => {});
+  }
 }
 
 function headerOf(headers: unknown, name: string): string | null {

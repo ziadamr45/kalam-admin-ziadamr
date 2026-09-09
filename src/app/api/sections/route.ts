@@ -70,7 +70,7 @@ export async function POST(request: Request) {
     });
 
     /* انعكاس فوري على المنصة العامة — layout: القائمة الجانبية الحية في كل الصفحات */
-    revalidatePublicPaths(["/"], undefined, true);
+    revalidatePublicPaths(["/"], undefined, true, ["sections"]);
 
     return NextResponse.json({ section });
   } catch {

@@ -24,11 +24,68 @@ type UserRow = {
   intellectualRank: string;
   banned: boolean;
   banReason: string | null;
+  /* منظومة التوثيق السيادي */
+  role: string;
+  isVerified: boolean;
+  verifiedType: string | null;
+  vipBadgeTitle: string | null;
+  vipBadgeColor: string | null;
+  vipReason: string | null;
+  vipGrantedAt: string | null;
   commentsCount: number;
   interactionsCount: number;
   savedCount: number;
   createdAt: string;
 };
+
+/* الصلاحيات المعتمدة في الاستوديو — مفاتيحها تُقرأ في الخادم حصريًا */
+const PRIVILEGE_OPTIONS: { key: string; label: string; hint: string }[] = [
+  { key: "unlimitedAiChat", label: "حصة ذكاء اصطناعي غير محدودة", hint: "نقاش غير محدود مع ذكاء «ناقش المقال» دون أي قيود" },
+  { key: "bypassRateLimits", label: "تجاوز محددات المعدل", hint: "نشر فوري للتعليقات دون الخضوع لمحددات السرعة" },
+  { key: "bypassCooldowns", label: "تجاوز فترات التهدئة", hint: "إعفاء كامل من الانتظار بين التعليقات" },
+  { key: "ahlAlKalimaAccess", label: "قناة «أهل الكلمة» فورية", hint: "فتح القناة والمشاركة فيها بغض النظر عن رصيد الأثر" },
+  { key: "selfPinComment", label: "تثبيت التعليقات ذاتياً", hint: "تثبيت تعليقه الشخصي في قمة التعليقات لأي مقال" },
+  { key: "vipCommentBorder", label: "إطار تعليق فخم ومميز", hint: "ظهور تعليقاته بإطار بلون الشارة في كافة المقالات" },
+  { key: "betaFeatures", label: "وصول مبكر للميزات التجريبية", hint: "تجربة المزايا الجديدة قبل النشر العام" },
+];
+
+const COLOR_PRESETS = [
+  { hex: "#D97706", name: "ذهبي سيادي" },
+  { hex: "#2563EB", name: "أزرق ملكي" },
+  { hex: "#059669", name: "زمردي" },
+  { hex: "#1E3A8A", name: "كحلي رصين" },
+  { hex: "#6B8E23", name: "زيتي شرفي" },
+  { hex: "#7C3AED", name: "بنفسجي فاخر" },
+  { hex: "#E11D48", name: "قرمزي" },
+  { hex: "#0D9488", name: "فيروزي" },
+];
+
+const ROLE_OPTIONS = [
+  { value: "USER", label: "مستخدم عادي" },
+  { value: "MODERATOR", label: "مشرف محتوى MODERATOR" },
+  { value: "EDITOR", label: "كاتب محتوى EDITOR" },
+  { value: "ADMIN", label: "مدير نظام ADMIN" },
+];
+
+const ROLE_LABELS: Record<string, string> = {
+  OWNER: "صاحب المنصة",
+  ADMIN: "مدير نظام",
+  EDITOR: "كاتب محتوى",
+  MODERATOR: "مشرف محتوى",
+  USER: "مستخدم عادي",
+};
+
+/** ختم التوثيق المصغر — يظهر بجانب اسم الموثق في الجدول */
+function VerifiedDot({ color, title }: { color: string; title: string }) {
+  return (
+    <span title={`${title} — حساب موثّق`}>
+      <svg width="15" height="15" viewBox="0 0 24 24" fill={color} aria-hidden>
+        <path d="M12 1.5l2.5 2.1 3.2-.4 1.2 3 3 1.2-.4 3.2L23.5 12l-2 2.4.4 3.2-3 1.2-1.2 3-3.2-.4L12 23.5l-2.5-2.1-3.2.4-1.2-3-3-1.2.4-3.2L.5 12l2-2.4-.4-3.2 3-1.2 1.2-3 3.2.4L12 1.5z" />
+        <path d="M10.6 15.7l-3-3 1.3-1.3 1.7 1.7 4.5-4.5 1.3 1.3-5.8 5.8z" fill="#fff" />
+      </svg>
+    </span>
+  );
+}
 
 const fmt = (n: number) => new Intl.NumberFormat("ar-EG").format(n);
 const fmtDate = (iso: string) =>
@@ -41,6 +98,8 @@ export function UsersTable({ users }: { users: UserRow[] }) {
   const [unbanTarget, setUnbanTarget] = useState<UserRow | null>(null);
   const [adjustTarget, setAdjustTarget] = useState<UserRow | null>(null);
   const [resetTarget, setResetTarget] = useState<UserRow | null>(null);
+  const [vipTarget, setVipTarget] = useState<UserRow | null>(null);
+  const [revokeTarget, setRevokeTarget] = useState<UserRow | null>(null);
   const [reason, setReason] = useState("مخالفة أدب الحوار والقيم");
   const [busy, setBusy] = useState(false);
 
@@ -48,6 +107,106 @@ export function UsersTable({ users }: { users: UserRow[] }) {
   const [delta, setDelta] = useState("10");
   const [adjustReason, setAdjustReason] = useState("");
   const [adjustSign, setAdjustSign] = useState<1 | -1>(1);
+
+  /* ==================== استوديو الحسابات المميزة (VIP Studio) ==================== */
+  const [vipRole, setVipRole] = useState("USER");
+  const [vipBadgeTitle, setVipBadgeTitle] = useState("");
+  const [vipBadgeColor, setVipBadgeColor] = useState("#D97706");
+  const [vipReason, setVipReason] = useState("");
+  const [vipPrivileges, setVipPrivileges] = useState<Record<string, boolean>>({});
+  const [vipPoints, setVipPoints] = useState("");
+  const [vipBusy, setVipBusy] = useState(false);
+  const [revokeReason, setRevokeReason] = useState("");
+
+  /* فتح الاستوديو — تعبئة مسبقة من الحالة الحالية للتحديث أو المنح الأول */
+  const openVipStudio = (u: UserRow) => {
+    setVipTarget(u);
+    setVipRole(u.role === "OWNER" ? "ADMIN" : u.role || "USER");
+    setVipBadgeTitle(u.vipBadgeTitle ?? "");
+    setVipBadgeColor(u.vipBadgeColor ?? "#D97706");
+    setVipReason(u.isVerified ? (u.vipReason ?? "") : "");
+    setVipPrivileges({});
+    setVipPoints("");
+  };
+
+  const togglePrivilege = (key: string) =>
+    setVipPrivileges((prev) => ({ ...prev, [key]: !prev[key] }));
+
+  const submitVipGrant = async () => {
+    if (!vipTarget) return;
+    if (vipBadgeTitle.trim().length < 2) {
+      toast("مسمى الشارة إلزامي (حرفان فأكثر)", "error");
+      return;
+    }
+    if (!/^#[0-9a-fA-F]{6}$/.test(vipBadgeColor.trim())) {
+      toast("لون الشارة يجب أن يكون كودًا سداسيًا مثل #D97706", "error");
+      return;
+    }
+    if (vipReason.trim().length < 3) {
+      toast("سبب منح التمييز إلزامي — يُحفظ في السجل ويُرسل في إشعار المستخدم", "error");
+      return;
+    }
+    setVipBusy(true);
+    try {
+      const res = await fetch("/api/users", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          userId: vipTarget.id,
+          action: "grant-vip",
+          role: vipRole,
+          badgeTitle: vipBadgeTitle.trim(),
+          badgeColor: vipBadgeColor.trim(),
+          reason: vipReason.trim(),
+          privileges: vipPrivileges,
+          welcomePoints: vipPoints ? Math.max(0, Math.floor(Number(vipPoints) || 0)) : 0,
+        }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (res.ok && data?.ok) {
+        toast(
+          `مُنحت شارة «${data.badgeTitle}» — الإشعارات: جرس ${data.dispatch?.inApp ? "✓" : "×"} بث ${data.dispatch?.pushSent ? "✓" : "×"}`,
+        );
+        setVipTarget(null);
+        router.refresh();
+      } else {
+        toast(data?.error || "تعذر تنفيذ المنح", "error");
+      }
+    } finally {
+      setVipBusy(false);
+    }
+  };
+
+  const submitVipRevoke = async () => {
+    if (!revokeTarget) return;
+    if (revokeReason.trim().length < 3) {
+      toast("سبب السحب إلزامي — يظهر في إشعار المستخدم", "error");
+      return;
+    }
+    setVipBusy(true);
+    try {
+      const res = await fetch("/api/users", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          userId: revokeTarget.id,
+          action: "revoke-vip",
+          reason: revokeReason.trim(),
+        }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (res.ok && data?.ok) {
+        toast("سُحبت الشارة وأُرسل إشعار التحديث للمستخدم");
+        setRevokeTarget(null);
+        setRevokeReason("");
+        router.refresh();
+      } else {
+        toast(data?.error || "تعذر سحب التوثيق", "error");
+      }
+    } finally {
+      setVipBusy(false);
+    }
+  };
 
   const toggleBan = async (userId: string, banned: boolean, banReason?: string) => {
     setBusy(true);
@@ -184,7 +343,19 @@ export function UsersTable({ users }: { users: UserRow[] }) {
                             {u.name.charAt(0)}
                           </span>
                         )}
-                        <span className="font-bold text-steel-900">{u.name}</span>
+                        <div className="min-w-0">
+                          <div className="flex items-center gap-1.5">
+                            <span className="font-bold text-steel-900">{u.name}</span>
+                            {u.isVerified && (
+                              <VerifiedDot color={u.vipBadgeColor || "#2563EB"} title={u.vipBadgeTitle || "حساب موثّق"} />
+                            )}
+                          </div>
+                          {(u.role && u.role !== "USER") || u.isVerified ? (
+                            <p className="text-[10px] text-steel-400">
+                              {u.role !== "USER" ? ROLE_LABELS[u.role] ?? u.role : u.vipBadgeTitle}
+                            </p>
+                          ) : null}
+                        </div>
                       </div>
                     </td>
                     {/* الهوية المعروضة للقراء */}
@@ -226,14 +397,25 @@ export function UsersTable({ users }: { users: UserRow[] }) {
                     <td className="font-bold text-steel-700">{fmt(u.commentsCount)}</td>
                     <td className="text-steel-600">{fmt(u.savedCount)}</td>
                     <td>
-                      {u.banned ? (
-                        <div>
+                      <div className="flex flex-wrap items-center gap-1.5">
+                        {u.banned ? (
                           <Badge tone="danger">محظور</Badge>
-                          {u.banReason && <p className="mt-1 text-[10px] text-steel-400">{u.banReason}</p>}
-                        </div>
-                      ) : (
-                        <Badge tone="success">نشط</Badge>
-                      )}
+                        ) : (
+                          <Badge tone="success">نشط</Badge>
+                        )}
+                        {u.isVerified && u.vipBadgeTitle && (
+                          <span
+                            className="rounded-full px-2 py-0.5 text-[10px] font-bold"
+                            style={{
+                              background: `${u.vipBadgeColor || "#2563EB"}1f`,
+                              color: u.vipBadgeColor || "#2563EB",
+                            }}
+                            title={u.vipReason ?? undefined}
+                          >
+                            {u.vipBadgeTitle}
+                          </span>
+                        )}
+                      </div>
                     </td>
                     <td className="text-xs text-steel-400">{fmtDate(u.createdAt)}</td>
                     <td>
@@ -241,6 +423,18 @@ export function UsersTable({ users }: { users: UserRow[] }) {
                         <Button size="sm" variant="outline" onClick={() => { setAdjustTarget(u); setAdjustSign(1); }}>
                           تعديل الرصيد
                         </Button>
+                        <Button
+                          size="sm"
+                          variant={u.isVerified ? "ghost" : "primary"}
+                          onClick={() => openVipStudio(u)}
+                        >
+                          {u.isVerified ? "تعديل التمييز" : "ترقية مميزة VIP"}
+                        </Button>
+                        {u.isVerified && (
+                          <Button size="sm" variant="ghost" onClick={() => setRevokeTarget(u)}>
+                            سحب التوثيق
+                          </Button>
+                        )}
                         {hasCustomIdentity && (
                           <Button size="sm" variant="ghost" onClick={() => setResetTarget(u)}>
                             تصفير الهوية
@@ -355,6 +549,172 @@ export function UsersTable({ users }: { users: UserRow[] }) {
             نعم، صفّر الهوية
           </Button>
           <Button variant="ghost" onClick={() => setResetTarget(null)}>إلغاء</Button>
+        </div>
+      </Modal>
+
+      {/* ==================== استوديو الحسابات المميزة (VIP Studio) ==================== */}
+      <Modal
+        open={Boolean(vipTarget)}
+        onClose={() => setVipTarget(null)}
+        title={`استوديو التمييز — ${vipTarget?.customName || vipTarget?.name || ""}`}
+      >
+        <div className="max-h-[70vh] space-y-5 overflow-y-auto pl-1">
+          {/* الرتبة الوظيفية */}
+          <div>
+            <label className="mb-1.5 block text-xs font-bold text-steel-700">
+              الرتبة الوظيفية (Account Role)
+            </label>
+            <select
+              value={vipRole}
+              onChange={(e) => setVipRole(e.target.value)}
+              className="field"
+              dir="rtl"
+            >
+              {ROLE_OPTIONS.map((r) => (
+                <option key={r.value} value={r.value}>{r.label}</option>
+              ))}
+            </select>
+            <p className="mt-1 text-[11px] text-steel-400">
+              رتبة «صاحب المنصة» حصرية بالبذر التلقائي ولا تُمنح يدويًا.
+            </p>
+          </div>
+
+          {/* مسمى الشارة */}
+          <div>
+            <label className="mb-1.5 block text-xs font-bold text-steel-700">
+              مسمى شارة التوثيق <span className="text-danger-600">*</span>
+            </label>
+            <input
+              value={vipBadgeTitle}
+              onChange={(e) => setVipBadgeTitle(e.target.value)}
+              className="field"
+              placeholder="مثال: مؤسس المنصة، كاتب ضيف، باحث معرفي، عضو شرفي"
+              maxLength={40}
+            />
+            <p className="mt-1 text-[11px] text-steel-400">
+              يظهر بجانب اسمه في كل مكان بالموقع مع ختم التوثيق.
+            </p>
+          </div>
+
+          {/* منتقي اللون */}
+          <div>
+            <label className="mb-1.5 block text-xs font-bold text-steel-700">
+              لون الشارة <span className="text-danger-600">*</span>
+            </label>
+            <div className="flex flex-wrap gap-2">
+              {COLOR_PRESETS.map((c) => (
+                <button
+                  key={c.hex}
+                  type="button"
+                  onClick={() => setVipBadgeColor(c.hex)}
+                  title={c.name}
+                  className={`h-8 w-8 rounded-full border-2 transition-transform hover:scale-110 ${
+                    vipBadgeColor.toUpperCase() === c.hex ? "border-steel-900 scale-110" : "border-transparent"
+                  }`}
+                  style={{ background: c.hex }}
+                  aria-label={c.name}
+                />
+              ))}
+            </div>
+            <div className="mt-2 flex items-center gap-2">
+              <input
+                value={vipBadgeColor}
+                onChange={(e) => setVipBadgeColor(e.target.value)}
+                className="field w-32 text-left font-mono text-xs"
+                dir="ltr"
+                placeholder="#D97706"
+                maxLength={7}
+              />
+              <span
+                className="h-8 w-12 rounded-lg border border-steel-200"
+                style={{ background: /^#[0-9a-fA-F]{6}$/.test(vipBadgeColor) ? vipBadgeColor : "#e5e7eb" }}
+              />
+            </div>
+          </div>
+
+          {/* سبب التمييز — إلزامي */}
+          <div>
+            <label className="mb-1.5 block text-xs font-bold text-steel-700">
+              سبب منح التمييز <span className="text-danger-600">*</span>
+            </label>
+            <textarea
+              value={vipReason}
+              onChange={(e) => setVipReason(e.target.value)}
+              className="field min-h-20"
+              placeholder="سبب إلزامي — يُحفظ في سجل المراقبة ويُرسل في إشعار التهنئة للمستخدم"
+              maxLength={300}
+            />
+          </div>
+
+          {/* حزم الصلاحيات */}
+          <div>
+            <label className="mb-2 block text-xs font-bold text-steel-700">
+              حزم الصلاحيات والمزايا (Privilege Checkpoints)
+            </label>
+            <div className="space-y-1.5">
+              {PRIVILEGE_OPTIONS.map((p) => (
+                <label
+                  key={p.key}
+                  className="flex cursor-pointer items-start gap-3 rounded-xl border border-steel-100 p-3 transition-colors hover:bg-steel-50"
+                >
+                  <input
+                    type="checkbox"
+                    checked={Boolean(vipPrivileges[p.key])}
+                    onChange={() => togglePrivilege(p.key)}
+                    className="mt-0.5 h-4 w-4 accent-copper-600"
+                  />
+                  <span className="min-w-0">
+                    <span className="block text-xs font-bold text-steel-800">{p.label}</span>
+                    <span className="block text-[11px] leading-5 text-steel-400">{p.hint}</span>
+                  </span>
+                </label>
+              ))}
+            </div>
+          </div>
+
+          {/* الرصيد الترحيبي */}
+          <div>
+            <label className="mb-1.5 block text-xs font-bold text-steel-700">
+              رصيد أثر ترحيبي فوري (اختياري)
+            </label>
+            <input
+              type="number"
+              min={0}
+              max={10000}
+              value={vipPoints}
+              onChange={(e) => setVipPoints(e.target.value)}
+              className="field tabular-nums"
+              placeholder="مثال: 350 أو 1000 — يُوثق في سجل الأثر"
+            />
+          </div>
+        </div>
+
+        <div className="mt-5 flex gap-3 border-t border-steel-100 pt-4">
+          <Button disabled={vipBusy} onClick={submitVipGrant}>
+            {vipTarget?.isVerified ? "تحديث التمييز والمزايا" : "منح التوثيق والتمييز"}
+          </Button>
+          <Button variant="ghost" onClick={() => setVipTarget(null)}>إلغاء</Button>
+        </div>
+      </Modal>
+
+      {/* سحب التوثيق — سبب إلزامي يُرسل للمستخدم */}
+      <Modal open={Boolean(revokeTarget)} onClose={() => setRevokeTarget(null)} title="سحب التوثيق والتمييز">
+        <p className="text-sm leading-7 text-steel-600">
+          سيُسحب التوثيق والشارة «<strong>{revokeTarget?.vipBadgeTitle}</strong>» وكل الصلاحيات الممنوحة من{" "}
+          <strong>{revokeTarget?.email}</strong> وتعود رتبته «مستخدم عادي». رصيد أثره المكتسب لا يُمس.
+        </p>
+        <input
+          value={revokeReason}
+          onChange={(e) => setRevokeReason(e.target.value)}
+          className="field mt-4"
+          placeholder="سبب السحب — إلزامي، يُرسل في إشعار للمستخدم"
+          maxLength={300}
+        />
+        <div className="mt-5 flex gap-3">
+          <Button variant="danger" disabled={vipBusy} onClick={submitVipRevoke}>
+            تأكيد السحب وإشعار المستخدم
+          </Button>
+          <Button variant="ghost" onClick={() => setRevokeTarget(null)}>إلغاء</Button>
         </div>
       </Modal>
     </div>
