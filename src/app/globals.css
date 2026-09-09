@@ -42,6 +42,15 @@ body {
   border-radius: 8px;
 }
 
+/* شريط تمرير أفقي مخفي الأدوات — لشرائط الفلترة القابلة للتمرير على الهواتف */
+.no-scrollbar {
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+}
+.no-scrollbar::-webkit-scrollbar {
+  display: none;
+}
+
 :focus-visible {
   outline: 2px solid var(--accent);
   outline-offset: 2px;

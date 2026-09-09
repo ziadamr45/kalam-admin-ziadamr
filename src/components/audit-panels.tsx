@@ -76,13 +76,14 @@ export function AuditPanel() {
   }, [autoRefresh, load]);
 
   return (
-    <Card className="p-5">
-      <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
+    <Card className="p-4 sm:p-5">
+      {/* الترويسة — مساحة مرنة للشارة الحرة دون قصّ نصها على الهواتف */}
+      <div className="mb-4 flex flex-wrap items-center justify-between gap-2">
         <h2 className="text-sm font-bold text-steel-800">سجل أحداث المنصة الحي</h2>
-        <div className="flex items-center gap-2">
+        <div className="flex flex-wrap items-center gap-2">
           <button
             onClick={() => setAutoRefresh((v) => !v)}
-            className={`rounded-lg border px-2.5 py-1.5 text-[11px] font-bold transition-colors ${
+            className={`whitespace-nowrap rounded-lg border px-2.5 py-1.5 text-[11px] font-bold transition-colors ${
               autoRefresh ? "border-success-400/40 text-success-600" : "border-steel-200 text-steel-400"
             }`}
           >
@@ -95,13 +96,13 @@ export function AuditPanel() {
         </div>
       </div>
 
-      {/* فلاتر الأحداث */}
-      <div className="mb-4 flex flex-wrap gap-1.5">
+      {/* فلاتر الأحداث — شريط تمرير أفقي انسيابي لا يلوي الأزرار إلى أسطر */}
+      <div className="no-scrollbar -mx-4 mb-4 flex items-center gap-2 overflow-x-auto px-4 pb-2 pt-1 sm:mx-0 sm:px-0">
         {EVENT_FILTERS.map((f) => (
           <button
             key={f.key}
             onClick={() => setFilter(f.key)}
-            className={`rounded-lg px-3 py-1.5 text-[11px] font-bold transition-colors ${
+            className={`flex-shrink-0 whitespace-nowrap rounded-lg px-3 py-1.5 text-[11px] font-bold transition-colors ${
               filter === f.key ? "bg-copper-600 text-white" : "bg-steel-100 text-steel-600 hover:bg-steel-200"
             }`}
           >
@@ -119,15 +120,25 @@ export function AuditPanel() {
           {events.map((e) => {
             const label = EVENT_LABEL[e.type] ?? { text: e.type, tone: "neutral" as const };
             return (
-              <li key={e.id} className="flex items-start gap-3 rounded-xl border border-steel-100 p-3">
-                <Badge tone={label.tone}>{label.text}</Badge>
-                <div className="min-w-0 flex-1">
-                  <p className="text-xs font-semibold text-steel-800">
-                    {e.message || label.text}
-                  </p>
-                  <p className="mt-0.5 truncate text-[10px] text-steel-400">
-                    {e.actorLabel || "زائر مجهول"} · {fmtTime(e.createdAt)}
-                    {e.ip ? ` · ${e.ip}` : ""}
+              <li key={e.id} className="rounded-xl border border-steel-100 p-4">
+                {/* توزيع مرن: سطر علوي (الحدث + الشارة) وسطر سفلي (الهوية + الزمن) */}
+                <div className="flex flex-col justify-between gap-2 sm:flex-row sm:items-center">
+                  <div className="flex w-full items-center justify-between gap-2">
+                    <p className="min-w-0 break-words text-xs font-semibold text-steel-800">
+                      {e.message || label.text}
+                    </p>
+                    <Badge tone={label.tone}>{label.text}</Badge>
+                  </div>
+                  <p className="flex shrink-0 items-center gap-1 text-[10px] text-steel-400 sm:justify-end">
+                    <span className="max-w-[16rem] truncate">{e.actorLabel || "زائر مجهول"}</span>
+                    <span aria-hidden>·</span>
+                    <span className="whitespace-nowrap">{fmtTime(e.createdAt)}</span>
+                    {e.ip && (
+                      <>
+                        <span aria-hidden>·</span>
+                        <span className="whitespace-nowrap" dir="ltr">{e.ip}</span>
+                      </>
+                    )}
                   </p>
                 </div>
               </li>
