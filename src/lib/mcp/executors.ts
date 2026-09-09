@@ -3385,7 +3385,9 @@ async function manageVipPrivilegesTool(args: McpArgs, meta: McpRequestMeta) {
         role: (["USER", "MODERATOR", "EDITOR", "ADMIN"].includes(roleRaw ?? "") ? roleRaw : undefined) as GrantableRole | undefined,
       },
       { adminId: null, adminUsername: "gemini-spark", ip: meta.ip, via: "gemini-spark-mcp" },
-    );
+    ).catch((e: unknown) => {
+      throw new McpToolError(e instanceof Error ? e.message : "تعذر المنح");
+    });
     await writeAudit({
       adminId: null,
       action: "mcp.vip_granted",
@@ -3448,7 +3450,9 @@ async function manageVipPrivilegesTool(args: McpArgs, meta: McpRequestMeta) {
   const result = await revokeVip(
     { userId: target.id, reason, resetRole: args.resetRole === true },
     { adminId: null, adminUsername: "gemini-spark", ip: meta.ip, via: "gemini-spark-mcp" },
-  );
+  ).catch((e: unknown) => {
+    throw new McpToolError(e instanceof Error ? e.message : "تعذر السحب");
+  });
   await writeAudit({
     adminId: null,
     action: "mcp.vip_revoked",
@@ -3515,7 +3519,9 @@ async function manageVerificationTool(args: McpArgs, meta: McpRequestMeta) {
         reason: str(args, "reason") ?? null,
       },
       { adminId: null, adminUsername: "gemini-spark", ip: meta.ip, via: "gemini-spark-mcp" },
-    );
+    ).catch((e: unknown) => {
+      throw new McpToolError(e instanceof Error ? e.message : "تعذر التوثيق");
+    });
     return {
       [action === "grant" ? "granted" : "updated"]: true,
       user: { email, label },
@@ -3535,7 +3541,9 @@ async function manageVerificationTool(args: McpArgs, meta: McpRequestMeta) {
   const result = await revokeVerification(
     { userId: target.id, reason },
     { adminId: null, adminUsername: "gemini-spark", ip: meta.ip, via: "gemini-spark-mcp" },
-  );
+  ).catch((e: unknown) => {
+    throw new McpToolError(e instanceof Error ? e.message : "تعذر سحب التوثيق");
+  });
   return { revoked: true, user: { email, label: result.user.label }, vipUntouched: target.isVip };
 }
 
