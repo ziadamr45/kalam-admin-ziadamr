@@ -902,22 +902,6 @@ export const MCP_TOOLS: McpToolSchema[] = [
 },
 {
   "name": "admin_cli",
-  "description": "تنفيذ أوامر التيرمينال السيادي Interactive CLI: sys info (نبض النظام والبيئة)، cache purge [all|path] (إفراغ الكاش فورًا)، user inspect <email|id> (السجل الأمني الكامل ونقاط الأثر والجلسات)، user ban/unban <email> [سبب] (تعطيل/تفعيل الحساب)، config list|get|set (سيادة التكوين)، db stats (الجداول والسجلات والأحجام)، traffic tail [n] وerrors tail [n] (آخر الحركة والأخطاء)، help (القائمة) — كل فعل مُغيِّر يوثق في دفتر التدقيق.",
-  "inputSchema": {
-    "type": "object",
-    "properties": {
-      "command": {
-        "type": "string",
-        "description": "نص الأمر الكامل — مثل: user inspect user@mail.com أو config set IMPACT_ELDERS_THRESHOLD 400"
-      }
-    },
-    "required": [
-      "command"
-    ]
-  }
-},
-{
-  "name": "admin_cli",
   "description": "تنفيذ أوامر التيرمينال السيادي Interactive CLI: sys info (نبض النظام والبيئة)، cache purge [all|path] (إفراغ الكاش فورًا)، user inspect <email|id> (السجل الأمني الكامل ونقاط الأثر والجلسات)، user ban/unban <email> [سبب] (تعطيل/تفعيل الحساب)، config list|get|set (سيادة التكوين)، db stats (الجداول والسجلات والأحجام)، traffic tail [n] وerrors tail [n] (آخر الحركة والأخطاء)، security tail [n] (اللوحة الأمنية: التنبيهات ومحاولات الاختراق واصطياد البوتات)، help (القائمة) — كل فعل مُغيِّر يوثق في دفتر التدقيق.",
   "inputSchema": {
     "type": "object",

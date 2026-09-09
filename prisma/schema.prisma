@@ -639,6 +639,7 @@ model RequestLog {
   @@index([isError, createdAt(sort: Desc)])
   @@index([userId, createdAt(sort: Desc)])
   @@index([path])
+  @@index([path, ip, createdAt(sort: Desc)]) // درع حد المعدل الدائم العابر للنسخ
 }
 
 /* أخطاء التشغيل اللحظية — Stack Trace كامل فور الوقوع (instrumentation) */
