@@ -15,9 +15,8 @@ import {
 import { dbHealth, dbStats, cairoDayKey } from "@/lib/system";
 import { grantVip, revokeVip, PRIVILEGE_KEYS, VERIFIED_TYPES, type VipPrivileges, type VerifiedType, type GrantableRole, roleLabelAr } from "@/lib/vip";
 import { hardDeleteUser, isHardDeleteReason, hardDeleteReasonLabel, HARD_DELETE_REASONS } from "@/lib/hard-delete";
-import { loadLedger, resolveLedgerRange, makeReportNo, TRAIL_CATEGORIES, type TrailCategoryFilter } from "@/lib/audit-ledger";
-import { renderAuditReportPdf } from "@/lib/audit-pdf";
-import { uploadRaw } from "@/lib/cloudinary";
+import { loadLedger, resolveLedgerRange, TRAIL_CATEGORIES, type TrailCategoryFilter } from "@/lib/audit-ledger";
+import { buildAuditShareUrl } from "@/lib/audit-share";
 
 /**
  * ============================================================
@@ -718,31 +717,23 @@ async function cmdAuditExportPdf(flags: Map<string, string | true>, ctx: CliCont
   const to = String(flags.get("to") ?? "");
 
   const ledgerRange = resolveLedgerRange(range, from || null, to || null);
-  const { entries, summary } = await loadLedger({ range: ledgerRange, take: 500 });
-  const buffer = await renderAuditReportPdf({
-    entries,
-    summary,
-    range: ledgerRange,
-    extractedBy: `${ctx.adminUsername} (${ctx.source === "mcp" ? "gemini-spark-mcp" : "web-terminal"})`,
-    reportNo: makeReportNo(),
-  });
-  const stamp = new Date().toISOString().slice(0, 16).replace(/[:T]/g, "-");
-  const uploaded = await uploadRaw(buffer, `kalam-audit-report-${stamp}.pdf`);
+  const { summary } = await loadLedger({ range: ledgerRange, take: 500 });
+  /* رابط تنزيل موقّع HMAC — 30 يوم صلاحية، بلا تخزين خارجي */
+  const sharedUrl = buildAuditShareUrl(range === "monthly" ? "monthly" : "weekly");
 
   await writeAudit({
     adminId: ctx.adminId,
     action: "cli.audit_export_pdf",
     entity: "AuditTrail",
-    entityId: uploaded.publicId,
-    meta: { via: ctx.source, range: ledgerRange.label, entries: summary.total, url: uploaded.url },
+    entityId: `shared:${range}`,
+    meta: { via: ctx.source, range: ledgerRange.label, entries: summary.total, url: sharedUrl },
     ip: ctx.ip,
   });
 
   return [
     { type: "ok", text: `ولّد التقرير الرقابي (${ledgerRange.label}) — ${summary.total} قيدًا رقابيًا` },
     { type: "muted", text: `  الملخص: محو ${summary.hardDeletes} · حظر ${summary.bans} · تمييز ${summary.featured} · توثيق ${summary.vipChanges} · إعدادات ${summary.configChanges}` },
-    { type: "info", text: `  رابط التنزيل: ${uploaded.url}` },
-    { type: "muted", text: `  الحجم: ${bytes(uploaded.bytes)} — محفوظ في مجلد الأدلة المحمي (kalam/evidence/audit-reports)` },
+    { type: "info", text: `  رابط التنزيل الموقّع (صالح 30 يومًا): ${sharedUrl}` },
   ];
 }
 

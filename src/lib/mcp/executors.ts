@@ -29,7 +29,6 @@ import {
   cloudinaryUsage,
   listCloudinaryAssets,
   destroyCloudinaryAsset,
-  uploadRaw,
 } from "@/lib/cloudinary";
 import { kickWorker } from "@/lib/audio-job";
 
@@ -3523,8 +3522,8 @@ async function dispatchVipNotificationTool(args: McpArgs, meta: McpRequestMeta) 
     kalam_generate_audit_pdf) — كلها تعبر من المنطق الموحد
    ============================================================ */
 
-import { loadLedger, resolveLedgerRange, makeReportNo } from "@/lib/audit-ledger";
-import { renderAuditReportPdf } from "@/lib/audit-pdf";
+import { loadLedger, resolveLedgerRange } from "@/lib/audit-ledger";
+import { buildAuditShareUrl } from "@/lib/audit-share";
 import { hardDeleteUser, isHardDeleteReason, hardDeleteReasonLabel } from "@/lib/hard-delete";
 
 /** kalam_get_audit_summary — قراءة السجل السيادي: أرقام تنفيذية + آخر القيود */
@@ -3609,29 +3608,15 @@ async function generateAuditPdfTool(args: McpArgs, meta: McpRequestMeta) {
 
   const ledgerRange = resolveLedgerRange(range);
   const { entries, summary } = await loadLedger({ range: ledgerRange, take: 500 });
-  let buffer;
-  try {
-    buffer = await renderAuditReportPdf({
-      entries,
-      summary,
-      range: ledgerRange,
-      extractedBy: "gemini-spark (MCP)",
-      reportNo: makeReportNo(),
-    });
-  } catch (e) {
-    throw new McpToolError(`تعذر توليد التقرير: ${e instanceof Error ? e.message : String(e)}`);
-  }
-  const stamp = new Date().toISOString().slice(0, 16).replace(/[:T]/g, "-");
-  const uploaded = await uploadRaw(buffer, `kalam-audit-report-${stamp}.pdf`).catch((e) => {
-    throw new McpToolError(`تعذر رفع التقرير إلى مجلد الأدلة: ${e instanceof Error ? e.message : String(e)}`);
-  });
+  /* رابط تنزيل موقّع HMAC من الخادم نفسه — بلا اعتماد على مزود خارجي */
+  const downloadUrl = buildAuditShareUrl(range === "monthly" ? "monthly" : "weekly");
 
   await writeAudit({
     adminId: null,
     action: "mcp.audit_pdf_generated",
     entity: "AuditTrail",
-    entityId: uploaded.publicId,
-    meta: { via: "gemini-spark-mcp", range: ledgerRange.label, entries: summary.total, url: uploaded.url },
+    entityId: `shared:${range}`,
+    meta: { via: "gemini-spark-mcp", range: ledgerRange.label, entries: summary.total, url: downloadUrl },
     ip: meta.ip,
   });
 
@@ -3640,7 +3625,7 @@ async function generateAuditPdfTool(args: McpArgs, meta: McpRequestMeta) {
     range: ledgerRange.label,
     entriesIncluded: summary.total,
     summary,
-    downloadUrl: uploaded.url,
-    bytes: uploaded.bytes,
+    downloadUrl,
+    validityDays: 30,
   };
 }

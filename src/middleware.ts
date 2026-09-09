@@ -30,6 +30,8 @@ const PUBLIC_PATHS = [
      وx-worker-secret على مستوى المسار نفسه (403 عند أي خلل) */
   "/api/internal",
   "/api/audio/worker",
+  /* تنزيل التقرير الرقابي عبر رابط موقّع HMAC بصلاحية مؤقتة — بلا جلسة */
+  "/api/audit/pdf/shared",
 ];
 
 /**

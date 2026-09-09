@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { requireSession, isRejected } from "@/lib/guard";
 import { loadLedger, resolveLedgerRange, makeReportNo, type TrailCategoryFilter } from "@/lib/audit-ledger";
 import { renderAuditReportPdf } from "@/lib/audit-pdf";
-import { uploadRaw } from "@/lib/cloudinary";
+import { buildAuditShareUrl } from "@/lib/audit-share";
 import { recordServerError } from "@/lib/error-alert";
 
 /**
@@ -38,9 +38,9 @@ export async function GET(request: Request) {
     });
 
     if (doUpload) {
-      const stamp = new Date().toISOString().slice(0, 16).replace(/[:T]/g, "-");
-      const uploaded = await uploadRaw(buffer, `kalam-audit-report-${stamp}.pdf`);
-      return NextResponse.json({ ok: true, url: uploaded.url, bytes: uploaded.bytes, summary, rangeLabel: range.label });
+      /* الرابط الموقّع من الخادم نفسه — القناة الدائمة بلا مزود خارجي */
+      const sharedUrl = buildAuditShareUrl(rangeParam === "monthly" ? "monthly" : "weekly");
+      return NextResponse.json({ ok: true, url: sharedUrl, summary, rangeLabel: range.label });
     }
 
     const stamp = new Date().toISOString().slice(0, 16).replace(/[:T]/g, "-");
