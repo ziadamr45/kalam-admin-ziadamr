@@ -1660,6 +1660,169 @@ async function manageMedia(args: McpArgs, meta: McpRequestMeta) {
   throw new McpToolError(`فعل غير معروف: «${action}»`);
 }
 
+/* ============================ عين القارئ — ما يراه من ناحيته ============================ */
+
+const RANK_STEPS: Array<{ rank: string; min: number }> = [
+  { rank: "قارئ متأمل", min: 0 },
+  { rank: "محاور واعد", min: 50 },
+  { rank: "عقل رصين", min: 150 },
+  { rank: "أهل الكلمة", min: 350 },
+];
+
+/** مطابق للموقع العام: src/lib/ranks.ts */
+const AI_QUOTA_BY_RANK: Record<string, number> = {
+  "قارئ متأمل": 6,
+  "محاور واعد": 6,
+  "عقل رصين": 9,
+  "أهل الكلمة": 12,
+};
+
+async function viewAsReader(args: McpArgs) {
+  const action = str(args, "action") ?? "profile";
+  const cap = Math.min(Math.max(num(args, "limit") ?? 15, 1), 50);
+
+  /* ما يراه الزائر الغريب غير المسجل */
+  if (action === "visitor") {
+    const [settings, published, sections, legal] = await Promise.all([
+      getSystemSettings(),
+      prisma.article.count({ where: { status: "PUBLISHED" } }),
+      prisma.section.findMany({ where: { active: true }, orderBy: { sortOrder: "asc" }, select: { name: true, slug: true, icon: true } }),
+      prisma.legalPage.findMany({ select: { slug: true, title: true, updatedAt: true } }),
+    ]);
+    return {
+      note: "ما يراه الزائر غير المسجل — يتصفح بحرية ويُصوّت ويعلّق باسم ضيف عبر بصمة متصفحه دون حساب",
+      governance: {
+        autoApproveComments: settings.AUTO_APPROVE_COMMENTS === true,
+        autoApproveMeaning: settings.AUTO_APPROVE_COMMENTS ? "تعليقه يظهر فورًا للجميع دون مراجعة" : "تعليقه يدخل طابور المراجعة ولا يظهر إلا بعد اعتماد الإدارة",
+        requireChecklist: settings.REQUIRE_CHECKLIST === true,
+      },
+      publishedArticles: published,
+      sections: sections,
+      legalPages: legal,
+    };
+  }
+
+  /* شاشة قارئ بعينه */
+  const userId = str(args, "userId");
+  const email = str(args, "email");
+  if (!userId && !email) throw new McpToolError("مرّر userId أو email للقارئ المطلوب");
+  const user = await prisma.user.findUnique({
+    where: userId ? { id: userId } : { email: email! },
+  });
+  if (!user) throw new McpToolError("لا يوجد قارئ مطابق — ابحث عنه أولًا عبر list_users");
+
+  const [saved, votes, comments, notifications, unread, proposals, quotas, pushes, providers, sessions, ledger] =
+    await Promise.all([
+      prisma.savedArticle.findMany({
+        where: { userId: user.id },
+        orderBy: { createdAt: "desc" },
+        take: cap,
+        select: { createdAt: true, article: { select: { title: true, slug: true, status: true } } },
+      }),
+      prisma.interaction.findMany({
+        where: { userId: user.id },
+        orderBy: { updatedAt: "desc" },
+        take: cap,
+        select: { value: true, updatedAt: true, article: { select: { title: true, slug: true } } },
+      }),
+      prisma.comment.findMany({
+        where: { userId: user.id },
+        orderBy: { createdAt: "desc" },
+        take: cap,
+        select: { content: true, status: true, isInspiring: true, flagged: true, reportCount: true, createdAt: true, article: { select: { title: true, slug: true } } },
+      }),
+      prisma.userNotification.findMany({
+        where: { userId: user.id },
+        orderBy: { createdAt: "desc" },
+        take: cap,
+        select: { title: true, body: true, kind: true, readAt: true, createdAt: true },
+      }),
+      prisma.userNotification.count({ where: { userId: user.id, readAt: null } }),
+      prisma.userProposal.findMany({
+        where: { userId: user.id },
+        orderBy: { createdAt: "desc" },
+        take: cap,
+        select: { title: true, handled: true, createdAt: true },
+      }),
+      prisma.aiDiscussionUsage.findMany({
+        where: { userId: user.id },
+        orderBy: { lastMessageAt: "desc" },
+        take: cap,
+        select: { messageCount: true, lastMessageAt: true, article: { select: { title: true, slug: true } } },
+      }),
+      prisma.userPushSubscription.findMany({
+        where: { userId: user.id },
+        orderBy: { lastSeenAt: "desc" },
+        select: { userAgent: true, lastSeenAt: true },
+      }),
+      prisma.account.findMany({ where: { userId: user.id }, select: { provider: true, type: true } }),
+      prisma.session.count({ where: { userId: user.id } }),
+      prisma.impactLog.findMany({
+        where: { userId: user.id },
+        orderBy: { createdAt: "desc" },
+        take: cap,
+        select: { actionType: true, points: true, reason: true, createdAt: true, article: { select: { title: true } } },
+      }),
+    ]);
+
+  const currentStep = RANK_STEPS.findLast((s) => user.impactScore >= s.min) ?? RANK_STEPS[0];
+  const nextStep = RANK_STEPS[RANK_STEPS.indexOf(currentStep) + 1] ?? null;
+  const perArticleLimit = user.banned ? 0 : AI_QUOTA_BY_RANK[user.intellectualRank] ?? 6;
+
+  return {
+    identity: {
+      id: user.id,
+      displayName: user.customName || user.name,
+      chosenName: user.customName,
+      googleName: user.name,
+      email: user.email,
+      avatar: user.customImage || user.image,
+      bio: user.bio,
+      banned: user.banned,
+      banReason: user.banReason,
+      joinedAt: user.createdAt,
+    },
+    rankView: {
+      impactScore: user.impactScore,
+      rank: user.intellectualRank,
+      nextRank: nextStep?.rank ?? null,
+      pointsToNextRank: nextStep ? Math.max(0, nextStep.min - user.impactScore) : 0,
+      isAhlAlKalema: user.intellectualRank === "أهل الكلمة",
+      proposalChannelOpen: user.intellectualRank === "أهل الكلمة" && !user.banned,
+    },
+    library: saved.map((s) => ({ title: s.article.title, slug: s.article.slug, savedAt: s.createdAt, articleVisible: s.article.status === "PUBLISHED" })),
+    votes: votes.map((v) => ({ article: v.article.title, vote: v.value === 1 ? "إعجاب" : "عدم إعجاب", at: v.updatedAt })),
+    commentsVisibility: {
+      publicCount: comments.filter((c) => c.status === "APPROVED").length,
+      hiddenCount: comments.filter((c) => c.status !== "APPROVED").length,
+      items: comments.map((c) => ({
+        article: c.article.title,
+        excerpt: c.content.slice(0, 120),
+        status: c.status,
+        publiclyVisible: c.status === "APPROVED",
+        inspiring: c.isInspiring,
+        flagged: c.flagged,
+        reports: c.reportCount,
+        at: c.createdAt,
+      })),
+    },
+    notificationsBell: { unreadCount: unread, latest: notifications },
+    proposals: proposals,
+    discussionQuotaAsSiteComputes: {
+      perArticleLimit: perArticleLimit,
+      usage: quotas.map((q) => ({
+        article: q.article.title,
+        used: q.messageCount,
+        remaining: Math.max(0, perArticleLimit - q.messageCount),
+        lastMessageAt: q.lastMessageAt,
+      })),
+    },
+    pushDevices: pushes.map((p) => ({ device: (p.userAgent ?? "غير معروف").slice(0, 90), lastSeenAt: p.lastSeenAt })),
+    login: { providers: providers.map((a) => a.provider), activeSessions: sessions },
+    impactLedger: ledger.map((l) => ({ action: l.actionType, points: l.points, article: l.article?.title ?? null, reason: l.reason, at: l.createdAt })),
+  };
+}
+
 async function getLiveActivity(args: McpArgs) {
   const type = str(args, "type");
   const hours = Math.max(num(args, "hours") ?? 24, 1);
@@ -2350,6 +2513,8 @@ export async function executeMcpTool(
       return manageSecurity(args, meta);
     case "manage_media":
       return manageMedia(args, meta);
+    case "view_as_reader":
+      return viewAsReader(args);
     case "get_live_activity":
       return getLiveActivity(args);
     case "delete_category":

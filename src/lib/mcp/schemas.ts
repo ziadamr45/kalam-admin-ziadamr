@@ -16,7 +16,7 @@ export type McpToolSchema = {
 
 export const MCP_PROTOCOL_VERSION = "2025-03-26";
 export const MCP_SERVER_NAME = "kalam-sovereign-admin";
-export const MCP_SERVER_VERSION = "2.2.0";
+export const MCP_SERVER_VERSION = "2.3.0";
 
 export const MCP_TOOLS: McpToolSchema[] = [
   /* ==================== أ) أدوات المقالات ==================== */
@@ -702,6 +702,24 @@ export const MCP_TOOLS: McpToolSchema[] = [
         limit: { type: "number", description: "مع list: عدد الأصول (افتراضي 30، أقصى 100)" },
         cursor: { type: "string", description: "مع list: رمز الترقيم للدفعة التالية next_cursor" },
         publicId: { type: "string", description: "مع delete: معرف الأصل — إلزامي" },
+      },
+    },
+  },
+  {
+    name: "view_as_reader",
+    description:
+      "عين القارئ — الشاشة نفسها التي يراها القارئ من ناحيته لا من ناحية الإدارة: هويته المعروضة (الاسم المختار والصورة والنبذة) ورتبته الفكرية ورصيد أثره ومسافته للرتبة التالية وأهليته لعضوية «أهل الكلمة»، مكتبته المحفوظة، تصويتاته على المقالات، تعليقاته مفصولة ما يظهر منه للعامة وما يخفى عنها (معلق/مرفوض/مبلَّغ عنه)، جرس إشعاراته وعدد غير المقروء، مقترحاته وحالتها، حصص نقاش الذكاء الاصطناعي لكل مقال بالمتبقي كما يحسبه الموقع تمامًا من رتبته، أجهزة إشعاراته الفورية، مزودات دخوله وجلساته، وآخر دفتر أثره (قراءات مكتملة ومشاركات ومنح وخصوم). وبتعليم visitor ترى ما يراه الزائر الغريب غير المسجل: حالات الحوكمة المؤثرة عليه والأقسام والمقالات المنشورة والصفحات القانونية.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        action: {
+          type: "string",
+          enum: ["profile", "visitor"],
+          description: "profile شاشة قارئ بعينه (افتراضي) | visitor ما يراه الزائر غير المسجل",
+        },
+        userId: { type: "string", description: "معرف القارئ — أو مرر email بدلًا منه" },
+        email: { type: "string", description: "بريد القارئ — بديل عن userId" },
+        limit: { type: "number", description: "عدد عناصر كل قسم من الشاشة (افتراضي 15، أقصى 50)" },
       },
     },
   },
