@@ -15,6 +15,7 @@ export const useSidebarOpen = () => useContext(SidebarOpenContext);
 
 const NAV = [
   { href: "/", label: "التحليلات الحية", icon: "chart" },
+  { href: "/analytics", label: "تحليلات الأداء", icon: "pulse" },
   { href: "/articles", label: "المقالات", icon: "doc" },
   { href: "/sections", label: "الأقسام والتصنيفات", icon: "tag" },
   { href: "/comments", label: "مركز التعليقات", icon: "chat" },
@@ -34,6 +35,8 @@ function NavIcon({ name }: { name: (typeof NAV)[number]["icon"] }) {
   switch (name) {
     case "chart":
       return <svg {...common}><path d="M3 3v18h18" /><path d="M7 15l4-6 4 3 5-8" /></svg>;
+    case "pulse":
+      return <svg {...common}><path d="M22 12h-4l-3 9L9 3l-3 9H2" /></svg>;
     case "doc":
       return <svg {...common}><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" /><path d="M14 2v6h6M9 13h6M9 17h6" /></svg>;
     case "tag":

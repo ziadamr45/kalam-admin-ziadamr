@@ -2080,6 +2080,37 @@ async function runMaintenance(args: McpArgs, meta: McpRequestMeta) {
     }
 
     await revalidatePublicPaths([...paths]);
+
+    /* جرس المقال الجديد: إشعار داخلي لكل المسجلين غير الموقوفين + ويب بوش فوري —
+       محمي كليًا: فشل الإشعارات لا يمس النشر أبدًا */
+    let notified = 0;
+    try {
+      const users = await prisma.user.findMany({ where: { banned: false }, select: { id: true } });
+      for (const article of due) {
+        const url = `/article/${article.slug}`;
+        if (users.length > 0) {
+          await prisma.userNotification.createMany({
+            data: users.map((u) => ({
+              userId: u.id,
+              title: `مقال جديد: ${article.title}`,
+              body: "حديثًا على منصة كلام له لازمة — اقرأه الآن قبل أن تلهث عيناك.",
+              url,
+              kind: "UPDATE",
+            })),
+          });
+        }
+        await pushUsers({
+          title: `مقال جديد: ${article.title}`,
+          body: "حديثًا على منصة كلام له لازمة",
+          url,
+          tag: "new-article",
+        });
+        notified += users.length;
+      }
+    } catch {
+      /* الإشعارات تزيين — لا تعطل النشر قط */
+    }
+
     await writeAudit({
       adminId: null,
       action: "mcp.maintenance_publish_scheduled",
@@ -2095,6 +2126,98 @@ async function runMaintenance(args: McpArgs, meta: McpRequestMeta) {
       articles: due.map((a) => ({ title: a.title, slug: a.slug })),
       revalidatedPaths: [...paths],
     };
+  }
+
+  throw new McpToolError(`فعل غير معروف: «${action}»`);
+}
+
+/* ============================ سيادة سجل أمن الدخول ============================ */
+
+async function manageLoginLogs(args: McpArgs, meta: McpRequestMeta) {
+  const action = str(args, "action") ?? "list";
+  const userId = str(args, "userId");
+  const newDeviceOnly = args.newDeviceOnly === true;
+  const logId = str(args, "logId");
+  const cap = Math.min(Math.max(num(args, "limit") ?? 30, 1), 100);
+
+  if (action === "list") {
+    const where: Prisma.LoginLogWhereInput = {
+      ...(userId ? { userId } : {}),
+      ...(newDeviceOnly ? { isNewDevice: true } : {}),
+    };
+    const [total, newDevices, rows] = await Promise.all([
+      prisma.loginLog.count({ where }),
+      prisma.loginLog.count({ where: { ...where, isNewDevice: true } }),
+      prisma.loginLog.findMany({
+        where,
+        orderBy: { createdAt: "desc" },
+        take: cap,
+        include: { user: { select: { id: true, email: true, customName: true, name: true } } },
+      }),
+    ]);
+    return {
+      total,
+      newDevices,
+      count: rows.length,
+      logs: rows.map((l) => ({
+        id: l.id,
+        user: l.user?.customName?.trim() || l.user?.name || l.user?.email || l.email || "قارئ",
+        userId: l.userId,
+        email: l.email ?? l.user?.email ?? null,
+        device: [l.deviceType, l.browser, l.os].filter(Boolean).join(" · ") || null,
+        location: [l.city, l.region, l.country].filter(Boolean).join("، ") || null,
+        ip: l.ip,
+        isNewDevice: l.isNewDevice,
+        notified: l.notified,
+        channels: l.channels,
+        at: l.createdAt,
+      })),
+    };
+  }
+
+  if (action === "stats") {
+    const [total, newDevices, notifiedCount, byChannel, last24h] = await Promise.all([
+      prisma.loginLog.count(),
+      prisma.loginLog.count({ where: { isNewDevice: true } }),
+      prisma.loginLog.count({ where: { notified: true } }),
+      prisma.loginLog.groupBy({ by: ["channels"], _count: { channels: true }, where: { notified: true } }),
+      prisma.loginLog.count({ where: { createdAt: { gte: new Date(Date.now() - 24 * 3600 * 1000) } } }),
+    ]);
+    return {
+      total,
+      newDevices,
+      notified: notifiedCount,
+      last24h,
+      channels: byChannel.map((c) => ({ channels: c.channels ?? "none", count: c._count.channels })),
+    };
+  }
+
+  if (action === "delete") {
+    if (!logId) throw new McpToolError("معرف السجل logId إلزامي للفعل delete");
+    const removed = await prisma.loginLog.deleteMany({ where: { id: logId } });
+    if (removed.count === 0) throw new McpToolError("لا يوجد سجل دخول بهذا المعرف");
+    await writeAudit({
+      adminId: null,
+      action: "mcp.login_log_deleted",
+      entity: "LoginLog",
+      entityId: logId,
+      meta: { via: "gemini-spark-mcp" },
+      ip: meta.ip,
+    });
+    return { deleted: true, logId };
+  }
+
+  if (action === "clear") {
+    const removed = await prisma.loginLog.deleteMany({});
+    await writeAudit({
+      adminId: null,
+      action: "mcp.login_logs_cleared",
+      entity: "LoginLog",
+      entityId: null,
+      meta: { via: "gemini-spark-mcp", removed: removed.count },
+      ip: meta.ip,
+    });
+    return { cleared: true, removed: removed.count };
   }
 
   throw new McpToolError(`فعل غير معروف: «${action}»`);
@@ -2944,6 +3067,8 @@ export async function executeMcpTool(
       return runMaintenance(args, meta);
     case "manage_comment_votes":
       return manageCommentVotes(args, meta);
+    case "manage_login_logs":
+      return manageLoginLogs(args, meta);
     default:
       throw new McpToolError(`أداة غير معروفة: «${name}»`);
   }

@@ -81,6 +81,7 @@ model Article {
   savedBy      SavedArticle[]
   impactLogs   ImpactLog[]
   aiDiscussions AiDiscussionUsage[]
+  readingProgress ReadingProgress[]
 
   @@index([status, publishedAt(sort: Desc)])
   @@index([sectionId])
@@ -126,10 +127,12 @@ model User {
   impactLogs        ImpactLog[]
   proposals         UserProposal[]
   aiDiscussions     AiDiscussionUsage[]
+  loginLogs         LoginLog[]
+  readingProgress   ReadingProgress[]
 }
 
 /* حصة نقاش الذكاء الاصطناعي الدائمة — سجل استهلاك صارم لكل قارئ مسجل
-   في كل مقال: يتحقق منه الخادم قبل أي نداء لـ Gemini ولا يُصفّر بالتحديث */
+   في كل مقال: يتحقق منه الخادم قبل أي نداء لـ Gemini ولا يُصفَّر بالتحديث */
 model AiDiscussionUsage {
   id            String   @id @default(cuid())
   userId        String
@@ -250,6 +253,8 @@ model PageView {
   visitorFp   String?
   referrer    String?
   device      String?
+  country     String? // دولة الزائر — من ترويسات Vercel الطرفية x-vercel-ip-country
+  city        String? // المدينة التقريبية — من ترويسات Vercel الطرفية
   readSeconds Int?
   completed   Boolean  @default(false)
   createdAt   DateTime @default(now())
@@ -545,4 +550,52 @@ model VerificationToken {
   expires    DateTime
 
   @@id([identifier, token])
+}
+
+// ============ محرك أمن الحسابات (Sovereign Account Security Engine) ============
+
+/* سجل عمليات الدخول — توثيق سيادي لكل دخول Google: الجهاز والمتصفح والموقع
+   التقريبي، مع بصمة الجهاز (deviceHash) لتمييز النشاط المعتاد من غير المعتاد،
+   وإشعار أمني فوري (بريد + دفع + داخل المنصة) عند الدخول من جهاز جديد */
+model LoginLog {
+  id          String   @id @default(cuid())
+  userId      String?
+  user        User?    @relation(fields: [userId], references: [id], onDelete: SetNull)
+  email       String?
+  ip          String?
+  userAgent   String?  @db.Text
+  deviceType  String? // mobile | desktop | tablet
+  browser     String?
+  os          String?
+  city        String?
+  region      String?
+  country     String?
+  deviceHash  String // sha256(UA) — مفتاح مقارنة النشاط المعتاد
+  isNewDevice Boolean  @default(false) // هل هذا أول ظهور لهذه البصمة لهذا الحساب؟
+  notified    Boolean  @default(false) // هل أُرسل التنبيه الأمني؟
+  channels    String? // ما نُقل عبره التنبيه: email,push,inapp
+  createdAt   DateTime @default(now())
+
+  @@index([userId, createdAt(sort: Desc)])
+  @@index([createdAt(sort: Desc)])
+  @@index([deviceHash])
+}
+
+// ============ محرك استئناف القراءة (Continue Reading Engine) ============
+
+/* موضع القراءة المحفوظ لكل قارئ في كل مقال — يزامن العائم «توقفت عند X%»
+   عبر الأجهزة، ويعمل بجانب نسخة localStorage المحلية لسرعة الاستجابة */
+model ReadingProgress {
+  id        String   @id @default(cuid())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  articleId String
+  article   Article  @relation(fields: [articleId], references: [id], onDelete: Cascade)
+  progress  Int      @default(0) // نسبة التقدم 0-100
+  scrollY   Int      @default(0) // موضع التمرير بالبكسل
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([userId, articleId])
+  @@index([userId, updatedAt(sort: Desc)])
 }

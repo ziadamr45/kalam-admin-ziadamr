@@ -104,7 +104,7 @@ export function ArticleEditor({
   const [hadithPanel, setHadithPanel] = useState(false);
   const [hadithNarrator, setHadithNarrator] = useState("");
   const [hadithText, setHadithText] = useState("");
-  const [previewOpen, setPreviewOpen] = useState(false);
+  const [previewOpen, setPreviewOpen] = useState(true); // المعاينة الحية المنقسمة مفتوحة افتراضيًا — تتحدث لحظة بلحظة أثناء الكتابة
 
   const [busy, setBusy] = useState(false);
   const [checklistOpen, setChecklistOpen] = useState(false);
@@ -538,8 +538,14 @@ export function ArticleEditor({
         )}
       </Card>
 
-      {/* المحرر الثنائي المتزامن */}
-      <div className="grid gap-6 lg:grid-cols-2">
+      {/* المحرر الثنائي المتزامن + شاشة المعاينة الحية المنقسمة */}
+      <div className="flex items-center justify-between">
+        <h2 className="text-sm font-bold text-steel-800">المحرر الثنائي المتزامن</h2>
+        <Button size="sm" variant="ghost" onClick={() => setPreviewOpen((v) => !v)}>
+          {previewOpen ? "إغلاق المعاينة الحية" : "معاينة حية جانبية"}
+        </Button>
+      </div>
+      <div className={`grid gap-6 ${previewOpen ? "xl:grid-cols-3 lg:grid-cols-2" : "lg:grid-cols-2"}`}>
         <Card className="p-5">
           <div className="mb-2 flex items-center justify-between">
             <h3 className="text-sm font-bold text-steel-800">النسخة القياسية *</h3>
@@ -581,6 +587,22 @@ export function ArticleEditor({
             مزامنة تلقائية من النسخة القياسية (حتى تبدأ الكتابة المشكولة)
           </label>
         </Card>
+
+        {/* المعاينة الحية المنقسمة — كل وسم مخصص يُرى لحظة كتابته قبل الحفظ */}
+        {previewOpen && (
+          <Card className="p-5 lg:sticky lg:top-4 lg:max-h-[calc(100vh-2rem)] lg:overflow-y-auto">
+            <div className="mb-2 flex items-center justify-between">
+              <h3 className="text-sm font-bold text-steel-800">المعاينة الحية</h3>
+              <Badge tone="copper">فورية أثناء الكتابة</Badge>
+            </div>
+            <p className="mb-3 text-[11px] leading-5 text-steel-400">
+              الآيات والأحاديث والملاحظات والتساؤلات كما ستظهر للقرّاء تمامًا — تتحدث مع كل حرف.
+            </p>
+            <div className="rounded-2xl border border-steel-100 p-4 md-preview">
+              <ContentPreview raw={content} />
+            </div>
+          </Card>
+        )}
       </div>
 
       {/* التغذية الفكرية السرية — عقل مساعد النقاش (سرّي تمامًا، لا يظهر للجمهور إطلاقًا) */}
@@ -611,22 +633,7 @@ export function ArticleEditor({
         </p>
       </Card>
 
-      {/* المعاينة الحية للتنسيق النهائي */}
-      <Card className="p-5">
-        <div className="flex items-center justify-between">
-          <h3 className="text-sm font-bold text-steel-800">
-            معاينة التنسيق النهائي <span className="font-normal text-steel-400">(كما سيظهر للقرّاء)</span>
-          </h3>
-          <Button size="sm" variant="ghost" onClick={() => setPreviewOpen((v) => !v)}>
-            {previewOpen ? "إخفاء المعاينة" : "إظهار المعاينة"}
-          </Button>
-        </div>
-        {previewOpen && (
-          <div className="mt-4 rounded-2xl border border-steel-100 p-5">
-            <ContentPreview raw={content} />
-          </div>
-        )}
-      </Card>
+      {/* (المعاينة القديمة تحت المحرر حُوّلت لشاشة منقسمة حية بجانب المحرر أعلاه) */}
 
       {/* الوسائط */}
       <Card className="space-y-5 p-6">

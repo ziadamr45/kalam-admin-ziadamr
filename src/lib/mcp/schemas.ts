@@ -16,7 +16,7 @@ export type McpToolSchema = {
 
 export const MCP_PROTOCOL_VERSION = "2025-03-26";
 export const MCP_SERVER_NAME = "kalam-sovereign-admin";
-export const MCP_SERVER_VERSION = "2.5.0";
+export const MCP_SERVER_VERSION = "2.6.0";
 
 export const MCP_TOOLS: McpToolSchema[] = [
   /* ==================== أ) أدوات المقالات ==================== */
@@ -762,6 +762,25 @@ export const MCP_TOOLS: McpToolSchema[] = [
         commentId: { type: "string", description: "معرف التعليق — إلزامي مع clear، واختياري (أو userId) مع list وstats" },
         userId: { type: "string", description: "معرف القارئ — بديل أو مكمّل لـ commentId في list وstats" },
         voteId: { type: "string", description: "معرف الصوت مع delete — إلزامي" },
+        limit: { type: "number", description: "عدد النتائج (افتراضي 30، أقصى 100)" },
+      },
+    },
+  },
+  {
+    name: "manage_login_logs",
+    description:
+      "سيادة كاملة على سجل أمن الدخول (LoginLog — محرك إشعارات الأمان السيادي): list لجرد آخر دخولات القارئين مع نوع الجهاز والمتصفح ونظام التشغيل والموقع التقريبي وعلامة الجهاز الجديد وقنوات التنبيه، stats لملخص أمني شامل (إجمالي الدخولات، أجهزة جديدة، تنبيهات مُرسلة وقنواتها، نبض 24 ساعة)، delete لحذف سجل بعينه بمعرفه، وclear لمسح السجل كليًا عند التنظيف (مع توثيق كامل في دفتر التدقيق).",
+    inputSchema: {
+      type: "object",
+      properties: {
+        action: {
+          type: "string",
+          enum: ["list", "stats", "delete", "clear"],
+          description: "list جرد | stats ملخص أمني | delete حذف سجل | clear مسح كامل",
+        },
+        userId: { type: "string", description: "تصفية على قارئ بعينه مع list" },
+        newDeviceOnly: { type: "boolean", description: "مع list: قصر الجرد على الدخولات من أجهزة جديدة" },
+        logId: { type: "string", description: "معرف السجل مع delete — إلزامي" },
         limit: { type: "number", description: "عدد النتائج (افتراضي 30، أقصى 100)" },
       },
     },
