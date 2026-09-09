@@ -54,6 +54,10 @@ export function CommentsManager() {
   const [banTarget, setBanTarget] = useState<CommentRow | null>(null);
   const [banReason, setBanReason] = useState("مخالفة أدب الحوار والقيم");
   const [deleteTarget, setDeleteTarget] = useState<CommentRow | null>(null);
+  /* نافذة التمييز الإلزامية — السبب موثق في سجل أثر القارئ وإشعاره */
+  const [inspireTarget, setInspireTarget] = useState<{ row: CommentRow; featured: boolean } | null>(null);
+  const [inspireReason, setInspireReason] = useState("");
+  const [inspireBusy, setInspireBusy] = useState(false);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -134,24 +138,36 @@ export function CommentsManager() {
     }
   };
 
-  const toggleInspiring = async (c: CommentRow) => {
-    const res = await fetch(`/api/comments/${c.id}`, {
-      method: "PATCH",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ isInspiring: !c.isInspiring }),
-    });
-    const data = await res.json().catch(() => ({}));
-    if (res.ok) {
-      toast(
-        data?.inspiring
-          ? data?.awarded
-            ? "ميّزت التعليق — +30 نقطة أثر للمعلّق وتثبيت أعلى المقال"
-            : "أُعيد تثبيت التعليق (النقاط ممنوحة سلفًا)"
-          : "أُلغيت صفة «فكري ملهم»",
-      );
-      load();
-    } else {
-      toast(data?.error || "تعذر تنفيذ التمييز", "error");
+  const submitInspiring = async () => {
+    if (!inspireTarget) return;
+    const reason = inspireReason.trim();
+    if (reason.length < 5) {
+      toast(inspireTarget.featured ? "اكتب سبب التمييز — 5 أحرف فأكثر" : "اكتب سبب إلغاء التمييز — 5 أحرف فأكثر", "error");
+      return;
+    }
+    setInspireBusy(true);
+    try {
+      const res = await fetch(`/api/comments/${inspireTarget.row.id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ isInspiring: inspireTarget.featured, reason }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (res.ok) {
+        const delta = (data?.pointsDelta as number) ?? 0;
+        toast(
+          inspireTarget.featured
+            ? `ميّزت التعليق — +${delta} نقطة أثر للمعلّق وتثبيت أعلى المقال`
+            : `أُلغي التمييز — خُصم ${Math.abs(delta)} نقطة من رصيد المعلّق`,
+        );
+        setInspireTarget(null);
+        setInspireReason("");
+        load();
+      } else {
+        toast(data?.error || "تعذر تنفيذ التمييز", "error");
+      }
+    } finally {
+      setInspireBusy(false);
     }
   };
 
@@ -269,8 +285,11 @@ export function CommentsManager() {
                     <Button
                       size="sm"
                       variant={c.isInspiring ? "outline" : "success"}
-                      onClick={() => toggleInspiring(c)}
-                      title="منح +30 رصيد أثر للمعلّق وتثبيت تعليقه أعلى المقال"
+                      onClick={() => {
+                        setInspireReason("");
+                        setInspireTarget({ row: c, featured: !c.isInspiring });
+                      }}
+                      title="منح +10 رصيد أثر للمعلّق وتثبيت تعليقه أعلى المقال — السبب إلزامي"
                     >
                       {c.isInspiring ? "إلغاء التمييز" : "✦ تعيين كتعليق ملهم"}
                     </Button>
@@ -325,6 +344,53 @@ export function CommentsManager() {
         <div className="mt-5 flex gap-3">
           <Button variant="danger" onClick={banUser}>تأكيد الحظر النهائي</Button>
           <Button variant="ghost" onClick={() => setBanTarget(null)}>إلغاء</Button>
+        </div>
+      </Modal>
+
+      {/* نافذة التمييز/إلغائه — السبب إلزامي، والمعاملة ذرّية (±10 نقاط موثقة) */}
+      <Modal
+        open={Boolean(inspireTarget)}
+        onClose={() => (inspireBusy ? null : setInspireTarget(null))}
+        title={inspireTarget?.featured ? "✦ تمييز تعليق فكري ملهم" : "إلغاء التمييز"}
+      >
+        <p className="text-sm leading-7 text-steel-600">
+          {inspireTarget?.featured ? (
+            <>
+              سيُثبَّت تعليق <strong>{inspireTarget?.row.authorName}</strong> أعلى حوار المقال، ويحصل صاحبه فورًا على
+              <strong className="text-copper-600"> +10 نقاط أثر</strong> مع إشعار يحمل سبب التمييز.
+            </>
+          ) : (
+            <>
+              سيُرفع التمييز وتثبيت التعليق، وتُخصم فورًا
+              <strong className="text-danger-600"> 10 نقاط أثر</strong> من رصيد صاحبه مع إشعار يحمل سبب الإلغاء.
+            </>
+          )}
+        </p>
+        <textarea
+          value={inspireReason}
+          onChange={(e) => setInspireReason(e.target.value)}
+          rows={3}
+          className="field mt-4 resize-none leading-7"
+          placeholder={
+            inspireTarget?.featured
+              ? "سبب التمييز — إلزامي (مثل: إضافة فكرية قيّمة، تلخيص رائع)"
+              : "سبب إلغاء التمييز — إلزامي (مثل: مراجعة التنسيق، التعليق لا يستوفي الشروط)"
+          }
+        />
+        <p className="mt-1.5 text-[11px] text-steel-400">
+          {inspireReason.trim().length}/5 أحرف كحد أدنى — يُوثَّق السبب في سجل أثر القارئ وسجل التدقيق
+        </p>
+        <div className="mt-5 flex gap-3">
+          <Button
+            variant={inspireTarget?.featured ? "success" : "danger"}
+            disabled={inspireBusy || inspireReason.trim().length < 5}
+            onClick={submitInspiring}
+          >
+            {inspireBusy ? "جارٍ التنفيذ.." : inspireTarget?.featured ? "تأكيد التمييز (+10)" : "تأكيد الإلغاء (-10)"}
+          </Button>
+          <Button variant="ghost" disabled={inspireBusy} onClick={() => setInspireTarget(null)}>
+            إلغاء
+          </Button>
         </div>
       </Modal>
     </div>

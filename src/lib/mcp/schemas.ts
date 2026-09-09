@@ -373,7 +373,7 @@ export const MCP_TOOLS: McpToolSchema[] = [
   {
     name: "manage_comment_features",
     description:
-      "صلاحيات التعليق المتقدمة: تمييز تعليق «فكريًا ملهمًا» (يثبته أعلى حوار المقال وينح به صاحبه +30 رصيد أثر مع إشعار داخلي وويب فوري) أو إلغاء التمييز، أو تحرير نص التعليق بعلامة التحرير الإداري، أو حظر كاتب التعليق نهائيًا مع رفض كل تعليقاته المعلقة.",
+      "صلاحيات التعليق المتقدمة: تمييز تعليق «فكريًا ملهمًا» (معاملة ذرّية تثبّته أعلى حوار المقال وتبث لصاحبه +10 رصيد أثر مع إشعارات مزدوجة) أو إلغاء التمييز (-10 عكسية موثقة) — السبب إلزامي في الاتجاهين — أو تحرير نص التعليق بعلامة التحرير الإداري، أو حظر كاتب التعليق نهائيًا مع رفض كل تعليقاته المعلقة.",
     inputSchema: {
       type: "object",
       properties: {
@@ -381,9 +381,14 @@ export const MCP_TOOLS: McpToolSchema[] = [
           type: "string",
           enum: ["inspire", "uninspire", "edit", "ban_author"],
           description:
-            "inspire تمييز ملهم (+30) | uninspire إلغاء التمييز | edit تحرير النص | ban_author حظر الكاتب نهائيًا",
+            "inspire تمييز ملهم (+10) | uninspire إلغاء التمييز (-10) | edit تحرير النص | ban_author حظر الكاتب نهائيًا",
         },
         commentId: { type: "string", description: "معرف التعليق — إلزامي" },
+        reason: {
+          type: "string",
+          description:
+            "سبب التمييز أو إلغائه (5 أحرف فأكثر) — إلزامي مع inspire/uninspire ويُوثَّق في سجل أثر القارئ وإشعاره",
+        },
         content: { type: "string", description: "النص الجديد — إلزامي مع edit" },
         banReason: { type: "string", description: "سبب الحظر مع ban_author (افتراضي: مخالفة أدب الحوار)" },
       },

@@ -115,6 +115,7 @@ model User {
   /* ============ محرك رصيد الأثر الفكري (Reader Impact Engine) ============ */
   impactScore     Int     @default(0) // إجمالي رصيد الأثر المكتسب
   intellectualRank String @default("قارئ متأمل") // الرتبة الفكرية المحسوبة آليًا من الرصيد
+  hasCompletedOnboarding Boolean @default(false) // ختم تجربة التهيئة والجولة التفاعلية — تُعرض مرة واحدة للأعضاء الجدد
 
   accounts     Account[]
   sessions     Session[]

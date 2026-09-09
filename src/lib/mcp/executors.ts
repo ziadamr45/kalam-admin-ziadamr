@@ -17,7 +17,7 @@ import {
   getChecklist,
   saveChecklist,
 } from "@/lib/settings";
-import { awardImpact, IMPACT_POINTS } from "@/lib/impact";
+import { awardImpact, setCommentFeatured } from "@/lib/impact";
 import { hashPassword, verifyPassword, validatePasswordStrength } from "@/lib/password";
 import { pushUsers } from "@/lib/push";
 import {
@@ -1190,68 +1190,55 @@ async function manageCommentFeatures(args: McpArgs, meta: McpRequestMeta) {
   if (!comment) throw new McpToolError(`لا يوجد تعليق بالمعرف «${commentId}»`);
 
   if (action === "inspire" || action === "uninspire") {
-    if (action === "inspire") {
-      if (!comment.userId || comment.user?.banned) {
-        throw new McpToolError("التمييز للتعليقات المسجلة بحساب نشط فقط");
-      }
-      await prisma.comment.update({ where: { id: commentId }, data: { isInspiring: true } });
-      const award = await awardImpact({
-        userId: comment.userId,
-        actionType: "COMMENT_INSPIRING",
-        points: IMPACT_POINTS.COMMENT_INSPIRING,
-        articleId: comment.articleId,
-        dedupKey: `INSPIRE:${comment.id}`,
-        reason: `تمييز تعليقه عن «${comment.article.title}» (عبر Spark)`,
-      });
-      await prisma.userNotification
-        .create({
-          data: {
-            userId: comment.userId,
-            title: "تعليقك حاز تمييز «فكري ملهم» ✦",
-            body: `ميّز فريق التحرير تعليقك عن «${comment.article.title}» ومنحك +${IMPACT_POINTS.COMMENT_INSPIRING} رصيد أثر، وثبّته أعلى حوار المقال.`,
-            url: `/article/${comment.article.slug}`,
-            kind: "TARGETED",
-          },
-        })
-        .catch(() => {});
+    /* السبب إلزامي في الاتجاهين — لا تمييز صامت ولا خصم صامت حتى عبر MCP */
+    const fReason = str(args, "reason") ?? "";
+    if (fReason.trim().length < 5) {
+      throw new McpToolError(
+        action === "inspire"
+          ? "سبب التمييز إلزامي (5 أحرف فأكثر) — مثل: إضافة فكرية قيّمة، تلخيص رائع"
+          : "سبب إلغاء التمييز إلزامي (5 أحرف فأكثر) — مثل: مراجعة التنسيق، التعليق لا يستوفي الشروط",
+      );
+    }
+
+    const feat = await setCommentFeatured({
+      commentId,
+      featured: action === "inspire",
+      reason: fReason.trim(),
+    });
+    if (!feat.ok) throw new McpToolError(feat.error);
+
+    if (comment.userId) {
       void pushUsers(
         {
-          title: "تعليقك حاز تمييز «فكري ملهم» ✦",
-          body: `+${IMPACT_POINTS.COMMENT_INSPIRING} رصيد أثر — وتعليقك مثبَّت أعلى حوار المقال`,
+          title: feat.featured ? "تم تمييز تعليقك كتعليق ملهم ✦" : "أُلغي تمييز تعليقك",
+          body: `${feat.points > 0 ? "+" : ""}${feat.points} نقاط أثر بمقال «${comment.article.title.slice(0, 50)}» — السبب: ${fReason.trim().slice(0, 80)}`,
           url: `/article/${comment.article.slug}`,
-          tag: "inspiring-comment",
+          tag: feat.featured ? "inspiring-comment" : "uninspiring-comment",
         },
         { userIds: [comment.userId] },
       );
-      await writeAudit({
-        adminId: null,
-        action: "mcp.comment_inspiring",
-        entity: "Comment",
-        entityId: commentId,
-        meta: { via: "gemini-spark-mcp", awarded: award.awarded, points: IMPACT_POINTS.COMMENT_INSPIRING },
-        ip: meta.ip,
-      });
-      await revalidateArticlePaths(comment.article.slug);
-      return {
-        inspiring: true,
-        awarded: award.awarded,
-        impactScore: award.impactScore,
-        rank: award.rank,
-        article: comment.article,
-      };
     }
-
-    await prisma.comment.update({ where: { id: commentId }, data: { isInspiring: false } });
     await writeAudit({
       adminId: null,
-      action: "mcp.comment_uninspiring",
+      action: feat.featured ? "mcp.comment_inspiring" : "mcp.comment_uninspiring",
       entity: "Comment",
       entityId: commentId,
-      meta: { via: "gemini-spark-mcp" },
+      meta: {
+        via: "gemini-spark-mcp",
+        reason: fReason.trim(),
+        pointsDelta: feat.points,
+        impactScore: feat.impactScore,
+      },
       ip: meta.ip,
     });
     await revalidateArticlePaths(comment.article.slug);
-    return { inspiring: false, article: comment.article };
+    return {
+      inspiring: feat.featured,
+      pointsDelta: feat.points,
+      impactScore: feat.impactScore,
+      rank: feat.rank,
+      article: comment.article,
+    };
   }
 
   if (action === "edit") {
