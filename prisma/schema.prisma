@@ -698,3 +698,37 @@ model ApiUsageCounter {
   @@unique([provider, day])
   @@index([day])
 }
+
+// ============ سجل التدقيق السيادي ومحو البيانات (Master Audit & GDPR Ledger) ============
+
+/* تصنيفات السجل الرقابي الموحد — كل إجراء حساس في المنصة يندرج تحت واحد منها */
+enum AuditActionCategory {
+  USER_SELF_ACTION // حذف حساب ذاتي، تعديل ملف، مسح محفوظات
+  ADMIN_MODERATION // حظر، رفع حظر، حذف حساب، تمييز/إلغاء تمييز تعليق
+  ADMIN_VIP_CHANGE // منح توثيق، ترقية رتبة، تعديل صلاحيات
+  SYSTEM_CONFIG_CHANGE // تعديل إعدادات المنصة، أوزان النقاط
+}
+
+/* سجل التدقيق السيادي غير القابل للتلاعب — يوثق أدق تفاصيل تحركات
+   المشرفين والمستخدمين: الفاعل والدور والسبب إلزاميًا والدليل المصور
+   والقيم السابقة والجديدة، ويغذي شاشة الرقابة وتقارير PDF الدورية
+   وأدوات MCP لـ Gemini Spark. لا يُحذف منه شيء أبدًا (حق الاحتفاظ
+   القانوني بسجل غير معرِّف بعد محو الحسابات). */
+model AuditTrail {
+  id             String               @id @default(cuid())
+  actorId        String               // من قام بالفعل (أدمن، مشرف، أو المستخدم نفسه)
+  actorEmail     String
+  actorRole      String               // OWNER, ADMIN, MODERATOR, USER, SYSTEM
+  actionCategory AuditActionCategory
+  actionType     String               // مثل: USER_HARD_DELETE, ACCOUNT_BANNED, COMMENT_FEATURED
+  targetId       String?              // المعرف الخاص بالعنصر المستهدف
+  targetEmail    String?              // بريد المستخدم المستهدف
+  reason         String?              // سبب الإجراء الإلزامي
+  evidenceUrl    String?              // رابط لقطة الشاشة المرفوعة كدليل
+  metadata       Json?                // تفاصيل تقنية (IP, User-Agent, القيم السابقة والجديدة)
+  createdAt      DateTime             @default(now())
+
+  @@index([createdAt])
+  @@index([actorId])
+  @@index([actionCategory])
+}

@@ -16,7 +16,7 @@ export type McpToolSchema = {
 
 export const MCP_PROTOCOL_VERSION = "2025-03-26";
 export const MCP_SERVER_NAME = "kalam-sovereign-admin";
-export const MCP_SERVER_VERSION = "2.9.0";
+export const MCP_SERVER_VERSION = "3.0.0";
 
 export const MCP_TOOLS: McpToolSchema[] = [
   /* ==================== أ) أدوات المقالات ==================== */
@@ -1010,6 +1010,42 @@ export const MCP_TOOLS: McpToolSchema[] = [
       "customBody": { "type": "string", "description": "نص مخصص مع event=CUSTOM" }
     },
     "required": ["email", "event"]
+  }
+},
+{
+  "name": "kalam_get_audit_summary",
+  "description": "قراءة السجل السيادي غير القابل للتلاعب (AuditTrail) — أرقام الملخص التنفيذي (محو حسابات، حظر، تمييز تعليقات، توثيق ورُتب، تعديلات إعدادات) مع آخر القيود الرقابية بالفاعل والمستهدف والسبب والدليل، لترشيح زمني (أيام) وبالتصنيف (USER_SELF_ACTION | ADMIN_MODERATION | ADMIN_VIP_CHANGE | SYSTEM_CONFIG_CHANGE) — لتجاوب أسئلة مثل: ماذا فعل المشرفون خلال الأسبوع المنصرم؟",
+  "inputSchema": {
+    "type": "object",
+    "properties": {
+      "days": { "type": "number", "description": "عدد الأيام الماضية للتحليل (افتراضي 7، أقصى 365)" },
+      "category": { "type": "string", "enum": ["USER_SELF_ACTION", "ADMIN_MODERATION", "ADMIN_VIP_CHANGE", "SYSTEM_CONFIG_CHANGE"], "description": "ترشيح بالتصنيف — يُترك فارغًا لكل التصنيفات" },
+      "limit": { "type": "number", "description": "عدد القيود الأخيرة المفصلة في الاستجابة (افتراضي 20، أقصى 100)" }
+    }
+  }
+},
+{
+  "name": "kalam_execute_hard_delete",
+  "description": "تنفيذ المحو السيادي الشامل لحساب مستخدم (GDPR Hard Delete): معاملة ذرّية واحدة تمحو كل تعليقاته وتصويتاته وتفاعلاته ورصيد أثره ومحفوظاته ومواضع قراءته ونقاشاته مع الذكاء الاصطناعي ومقترحاته وإشعاراته وجلساته وروابط Google ثم سجله الأساسي، مع حذف صوره من التخزين السحابي وقيد رقابي إلزامي بالسبب والدليل المصور داخل المعاملة نفسها. حساب صاحب المنصة محمي ولا يُمحى مطلقًا.",
+  "inputSchema": {
+    "type": "object",
+    "properties": {
+      "email": { "type": "string", "description": "بريد الحساب المستهدف للمحو — إلزامي" },
+      "reasonCode": { "type": "string", "enum": ["OFFICIAL_USER_REQUEST", "SEVERE_DIALOGUE_VIOLATION", "SECURITY_ABUSE"], "description": "تصنيف السبب الرسمي: OFFICIAL_USER_REQUEST طلب رسمي عبر اتصل بنا | SEVERE_DIALOGUE_VIOLATION مخالفة جسيمة لآداب الحوار | SECURITY_ABUSE إساءة أمنية — إلزامي" },
+      "reason": { "type": "string", "description": "تفصيل السبب (نص الطلب أو المخالفة) — إلزامي (5 أحرف فأكثر) ويُحفظ في القيد الرقابي" },
+      "evidenceUrl": { "type": "string", "description": "رابط لقطة الشاشة الدليلية (طلب المستخدم أو إثبات المخالفة) — إلزامي https" }
+    },
+    "required": ["email", "reasonCode", "reason", "evidenceUrl"]
+  }
+},
+{
+  "name": "kalam_generate_audit_pdf",
+  "description": "توليد التقرير الرقابي السيادي PDF بتنسيق عربي فاخر (ترويسة سيادية، ملخص تنفيذي بالأرقام، جدول تفصيلي بالقيود والسبب والدليل) لنطاق أسبوعي أو شهري، ورفعه إلى مجلد الأدلة المحمي وإرجاع رابط التنزيل الدائم.",
+  "inputSchema": {
+    "type": "object",
+    "properties": {
+      "range": { "type": "string", "enum": ["weekly", "monthly"], "description": "نطاق التقرير: weekly آخر ٧ أيام (افتراضي) | monthly آخر ٣٠ يومًا" }
+    }
   }
 },
 ];

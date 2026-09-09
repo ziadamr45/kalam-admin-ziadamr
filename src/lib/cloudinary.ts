@@ -270,3 +270,35 @@ export async function destroyCloudinaryAsset(
   const d = (await res.json().catch(() => ({}))) as { result?: string };
   return { deleted: d.result === "ok", result: d.result ?? `http_${res.status}` };
 }
+
+/* ==================== الملفات الخام — تقارير التدقيق الرقابية ==================== */
+
+/** رفع ملف خام (تقرير PDF الرقابي) إلى مجلد الأدلة المحمي — يعيد رابط التنزيل الدائم */
+export async function uploadRaw(
+  data: Uint8Array | Buffer,
+  filename: string,
+  folder = "kalam/evidence/audit-reports",
+): Promise<{ url: string; publicId: string; bytes: number }> {
+  if (!cloudinaryConfigured) {
+    throw new Error("التخزين السحابي غير مهيأ — أضف مفاتيح Cloudinary في متغيرات البيئة");
+  }
+  const timestamp = Math.round(Date.now() / 1000);
+  const params: Record<string, string> = { folder, timestamp: String(timestamp) };
+  const signature = await makeSignature(params);
+  const form = new FormData();
+  form.append("file", new Blob([new Uint8Array(data)]), filename);
+  form.append("api_key", KEY!);
+  form.append("timestamp", String(timestamp));
+  form.append("folder", folder);
+  form.append("signature", signature);
+  const res = await fetch(`https://api.cloudinary.com/v1_1/${CLOUD}/raw/upload`, {
+    method: "POST",
+    body: form,
+  });
+  if (!res.ok) {
+    const detail = await res.text().catch(() => "");
+    throw new Error(`فشل رفع التقرير إلى مجلد الأدلة (${res.status}) ${detail.slice(0, 200)}`);
+  }
+  const d = (await res.json()) as { secure_url: string; public_id: string; bytes: number };
+  return { url: d.secure_url, publicId: d.public_id, bytes: d.bytes ?? 0 };
+}

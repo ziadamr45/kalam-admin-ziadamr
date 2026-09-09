@@ -59,7 +59,12 @@ export async function POST(request: Request) {
     }
 
     const filename = (form.get("filename") as string) || "image";
-    const folder = (form.get("folder") as string) === "section" ? "kalam/sections" : "kalam/articles";
+    /* مجلد الأدلة المحمي — لقطات شاشة إثبات الطلبات والمخالفات للحذف السيادي والتدقيق */
+    const folderRaw = (form.get("folder") as string) ?? "";
+    const folder =
+      folderRaw === "section" ? "kalam/sections"
+      : folderRaw === "evidence" ? "kalam/evidence"
+      : "kalam/articles";
     const result = await uploadImage(file, filename, folder);
 
     await writeAudit({

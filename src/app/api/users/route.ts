@@ -1,8 +1,10 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
-import { requireSession, isRejected, writeAudit, getClientIp } from "@/lib/guard";
+import { requireSession, isRejected, writeAudit, getClientIp, getUserAgent } from "@/lib/guard";
 import { awardImpact } from "@/lib/impact";
 import { grantVip, revokeVip, type VipPrivileges, type GrantableRole } from "@/lib/vip";
+import { hardDeleteUser, isHardDeleteReason } from "@/lib/hard-delete";
+import { writeTrail } from "@/lib/audit-trail";
 
 /**
  * إدارة المستخدمين: قائمة + حظر/فك حظر + تعديل رصيد الأثر يدويًا
@@ -34,7 +36,7 @@ export async function PATCH(request: Request) {
       userId?: string;
       banned?: boolean;
       banReason?: string;
-      action?: "adjust-impact" | "reset-identity" | "grant-vip" | "revoke-vip";
+      action?: "adjust-impact" | "reset-identity" | "grant-vip" | "revoke-vip" | "hard-delete";
       delta?: number;
       reason?: string;
       /* حقول استوديو الحسابات المميزة */
@@ -43,6 +45,9 @@ export async function PATCH(request: Request) {
       badgeColor?: string;
       privileges?: VipPrivileges;
       welcomePoints?: number;
+      /* حقول الحذف السيادي */
+      reasonCode?: string;
+      evidenceUrl?: string;
     };
     if (!body.userId) {
       return NextResponse.json({ error: "بيانات ناقصة" }, { status: 400 });
@@ -167,6 +172,38 @@ export async function PATCH(request: Request) {
       return NextResponse.json({ ok: true });
     }
 
+    /* ============ الحذف السيادي الشامل — محو برمجي كامل موثق بالدليل ============ */
+    if (body.action === "hard-delete") {
+      const reasonCode = body.reasonCode ?? "";
+      if (!isHardDeleteReason(reasonCode)) {
+        return NextResponse.json({ error: "اختر سببًا رسميًا من الأسباب الثلاثة المعتمدة" }, { status: 400 });
+      }
+      try {
+        const result = await hardDeleteUser(
+          {
+            userId: body.userId,
+            reason: body.reason ?? "",
+            reasonCode,
+            evidenceUrl: body.evidenceUrl ?? null,
+          },
+          {
+            adminId: guard.adminId,
+            actorEmail: guard.username ?? "admin",
+            actorRole: "ADMIN",
+            ip: getClientIp(request),
+            userAgent: getUserAgent(request),
+            via: "studio",
+          },
+        );
+        return NextResponse.json(result);
+      } catch (e) {
+        return NextResponse.json(
+          { error: e instanceof Error ? e.message : "تعذر إتمام المحو السيادي" },
+          { status: 400 },
+        );
+      }
+    }
+
     /* ============ الحظر / رفع الحظر (السلوك الأصلي) ============ */
     const user = await prisma.user.update({
       where: { id: body.userId },
@@ -181,7 +218,19 @@ export async function PATCH(request: Request) {
       action: body.banned ? "user.banned" : "user.unbanned",
       entity: "User",
       entityId: user.id,
+      meta: { reason: body.banned ? body.banReason ?? "مخالفة أدب الحوار" : null },
       ip: getClientIp(request),
+    });
+    await writeTrail({
+      actorId: guard.adminId,
+      actorEmail: guard.username ?? "admin",
+      actorRole: "ADMIN",
+      actionCategory: "ADMIN_MODERATION",
+      actionType: body.banned ? "ACCOUNT_BANNED" : "ACCOUNT_UNBANNED",
+      targetId: user.id,
+      targetEmail: user.email,
+      reason: body.banned ? body.banReason ?? "مخالفة أدب الحوار" : "رفع الحظر بقرار إداري",
+      metadata: { via: "studio", ip: getClientIp(request) },
     });
 
     return NextResponse.json({ ok: true });

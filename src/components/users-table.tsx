@@ -75,6 +75,13 @@ const ROLE_LABELS: Record<string, string> = {
   USER: "مستخدم عادي",
 };
 
+/* أسباب الحذف السيادي المعتمدة — تطابق ثوابت الخادم في lib/hard-delete.ts */
+const HARD_DELETE_REASONS = [
+  { value: "OFFICIAL_USER_REQUEST", label: "طلب رسمي من المستخدم عبر صفحة اتصل بنا" },
+  { value: "SEVERE_DIALOGUE_VIOLATION", label: "مخالفة جسيمة لآداب الحوار والشريعة" },
+  { value: "SECURITY_ABUSE", label: "إساءة وتعدٍّ أمني" },
+] as const;
+
 /** ختم التوثيق المصغر — يظهر بجانب اسم الموثق في الجدول */
 function VerifiedDot({ color, title }: { color: string; title: string }) {
   return (
@@ -117,6 +124,88 @@ export function UsersTable({ users }: { users: UserRow[] }) {
   const [vipPoints, setVipPoints] = useState("");
   const [vipBusy, setVipBusy] = useState(false);
   const [revokeReason, setRevokeReason] = useState("");
+
+  /* ==================== الحذف السيادي الشامل (محو برمجي كامل) ==================== */
+  const [deleteTarget, setDeleteTarget] = useState<UserRow | null>(null);
+  const [deleteReasonCode, setDeleteReasonCode] = useState<string>("");
+  const [deleteDetails, setDeleteDetails] = useState("");
+  const [deleteEvidenceUrl, setDeleteEvidenceUrl] = useState("");
+  const [deleteUploading, setDeleteUploading] = useState(false);
+  const [deleteConfirmWord, setDeleteConfirmWord] = useState("");
+  const [deleteBusy, setDeleteBusy] = useState(false);
+
+  const openDeleteStudio = (u: UserRow) => {
+    setDeleteTarget(u);
+    setDeleteReasonCode("");
+    setDeleteDetails("");
+    setDeleteEvidenceUrl("");
+    setDeleteConfirmWord("");
+  };
+
+  const uploadEvidence = async (file: File) => {
+    setDeleteUploading(true);
+    try {
+      const form = new FormData();
+      form.append("file", file);
+      form.append("filename", `evidence-${deleteTarget?.email ?? "user"}-${Date.now()}`);
+      form.append("folder", "evidence");
+      const res = await fetch("/api/upload", { method: "POST", body: form });
+      const data = await res.json().catch(() => ({}));
+      if (res.ok && data?.url) {
+        setDeleteEvidenceUrl(data.url);
+      } else {
+        toast(data?.error || "تعذر رفع لقطة الشاشة الدليلية", "error");
+      }
+    } catch {
+      toast("تعذر الاتصال بخدمة الرفع", "error");
+    } finally {
+      setDeleteUploading(false);
+    }
+  };
+
+  const submitHardDelete = async () => {
+    if (!deleteTarget) return;
+    if (!HARD_DELETE_REASONS.some((r) => r.value === deleteReasonCode)) {
+      toast("اختر سببًا رسميًا من الأسباب الثلاثة المعتمدة", "error");
+      return;
+    }
+    if (deleteDetails.trim().length < 5) {
+      toast("تدوّن تفصيل السبب بدقة — نص المخالفة أو نص الطلب (5 أحرف فأكثر)", "error");
+      return;
+    }
+    if (!deleteEvidenceUrl) {
+      toast("إرفاق لقطة شاشة دليلية إلزامي — تُحفظ في مجلد الأدلة المحمي", "error");
+      return;
+    }
+    if (deleteConfirmWord !== "حذف") {
+      toast("اكتب كلمة «حذف» للتأكيد النهائي", "error");
+      return;
+    }
+    setDeleteBusy(true);
+    try {
+      const res = await fetch("/api/users", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          userId: deleteTarget.id,
+          action: "hard-delete",
+          reasonCode: deleteReasonCode,
+          reason: deleteDetails.trim(),
+          evidenceUrl: deleteEvidenceUrl,
+        }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (res.ok && data?.ok) {
+        toast(`مُحيا الحساب وكل بياناته نهائيًا — قيد التدقيق رقم ${data.auditId?.slice(-6,).toUpperCase()}`);
+        setDeleteTarget(null);
+        router.refresh();
+      } else {
+        toast(data?.error || "تعذر إتمام المحو السيادي", "error");
+      }
+    } finally {
+      setDeleteBusy(false);
+    }
+  };
 
   /* فتح الاستوديو — تعبئة مسبقة من الحالة الحالية للتحديث أو المنح الأول */
   const openVipStudio = (u: UserRow) => {
@@ -449,6 +538,11 @@ export function UsersTable({ users }: { users: UserRow[] }) {
                             حظر
                           </Button>
                         )}
+                        {u.role !== "OWNER" && (
+                          <Button size="sm" variant="ghost" onClick={() => openDeleteStudio(u)}>
+                            حذف نهائي
+                          </Button>
+                        )}
                       </div>
                     </td>
                   </tr>
@@ -715,6 +809,121 @@ export function UsersTable({ users }: { users: UserRow[] }) {
             تأكيد السحب وإشعار المستخدم
           </Button>
           <Button variant="ghost" onClick={() => setRevokeTarget(null)}>إلغاء</Button>
+        </div>
+      </Modal>
+
+      {/* ==================== الحذف السيادي الشامل — نافذة التأكيد الثلاثية ==================== */}
+      <Modal
+        open={Boolean(deleteTarget)}
+        onClose={() => !deleteBusy && setDeleteTarget(null)}
+        title="المحو السيادي النهائي للحساب"
+      >
+        <div className="max-h-[70vh] space-y-4 overflow-y-auto pl-1">
+          <div className="rounded-xl border border-danger-200 bg-danger-50 p-3.5">
+            <p className="text-xs leading-6 text-danger-800">
+              <strong className="text-danger-900">تحذير نهائي لا رجعة فيه:</strong> سيُمحى حساب{" "}
+              <strong>{deleteTarget?.customName || deleteTarget?.name || deleteTarget?.email}</strong>{" "}
+              محوًا برمجيًا شاملًا — تعليقاته وردوده وتصويتاته وتفاعلاته ورصيد أثره وسجل أثره ومحفوظاته
+              السحابية ومواضع قراءته ونقاشاته مع الذكاء الاصطناعي ومقترحاته وإشعاراته وجلساته وأجهزته
+              وروابط Google، ثم سجله الأساسي نفسه. تُحذف صوره الشخصية من التخزين السحابي فورًا ولا يبقى
+              من الحساب شيء إطلاقًا — إلا قيد امتثال غير معرّف في «السجل السيادي» (التاريخ والسبب والدليل)
+              وفق سياسة الخصوصية.
+            </p>
+          </div>
+
+          {/* السبب الرسمي — قائمة إلزامية */}
+          <div>
+            <label className="mb-1.5 block text-xs font-bold text-steel-700">
+              السبب الرسمي للمحو <span className="text-danger-600">*</span>
+            </label>
+            <select
+              value={deleteReasonCode}
+              onChange={(e) => setDeleteReasonCode(e.target.value)}
+              className="field"
+              dir="rtl"
+            >
+              <option value="">— اختر السبب المعتمد —</option>
+              {HARD_DELETE_REASONS.map((r) => (
+                <option key={r.value} value={r.value}>{r.label}</option>
+              ))}
+            </select>
+          </div>
+
+          {/* تفصيل السبب — إلزامي */}
+          <div>
+            <label className="mb-1.5 block text-xs font-bold text-steel-700">
+              تفصيل السبب <span className="text-danger-600">*</span>
+            </label>
+            <textarea
+              value={deleteDetails}
+              onChange={(e) => setDeleteDetails(e.target.value)}
+              className="field min-h-20"
+              placeholder="دوّن نص المخالفة بدقة، أو نص طلب المستخدم الوارد عبر صفحة اتصل بنا — يُحفظ في السجل السيادي"
+              maxLength={600}
+            />
+          </div>
+
+          {/* الدليل المصور — إلزامي */}
+          <div>
+            <label className="mb-1.5 block text-xs font-bold text-steel-700">
+              لقطة شاشة دليلية (طلب المستخدم أو إثبات المخالفة) <span className="text-danger-600">*</span>
+            </label>
+            {deleteEvidenceUrl ? (
+              <div className="flex items-center gap-3 rounded-xl border border-success-200 bg-success-50 p-3">
+                {/* eslint-disable-next-line @next/next/no-img-element */}
+                <img src={deleteEvidenceUrl} alt="الدليل" className="h-14 w-14 rounded-lg object-cover" />
+                <p className="min-w-0 flex-1 truncate text-[11px] font-semibold text-success-700" dir="ltr">
+                  {deleteEvidenceUrl}
+                </p>
+                <Button size="sm" variant="ghost" onClick={() => setDeleteEvidenceUrl("")}>
+                  إزالة
+                </Button>
+              </div>
+            ) : (
+              <label className="flex cursor-pointer flex-col items-center gap-1.5 rounded-xl border-2 border-dashed border-steel-200 p-5 text-center transition-colors hover:border-copper-300 hover:bg-copper-50/40">
+                <span className="text-xs font-bold text-steel-600">
+                  {deleteUploading ? "جارٍ الرفع إلى مجلد الأدلة المحمي.." : "اختر صورة الدليل لرفعها"}
+                </span>
+                <span className="text-[11px] text-steel-400">
+                  تُرفع إلى «kalam/evidence» وتُوثق برابطها في قيد التدقيق
+                </span>
+                <input
+                  type="file"
+                  accept="image/*"
+                  className="hidden"
+                  disabled={deleteUploading}
+                  onChange={(e) => {
+                    const f = e.target.files?.[0];
+                    if (f) uploadEvidence(f);
+                    e.target.value = "";
+                  }}
+                />
+              </label>
+            )}
+          </div>
+
+          {/* كلمة التأكيد النهائي */}
+          <div>
+            <label className="mb-1.5 block text-xs font-bold text-steel-700">
+              اكتب كلمة «حذف» للتأكيد النهائي <span className="text-danger-600">*</span>
+            </label>
+            <input
+              value={deleteConfirmWord}
+              onChange={(e) => setDeleteConfirmWord(e.target.value)}
+              className="field"
+              placeholder="حذف"
+              maxLength={10}
+            />
+          </div>
+        </div>
+
+        <div className="mt-5 flex gap-3 border-t border-steel-100 pt-4">
+          <Button variant="danger" disabled={deleteBusy} onClick={submitHardDelete}>
+            {deleteBusy ? "جارٍ المحو البرمجي.." : "تنفيذ المحو النهائي الشامل"}
+          </Button>
+          <Button variant="ghost" disabled={deleteBusy} onClick={() => setDeleteTarget(null)}>
+            إلغاء
+          </Button>
         </div>
       </Modal>
     </div>

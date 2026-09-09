@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { requireSession, isRejected, writeAudit, getClientIp, raiseAlert } from "@/lib/guard";
 import { setCommentFeatured } from "@/lib/impact";
+import { writeTrail } from "@/lib/audit-trail";
 import { pushUsers } from "@/lib/push";
 import { articleRevalidatePaths, revalidatePublicPaths } from "@/lib/revalidate";
 
@@ -97,6 +98,22 @@ export async function PATCH(request: Request, { params }: Params) {
         },
         ip: getClientIp(request),
       });
+      await writeTrail({
+        actorId: guard.adminId,
+        actorEmail: guard.username ?? "admin",
+        actorRole: "ADMIN",
+        actionCategory: "ADMIN_MODERATION",
+        actionType: body.isInspiring ? "COMMENT_FEATURED" : "COMMENT_UNFEATURED",
+        targetId: id,
+        targetEmail: comment?.userId ?? null,
+        reason,
+        metadata: {
+          via: "studio",
+          ip: getClientIp(request),
+          pointsDelta: result.points,
+          articleSlug: comment?.article.slug ?? null,
+        },
+      });
 
       return NextResponse.json({
         ok: true,
@@ -182,7 +199,18 @@ export async function POST(request: Request, { params }: Params) {
       action: "user.banned",
       entity: "User",
       entityId: comment.userId,
+      meta: { reason: body.banReason || "مخالفة أدب الحوار والقيم", commentId: id },
       ip: getClientIp(request),
+    });
+    await writeTrail({
+      actorId: guard.adminId,
+      actorEmail: guard.username ?? "admin",
+      actorRole: "ADMIN",
+      actionCategory: "ADMIN_MODERATION",
+      actionType: "ACCOUNT_BANNED",
+      targetId: comment.userId,
+      reason: body.banReason || "مخالفة أدب الحوار والقيم",
+      metadata: { via: "studio:comments", ip: getClientIp(request), commentId: id },
     });
 
     return NextResponse.json({ ok: true });

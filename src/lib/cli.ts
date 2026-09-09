@@ -14,6 +14,10 @@ import {
 } from "@/lib/site-config";
 import { dbHealth, dbStats, cairoDayKey } from "@/lib/system";
 import { grantVip, revokeVip, PRIVILEGE_KEYS, VERIFIED_TYPES, type VipPrivileges, type VerifiedType, type GrantableRole, roleLabelAr } from "@/lib/vip";
+import { hardDeleteUser, isHardDeleteReason, hardDeleteReasonLabel, HARD_DELETE_REASONS } from "@/lib/hard-delete";
+import { loadLedger, resolveLedgerRange, makeReportNo, TRAIL_CATEGORIES, type TrailCategoryFilter } from "@/lib/audit-ledger";
+import { renderAuditReportPdf } from "@/lib/audit-pdf";
+import { uploadRaw } from "@/lib/cloudinary";
 
 /**
  * ============================================================
@@ -39,6 +43,8 @@ const HELP_LINES: CliLine[] = [
   { type: "muted", text: "  user set-points <email> <n>  — تعديل رصيد الأثر بقيمة مطلقة موثقة" },
   { type: "muted", text: "  user verify <email> --type <TYPE> --badge \"..\" — منح التوثيق فقط" },
   { type: "muted", text: "  user ban <email> [سبب] | unban <email> — تعطيل/تفعيل الحساب" },
+  { type: "muted", text: "  user hard-delete <email> --reason-code .. --reason \"..\" --evidence \"https://..\" — المحو السيادي الشامل الموثق بالدليل" },
+  { type: "muted", text: "  audit list --days N [--category ..] | audit inspect <id> | audit export-pdf --range weekly|monthly — السجل السيادي والتقارير" },
   { type: "muted", text: "  article status <slug> | toggle-comments <slug> — إحصاءات المقال وباب التعليق" },
   { type: "muted", text: "  config list | get <key> | set <key> <value> — التكوين السيادي اللحظي" },
   { type: "muted", text: "  db stats | slow-queries      — القاعدة: الجداول والحجم والعمليات البطيئة" },
@@ -64,7 +70,16 @@ const HELP_TOPICS: Record<string, CliLine[]> = {
     { type: "muted", text: "  user set-points <email> <n> — تعديل الرصيد قيمة مطلقة (يُسجل الفرق في سجل الأثر)" },
     { type: "muted", text: "  user verify <email> --type VIP_GRANT --badge \"باحث معرفي\" — توثيق فقط بلا صلاحيات" },
     { type: "muted", text: "  user ban <email> [سبب] | user unban <email> — الحظر والفك" },
+    { type: "muted", text: "  user hard-delete <email> --reason-code OFFICIAL_USER_REQUEST|SEVERE_DIALOGUE_VIOLATION|SECURITY_ABUSE --reason \"تفصيل\" --evidence \"https://رابط-الدليل\"" },
+    { type: "muted", text: "                             — المحو البرمجي الشامل: كل بيانات الحساب تُمحى نهائيًا، الدليل إلزامي، ويُودع قيد رقابي داخل المعاملة" },
     { type: "muted", text: "  أنواع التوثيق: SOVEREIGN | ADMIN_STAFF | IMPACT_ELITE | VIP_GRANT | GUEST_AUTHOR | COMMUNITY" },
+  ],
+  audit: [
+    { type: "info", text: "audit — السجل السيادي (التدقيق والامتثال):" },
+    { type: "muted", text: "  audit list --days 7 [--category USER_SELF_ACTION|ADMIN_MODERATION|ADMIN_VIP_CHANGE|SYSTEM_CONFIG_CHANGE]" },
+    { type: "muted", text: "                — قيود الفترة + أرقام الملخص التنفيذي" },
+    { type: "muted", text: "  audit inspect <auditId>  — القيد الكامل: الفاعل والدور والسبب والدليل والقيم التقنية (metadata)" },
+    { type: "muted", text: "  audit export-pdf --range weekly|monthly --upload — توليد التقرير الرقابي الفاخر ورفعه في مجلد الأدلة وإرجاع رابط التنزيل" },
   ],
   article: [
     { type: "info", text: "article — عمليات المحتوى:" },
@@ -623,6 +638,160 @@ async function cmdSecActiveLogins(): Promise<CliLine[]> {
   ];
 }
 
+/* ==================== السجل السيادي — audit ==================== */
+
+/** audit list — قيود الفترة + أرقام الملخص التنفيذي */
+async function cmdAuditList(flags: Map<string, string | true>): Promise<CliLine[]> {
+  const days = String(flags.get("days") ?? "7");
+  if (!/^\d+$/.test(days) || Number(days) < 1 || Number(days) > 365)
+    return [{ type: "error", text: "--days يجب أن يكون عددًا بين ١ و ٣٦٥" }];
+  const categoryRaw = String(flags.get("category") ?? "ALL").toUpperCase();
+  if (categoryRaw !== "ALL" && !(TRAIL_CATEGORIES as readonly string[]).includes(categoryRaw))
+    return [
+      {
+        type: "error",
+        text: `تصنيف غير معروف: ${categoryRaw} — المتاح: ${TRAIL_CATEGORIES.join(" | ")}`,
+      },
+    ];
+
+  const range = resolveLedgerRange(`days-${days}`);
+  const { entries, summary } = await loadLedger({
+    range,
+    category: categoryRaw as TrailCategoryFilter,
+    take: 30,
+  });
+
+  const lines: CliLine[] = [
+    {
+      type: "info",
+      text: `السجل السيادي — آخر ${days} يومًا${categoryRaw !== "ALL" ? ` (${categoryRaw})` : ""}: ${summary.total} قيدًا رقابيًا`,
+    },
+    {
+      type: "muted",
+      text: `  الملخص: محو حسابات ${summary.hardDeletes} · حظر ${summary.bans} · تمييز تعليقات ${summary.featured} · توثيق ورُتب ${summary.vipChanges} · إعدادات ${summary.configChanges}`,
+    },
+  ];
+
+  if (!entries.length) {
+    lines.push({ type: "muted", text: "  لا قيود في الفترة — سلامة كاملة بلا إجراءات حساسة." });
+    return lines;
+  }
+
+  lines.push(
+    ...entries.map((e) => ({
+      type: "muted" as const,
+      text: `  ${e.createdAt.toISOString().slice(0, 16).replace("T", " ")}  [${e.actionCategory}] ${e.actionType}  ${e.actorEmail}${e.actorRole ? ` (${e.actorRole})` : ""} ← ${e.targetEmail ?? "—"}${e.id ? `  · ${e.id}` : ""}`,
+    })),
+  );
+  if (summary.total > entries.length)
+    lines.push({ type: "muted", text: `  … وأحدث ٣٠ فقط معروضة من أصل ${summary.total} — استخدم audit inspect <id> للتفاصيل` });
+  return lines;
+}
+
+/** audit inspect — القيد الكامل بتفاصيله التقنية */
+async function cmdAuditInspect(auditId: string): Promise<CliLine[]> {
+  if (!auditId) return [{ type: "error", text: "الصيغة: audit inspect <auditId>" }];
+  const e = await prisma.auditTrail.findUnique({ where: { id: auditId } });
+  if (!e) return [{ type: "error", text: `لا يوجد قيد رقابي بالمعرف ${auditId}` }];
+  const meta = e.metadata ? JSON.stringify(e.metadata, null, 2).split("\n") : [];
+  return [
+    { type: "info", text: `القيد الرقابي ${e.id} — ${e.actionType} (${e.actionCategory})` },
+    { type: "muted", text: `  الفاعل: ${e.actorEmail} (${e.actorRole}) — ${e.createdAt.toISOString().slice(0, 16).replace("T", " ")}` },
+    { type: "muted", text: `  المستهدف: ${e.targetEmail ?? e.targetId ?? "—"}` },
+    { type: "muted", text: `  السبب: ${e.reason ?? "—"}` },
+    { type: "muted", text: `  الدليل: ${e.evidenceUrl ?? "بدون دليل مصور"}` },
+    ...(meta.length
+      ? [
+          { type: "muted" as const, text: "  التفاصيل التقنية:" },
+          ...meta.map((l) => ({ type: "muted" as const, text: `    ${l}` })),
+        ]
+      : []),
+  ];
+}
+
+/** audit export-pdf — التقرير الرقابي الفاخر → مجلد الأدلة المحمي → رابط تنزيل */
+async function cmdAuditExportPdf(flags: Map<string, string | true>, ctx: CliContext): Promise<CliLine[]> {
+  const range = String(flags.get("range") ?? "weekly").toLowerCase();
+  if (!["weekly", "monthly", "custom"].includes(range))
+    return [{ type: "error", text: "--range يقبل weekly | monthly | custom (مع --from و --to بصيغة YYYY-MM-DD)" }];
+  const from = String(flags.get("from") ?? "");
+  const to = String(flags.get("to") ?? "");
+
+  const ledgerRange = resolveLedgerRange(range, from || null, to || null);
+  const { entries, summary } = await loadLedger({ range: ledgerRange, take: 500 });
+  const buffer = await renderAuditReportPdf({
+    entries,
+    summary,
+    range: ledgerRange,
+    extractedBy: `${ctx.adminUsername} (${ctx.source === "mcp" ? "gemini-spark-mcp" : "web-terminal"})`,
+    reportNo: makeReportNo(),
+  });
+  const stamp = new Date().toISOString().slice(0, 16).replace(/[:T]/g, "-");
+  const uploaded = await uploadRaw(buffer, `kalam-audit-report-${stamp}.pdf`);
+
+  await writeAudit({
+    adminId: ctx.adminId,
+    action: "cli.audit_export_pdf",
+    entity: "AuditTrail",
+    entityId: uploaded.publicId,
+    meta: { via: ctx.source, range: ledgerRange.label, entries: summary.total, url: uploaded.url },
+    ip: ctx.ip,
+  });
+
+  return [
+    { type: "ok", text: `ولّد التقرير الرقابي (${ledgerRange.label}) — ${summary.total} قيدًا رقابيًا` },
+    { type: "muted", text: `  الملخص: محو ${summary.hardDeletes} · حظر ${summary.bans} · تمييز ${summary.featured} · توثيق ${summary.vipChanges} · إعدادات ${summary.configChanges}` },
+    { type: "info", text: `  رابط التنزيل: ${uploaded.url}` },
+    { type: "muted", text: `  الحجم: ${bytes(uploaded.bytes)} — محفوظ في مجلد الأدلة المحمي (kalam/evidence/audit-reports)` },
+  ];
+}
+
+/** user hard-delete — المحو السيادي الشامل الموثق بالدليل */
+async function cmdUserHardDelete(
+  target: string,
+  flags: Map<string, string | true>,
+  ctx: CliContext,
+): Promise<CliLine[]> {
+  const user = await resolveUser(target);
+  if (!user) return [{ type: "error", text: `لا يوجد مستخدم مطابق: ${target}` }];
+
+  const reasonCode = String(flags.get("reason-code") ?? flags.get("code") ?? "OFFICIAL_USER_REQUEST").toUpperCase();
+  if (!isHardDeleteReason(reasonCode)) {
+    return [
+      {
+        type: "error",
+        text: `--reason-code يقبل فقط: ${HARD_DELETE_REASONS.map((r) => r.value).join(" | ")}`,
+      },
+    ];
+  }
+  const reason = String(flags.get("reason") ?? "");
+  const evidenceUrl = String(flags.get("evidence") ?? "");
+
+  const result = await hardDeleteUser(
+    {
+      userId: user.id,
+      reason,
+      reasonCode,
+      evidenceUrl,
+    },
+    {
+      adminId: ctx.adminId,
+      actorEmail: ctx.adminUsername,
+      actorRole: "SYSTEM",
+      ip: ctx.ip,
+      userAgent: `cli:${ctx.source}`,
+      via: ctx.source === "mcp" ? "cli:mcp" : "cli:web",
+    },
+  );
+
+  return [
+    { type: "ok", text: `مُحيا حساب ${result.target.email ?? result.target.label} محوًا برمجيًا شاملًا — قيد التدقيق ${result.auditId}` },
+    { type: "muted", text: `  السبب الموثق: [${hardDeleteReasonLabel(reasonCode)}] ${reason}` },
+    { type: "muted", text: `  المحو: تعليقات ${result.deletedCounts.comments ?? 0} · تفاعلات ${result.deletedCounts.interactions ?? 0} · أثر ${result.deletedCounts.impactLedger ?? 0} · محفوظات ${result.deletedCounts.savedArticles ?? 0} · إشعارات ${result.deletedCounts.notifications ?? 0} · جلسات ${result.deletedCounts.sessions ?? 0}` },
+    { type: "muted", text: `  الأصول السحابية المزالة: ${result.assetsRemoved.length} — صفحات أُعيد توليدها: ${result.revalidatedSlugs}` },
+  ];
+}
+
 /** spark exec — انطة طبيعية → أمر سيادي عبر الذكاء ثم تنفيذ */
 async function cmdSparkExec(query: string, ctx: CliContext): Promise<CliLine[]> {
   if (!query) return [{ type: "error", text: "الصيغة: spark exec \"<طلبك باللغة الطبيعية>\"" }];
@@ -631,7 +800,7 @@ async function cmdSparkExec(query: string, ctx: CliContext): Promise<CliLine[]> 
     return [{ type: "error", text: "محرك الذكاء غير مُهيأ في هذه البيئة (GEMINI_API_KEY)" }];
   }
   const catalog =
-    "الأوامر المتاحة: sys info | sys ping | sys env | cache purge all|<path> | user inspect <email> | user grant-vip <email> --title \"..\" --color \"#hex\" --reason \"..\" [--points N] [--role USER|MODERATOR|EDITOR|ADMIN] [--unlimited-ai] | user set-points <email> <n> | user verify <email> --type SOVEREIGN|ADMIN_STAFF|IMPACT_ELITE|VIP_GRANT|GUEST_AUTHOR|COMMUNITY --badge \"..\" | user un-vip <email> --reason \"..\" | user ban <email> [سبب] | user unban <email> | article status <slug> | article toggle-comments <slug> | config list|get <key>|set <key> <value> | db stats | db slow-queries | sec audit | sec block-ip <ip> | sec active-logins | traffic tail [n] | errors tail [n] | security tail [n] | help";
+    "الأوامر المتاحة: sys info | sys ping | sys env | cache purge all|<path> | user inspect <email> | user grant-vip <email> --title \"..\" --color \"#hex\" --reason \"..\" [--points N] [--role USER|MODERATOR|EDITOR|ADMIN] [--unlimited-ai] | user set-points <email> <n> | user verify <email> --type SOVEREIGN|ADMIN_STAFF|IMPACT_ELITE|VIP_GRANT|GUEST_AUTHOR|COMMUNITY --badge \"..\" | user un-vip <email> --reason \"..\" | user ban <email> [سبب] | user unban <email> | user hard-delete <email> --reason-code OFFICIAL_USER_REQUEST|SEVERE_DIALOGUE_VIOLATION|SECURITY_ABUSE --reason \"..\" --evidence \"https://..\" | audit list --days N [--category USER_SELF_ACTION|ADMIN_MODERATION|ADMIN_VIP_CHANGE|SYSTEM_CONFIG_CHANGE] | audit inspect <auditId> | audit export-pdf --range weekly|monthly | article status <slug> | article toggle-comments <slug> | config list|get <key>|set <key> <value> | db stats | db slow-queries | sec audit | sec block-ip <ip> | sec active-logins | traffic tail [n] | errors tail [n] | security tail [n] | help";
   const raw = await geminiChat({
     system:
       "أنت محول أوامر لترمينال إداري عربي. حوّل طلب المستخدم الطبيعي إلى أمر واحد فقط من الكتالوج. أعد JSON فقط بالصيغة {\"command\":\"...\"} وإن كان الطلب خارج الكتالوج أو خطرًا أعد {\"command\":null,\"why\":\"سبب\"}. لا تضف أي شرح.",
@@ -736,6 +905,11 @@ export async function runCliCommand(raw: string, ctx: CliContext): Promise<CliLi
             return cmdUserBan(target, tail.join(" ") || undefined, ctx);
           case "unban":
             return cmdUserUnban(target, ctx);
+          case "hard-delete":
+          case "wipe": {
+            const { flags } = parseFlags(tail);
+            return cmdUserHardDelete(target, flags, ctx);
+          }
           default:
             return [{ type: "error", text: `أمر user غير معروف: user ${sub}` }];
         }
@@ -811,6 +985,25 @@ export async function runCliCommand(raw: string, ctx: CliContext): Promise<CliLi
             return cmdSecActiveLogins();
           default:
             return [{ type: "error", text: "الصيغة: sec audit | sec block-ip <ip> [سبب] | sec active-logins" }];
+        }
+      }
+
+      case "audit": {
+        const [sub, target] = rest;
+        switch ((sub ?? "").toLowerCase()) {
+          case "list": {
+            const { flags } = parseFlags(rest.slice(2));
+            return cmdAuditList(flags);
+          }
+          case "inspect":
+            if (!target) return [{ type: "error", text: "الصيغة: audit inspect <auditId>" }];
+            return cmdAuditInspect(target);
+          case "export-pdf": {
+            const { flags } = parseFlags(rest.slice(2));
+            return cmdAuditExportPdf(flags, ctx);
+          }
+          default:
+            return [{ type: "error", text: "الصيغة: audit list --days N [--category ..] | audit inspect <id> | audit export-pdf --range weekly|monthly" }];
         }
       }
 

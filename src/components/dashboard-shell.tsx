@@ -23,6 +23,7 @@ const NAV = [
   { href: "/comments", label: "مركز التعليقات", icon: "chat" },
   { href: "/users", label: "المستخدمون", icon: "users" },
   { href: "/audit", label: "النشاط والشفافية", icon: "activity" },
+  { href: "/ledger", label: "السجل السيادي", icon: "ledger" },
   { href: "/messages", label: "رسائل التواصل", icon: "mail" },
   { href: "/proposals", label: "المقترحات الفكرية", icon: "star" },
   { href: "/notifications", label: "مركز الإشعارات الجماهيرية", icon: "bell" },
@@ -70,6 +71,8 @@ function NavIcon({ name }: { name: string }) {
       return <svg {...common}><circle cx="12" cy="12" r="10" /><path d="M2 12h20M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z" /></svg>;
     case "terminal":
       return <svg {...common}><path d="m4 17 6-6-6-6M12 19h8" /></svg>;
+    case "ledger":
+      return <svg {...common}><path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20" /><path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z" /><path d="M9 7h7M9 11h5" /></svg>;
   }
 }
 

@@ -19,6 +19,12 @@ const nextConfig = {
   reactStrictMode: true,
   poweredByHeader: false,
   eslint: { ignoreDuringBuilds: true },
+  /* ضم خطوط التقرير الرقابي PDF إلى حزمة الـserverless — مسارا
+     التصدير المباشر وأداة MCP kalam_generate_audit_pdf */
+  outputFileTracingIncludes: {
+    "/api/audit/pdf": ["./src/assets/fonts/**"],
+    "/api/mcp": ["./src/assets/fonts/**"],
+  },
   /* تطهير حزم الإنتاج من رسائل التصحيح — console.* تُستأصل من bundles
      العميل تلقائيًا ما عدا console.error لرسائل الحارس */
   compiler: {

@@ -29,6 +29,7 @@ import {
   cloudinaryUsage,
   listCloudinaryAssets,
   destroyCloudinaryAsset,
+  uploadRaw,
 } from "@/lib/cloudinary";
 import { kickWorker } from "@/lib/audio-job";
 
@@ -3097,6 +3098,12 @@ export async function executeMcpTool(
       return manageVerificationTool(args, meta);
     case "kalam_dispatch_vip_notification":
       return dispatchVipNotificationTool(args, meta);
+    case "kalam_get_audit_summary":
+      return getAuditSummaryTool(args);
+    case "kalam_execute_hard_delete":
+      return executeHardDeleteTool(args, meta);
+    case "kalam_generate_audit_pdf":
+      return generateAuditPdfTool(args, meta);
     default:
       throw new McpToolError(`أداة غير معروفة: «${name}»`);
   }
@@ -3508,4 +3515,119 @@ async function dispatchVipNotificationTool(args: McpArgs, meta: McpRequestMeta) 
   });
 
   return { dispatched: true, event, channels: result };
+}
+
+/* ============================================================
+   منظومة المحو التام والسجل السيادي — أدوات التدقيق والامتثال
+   (kalam_get_audit_summary + kalam_execute_hard_delete +
+    kalam_generate_audit_pdf) — كلها تعبر من المنطق الموحد
+   ============================================================ */
+
+import { loadLedger, resolveLedgerRange, makeReportNo } from "@/lib/audit-ledger";
+import { renderAuditReportPdf } from "@/lib/audit-pdf";
+import { hardDeleteUser, isHardDeleteReason, hardDeleteReasonLabel } from "@/lib/hard-delete";
+
+/** kalam_get_audit_summary — قراءة السجل السيادي: أرقام تنفيذية + آخر القيود */
+async function getAuditSummaryTool(args: McpArgs) {
+  const days = num(args, "days") ?? 7;
+  if (days < 1 || days > 365) throw new McpToolError("days يجب أن يكون بين ١ و ٣٦٥");
+  const limit = Math.min(Math.max(num(args, "limit") ?? 20, 1), 100);
+  const categoryRaw = str(args, "category")?.toUpperCase();
+
+  const range = resolveLedgerRange(`days-${days}`);
+  const { entries, summary } = await loadLedger({
+    range,
+    category: (categoryRaw ?? "ALL") as never,
+    take: Math.max(limit, 200),
+  });
+
+  return {
+    range: { days, label: range.label },
+    summary,
+    recentEntries: entries.slice(0, limit).map((e) => ({
+      id: e.id,
+      at: e.createdAt.toISOString(),
+      category: e.actionCategory,
+      action: e.actionType,
+      actor: `${e.actorEmail} (${e.actorRole})`,
+      target: e.targetEmail,
+      reason: e.reason,
+      evidenceUrl: e.evidenceUrl,
+    })),
+  };
+}
+
+/** kalam_execute_hard_delete — المحو السيادي الشامل الموثق بالدليل */
+async function executeHardDeleteTool(args: McpArgs, meta: McpRequestMeta) {
+  const email = str(args, "email")?.toLowerCase().trim();
+  const reasonCode = str(args, "reasonCode")?.toUpperCase() ?? "";
+  const reason = str(args, "reason") ?? "";
+  const evidenceUrl = str(args, "evidenceUrl") ?? "";
+  if (!email) throw new McpToolError("بريد الحساب المستهدف إلزامي");
+  if (!isHardDeleteReason(reasonCode))
+    throw new McpToolError(
+      `تصنيف السبب إلزامي من الثلاثة المعتمدة: OFFICIAL_USER_REQUEST | SEVERE_DIALOGUE_VIOLATION | SECURITY_ABUSE`,
+    );
+
+  const target = await prisma.user.findUnique({ where: { email }, select: { id: true } });
+  if (!target) throw new McpToolError(`لا يوجد مستخدم بالبريد «${email}»`);
+
+  const result = await hardDeleteUser(
+    { userId: target.id, reason, reasonCode, evidenceUrl },
+    {
+      adminId: null,
+      actorEmail: "gemini-spark",
+      actorRole: "SYSTEM",
+      ip: meta.ip,
+      userAgent: "gemini-spark-mcp",
+      via: "gemini-spark-mcp",
+    },
+  );
+
+  return {
+    deleted: true,
+    auditTrailId: result.auditId,
+    target: result.target,
+    reason: `[${hardDeleteReasonLabel(reasonCode)}] ${reason}`,
+    deletedCounts: result.deletedCounts,
+    assetsRemoved: result.assetsRemoved.length,
+    revalidatedSlugs: result.revalidatedSlugs,
+  };
+}
+
+/** kalam_generate_audit_pdf — التقرير الرقابي الفاخر → رابط تنزيل دائم */
+async function generateAuditPdfTool(args: McpArgs, meta: McpRequestMeta) {
+  const range = (str(args, "range") ?? "weekly").toLowerCase();
+  if (!["weekly", "monthly"].includes(range))
+    throw new McpToolError("range يقبل weekly | monthly فقط");
+
+  const ledgerRange = resolveLedgerRange(range);
+  const { entries, summary } = await loadLedger({ range: ledgerRange, take: 500 });
+  const buffer = await renderAuditReportPdf({
+    entries,
+    summary,
+    range: ledgerRange,
+    extractedBy: "gemini-spark (MCP)",
+    reportNo: makeReportNo(),
+  });
+  const stamp = new Date().toISOString().slice(0, 16).replace(/[:T]/g, "-");
+  const uploaded = await uploadRaw(buffer, `kalam-audit-report-${stamp}.pdf`);
+
+  await writeAudit({
+    adminId: null,
+    action: "mcp.audit_pdf_generated",
+    entity: "AuditTrail",
+    entityId: uploaded.publicId,
+    meta: { via: "gemini-spark-mcp", range: ledgerRange.label, entries: summary.total, url: uploaded.url },
+    ip: meta.ip,
+  });
+
+  return {
+    generated: true,
+    range: ledgerRange.label,
+    entriesIncluded: summary.total,
+    summary,
+    downloadUrl: uploaded.url,
+    bytes: uploaded.bytes,
+  };
 }

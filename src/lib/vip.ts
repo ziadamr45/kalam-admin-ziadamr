@@ -2,6 +2,7 @@ import "server-only";
 import { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import { writeAudit } from "@/lib/guard";
+import { writeTrail } from "@/lib/audit-trail";
 
 /**
  * ============================================================
@@ -490,6 +491,26 @@ export async function grantVip(
     },
     ip: actor.ip,
   });
+  await writeTrail({
+    actorId: actor.adminId ?? actor.adminUsername,
+    actorEmail: actor.adminUsername,
+    actorRole: actor.adminUsername === "gemini-spark" ? "SYSTEM" : "ADMIN",
+    actionCategory: "ADMIN_VIP_CHANGE",
+    actionType: "VIP_GRANTED",
+    targetId: target.id,
+    targetEmail: target.email,
+    reason,
+    metadata: {
+      via: actor.via,
+      badge: badgeTitle,
+      color: badgeColor,
+      kind,
+      role: role ?? "unchanged",
+      privileges,
+      welcomePoints,
+      ip: actor.ip,
+    },
+  });
 
   return {
     ok: true,
@@ -561,6 +582,17 @@ export async function revokeVip(
     entityId: target.id,
     meta: { via: actor.via, by: actor.adminUsername, user: label, oldBadge, reason },
     ip: actor.ip,
+  });
+  await writeTrail({
+    actorId: actor.adminId ?? actor.adminUsername,
+    actorEmail: actor.adminUsername,
+    actorRole: actor.adminUsername === "gemini-spark" ? "SYSTEM" : "ADMIN",
+    actionCategory: "ADMIN_VIP_CHANGE",
+    actionType: "VIP_REVOKED",
+    targetId: target.id,
+    targetEmail: target.email,
+    reason,
+    metadata: { via: actor.via, oldBadge, ip: actor.ip },
   });
 
   return { ok: true, user: { id: target.id, label, email: target.email } };
