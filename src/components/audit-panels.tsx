@@ -76,7 +76,7 @@ export function AuditPanel() {
   }, [autoRefresh, load]);
 
   return (
-    <Card className="p-4 sm:p-5">
+    <Card className="max-w-full overflow-hidden p-4 sm:p-5">
       {/* الترويسة — مساحة مرنة للشارة الحرة دون قصّ نصها على الهواتف */}
       <div className="mb-4 flex flex-wrap items-center justify-between gap-2">
         <h2 className="text-sm font-bold text-steel-800">سجل أحداث المنصة الحي</h2>
@@ -96,13 +96,20 @@ export function AuditPanel() {
         </div>
       </div>
 
-      {/* فلاتر الأحداث — شريط تمرير أفقي انسيابي لا يلوي الأزرار إلى أسطر */}
-      <div className="no-scrollbar -mx-4 mb-4 flex items-center gap-2 overflow-x-auto px-4 pb-2 pt-1 sm:mx-0 sm:px-0">
+      {/* فلاتر الأحداث — شريط تمرير أفقي حر بلا شريط تمرير ظاهر، بأزرار
+          مضغوطة الحجم (shrink-0) تُسحب بسلاسة مع مسافة أمان للطرفين */}
+      <div
+        className="no-scrollbar -mx-4 mb-4 flex w-[calc(100%+2rem)] touch-pan-x items-center gap-2 overflow-x-auto px-4 pb-2 pt-1 sm:mx-0 sm:w-full sm:px-0"
+        role="tablist"
+        aria-label="تصنيف الأحداث"
+      >
         {EVENT_FILTERS.map((f) => (
           <button
             key={f.key}
+            role="tab"
+            aria-selected={filter === f.key}
             onClick={() => setFilter(f.key)}
-            className={`flex-shrink-0 whitespace-nowrap rounded-lg px-3 py-1.5 text-[11px] font-bold transition-colors ${
+            className={`shrink-0 whitespace-nowrap rounded-xl px-3.5 py-2 text-[11px] font-bold transition-colors sm:text-xs ${
               filter === f.key ? "bg-copper-600 text-white" : "bg-steel-100 text-steel-600 hover:bg-steel-200"
             }`}
           >
@@ -120,26 +127,32 @@ export function AuditPanel() {
           {events.map((e) => {
             const label = EVENT_LABEL[e.type] ?? { text: e.type, tone: "neutral" as const };
             return (
-              <li key={e.id} className="rounded-xl border border-steel-100 p-4">
-                {/* توزيع مرن: سطر علوي (الحدث + الشارة) وسطر سفلي (الهوية + الزمن) */}
-                <div className="flex flex-col justify-between gap-2 sm:flex-row sm:items-center">
-                  <div className="flex w-full items-center justify-between gap-2">
-                    <p className="min-w-0 break-words text-xs font-semibold text-steel-800">
+              <li key={e.id} className="w-full min-w-0 rounded-xl border border-steel-100 p-3 sm:p-4">
+                {/* بطاقة صف واحد محتواة: كتلة نصية مرنة (min-w-0) تُقصّ بعلامة
+                    حذف بدل تمديد الكرت خارج الشاشة + شارة ثابتة الأبعاد (shrink-0)
+                    لا تنضغط ولا تخرج عن الحدود أبدًا */}
+                <div className="flex w-full min-w-0 flex-row items-center justify-between gap-3 text-right">
+                  <div className="min-w-0 flex-1 space-y-1">
+                    <h4 className="truncate text-xs font-bold text-steel-800" title={e.message || label.text}>
                       {e.message || label.text}
-                    </p>
-                    <Badge tone={label.tone}>{label.text}</Badge>
+                    </h4>
+                    <div className="flex items-center gap-1.5 text-[10px] text-steel-400">
+                      <span className="truncate" title={e.actorLabel || undefined}>
+                        {e.actorLabel || "زائر مجهول"}
+                      </span>
+                      <span aria-hidden className="shrink-0">·</span>
+                      <span className="shrink-0 whitespace-nowrap">{fmtTime(e.createdAt)}</span>
+                      {e.ip && (
+                        <>
+                          <span aria-hidden className="shrink-0">·</span>
+                          <span className="shrink-0 whitespace-nowrap" dir="ltr">{e.ip}</span>
+                        </>
+                      )}
+                    </div>
                   </div>
-                  <p className="flex shrink-0 items-center gap-1 text-[10px] text-steel-400 sm:justify-end">
-                    <span className="max-w-[16rem] truncate">{e.actorLabel || "زائر مجهول"}</span>
-                    <span aria-hidden>·</span>
-                    <span className="whitespace-nowrap">{fmtTime(e.createdAt)}</span>
-                    {e.ip && (
-                      <>
-                        <span aria-hidden>·</span>
-                        <span className="whitespace-nowrap" dir="ltr">{e.ip}</span>
-                      </>
-                    )}
-                  </p>
+                  <span className="shrink-0">
+                    <Badge tone={label.tone}>{label.text}</Badge>
+                  </span>
                 </div>
               </li>
             );
@@ -183,7 +196,7 @@ export function ErrorsPanel() {
   }, [load]);
 
   return (
-    <Card className="p-5">
+    <Card className="max-w-full overflow-hidden p-5">
       <div className="mb-4 flex items-center justify-between">
         <h2 className="text-sm font-bold text-steel-800">
           الأخطاء البرمجية اللحظية{" "}

@@ -150,6 +150,19 @@ export function DashboardShell({
             </nav>
 
             <div className="border-t border-steel-800 p-4">
+              {/* كبسولات حالة الهاتف — كانت محشورة في الشريط العلوي الضيق،
+                  صارت داخل الدرج الجانبي على الهواتف (تختفي على سطح المكتب
+                  حيث تبقى في الشريط العلوي) */}
+              <div className="mb-3 space-y-2 lg:hidden">
+                <span
+                  className="flex items-center gap-2 rounded-xl border border-success-400/30 bg-success-400/10 px-3 py-2.5 text-xs font-bold text-success-600"
+                  title="جلسة JWT محصنة — HttpOnly + Secure + SameSite=Strict"
+                >
+                  <span className="h-2 w-2 rounded-full bg-success-500" />
+                  جلسة آمنة نشطة
+                </span>
+                <PushToggle />
+              </div>
               {/* الحسابات التقنية الرسمية — من المصدر الموحد للروابط */}
               <div className="mb-3 flex items-center gap-2 px-2">
                 <a
@@ -224,42 +237,56 @@ export function DashboardShell({
         <div className="flex min-w-0 flex-1 flex-col">
           {/* شريط الطوارئ السيادي — التنبيهات الإدارية الطارئة بالبرتقالي والأحمر */}
           <AdminUrgentBar />
-          <header className="sticky top-0 z-20 flex h-14 items-center justify-between border-b border-steel-100 bg-white/90 px-4 backdrop-blur lg:px-8">
-            <button
-              onClick={() => setSidebarOpen(true)}
-              className="rounded-xl p-2 text-steel-600 hover:bg-steel-100 lg:hidden"
-              aria-label="فتح القائمة"
-            >
-              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><path d="M3 12h18M3 6h18M3 18h18" /></svg>
-            </button>
-            <div className="hidden items-center gap-2 lg:flex">
-              <span className="text-xs text-steel-400">الوضع: أمن مشدد — تحقق بخطوتين إلزامي</span>
+          <header className="sticky top-0 z-20 flex h-14 items-center justify-between gap-2 border-b border-steel-100 bg-white/90 px-3 backdrop-blur sm:px-4 lg:px-8">
+            {/* يمين الشاشة: الهامبرغر (موبايل) + الهوية المختصرة (موبايل) + سطر الوضع (سطح المكتب) */}
+            <div className="flex min-w-0 items-center gap-2">
+              <button
+                onClick={() => setSidebarOpen(true)}
+                className="rounded-xl p-2 text-steel-600 hover:bg-steel-100 lg:hidden"
+                aria-label="فتح القائمة"
+              >
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><path d="M3 12h18M3 6h18M3 18h18" /></svg>
+              </button>
+              {/* هوية اللوحة على الهاتف — الشريط يبقى صافيًا بلا حشر */}
+              <div className="flex min-w-0 items-center gap-2 lg:hidden">
+                {/* eslint-disable-next-line @next/next/no-img-element */}
+                <img src="/icons/icon-192.png" alt="" width={28} height={28} className="h-7 w-7 rounded-lg" />
+                <span className="whitespace-nowrap text-sm font-bold text-steel-900">لوحة التحكم</span>
+              </div>
+              <div className="hidden items-center gap-2 lg:flex">
+                <span className="text-xs text-steel-400">الوضع: أمن مشدد — تحقق بخطوتين إلزامي</span>
+              </div>
             </div>
-            <div className="flex items-center gap-2">
-              {/* مركز الإشعارات السيادية — جرس أحداث السيادة بعداد لحظي (SSE) */}
-              <AdminNotificationBell />
-              {/* تفعيل الإشعارات الفورية — هاتف الأدمن وحاسوبه (المحور الأول) */}
-              <PushToggle />
+            {/* يسار الشاشة: التيرمينال + الجرس فقط على الهاتف — كبسولات الحالة
+                تنتقل إلى الدرج الجانبي بدل حشرها في الشريط الضيق */}
+            <div className="flex shrink-0 items-center gap-1 sm:gap-2">
               {/* فتح التيرمينال السيادي من الشريط العلوي أيضًا */}
               <button
                 onClick={toggleTerminal}
-                className={`flex items-center gap-2 rounded-xl border px-3 py-1.5 text-xs font-bold transition-all ${
+                className={`flex items-center gap-2 rounded-xl border px-2.5 py-1.5 font-mono text-xs font-bold transition-all sm:px-3 ${
                   terminalOpen
                     ? "border-emerald-400/40 bg-emerald-400/10 text-emerald-600"
                     : "border-steel-200 text-steel-500 hover:border-emerald-400/40 hover:text-emerald-600"
                 }`}
                 title="التيرمينال السيادي (Ctrl + ~)"
+                aria-label="التيرمينال السيادي"
               >
                 <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><path d="m4 17 6-6-6-6M12 19h8" /></svg>
                 <span className="hidden sm:inline">CLI</span>
               </button>
-              <span
-                className="flex items-center gap-2 rounded-xl border border-success-400/30 bg-success-400/10 px-3 py-1.5 text-xs font-bold text-success-600"
-                title="جلسة JWT محصنة — HttpOnly + Secure + SameSite=Strict"
-              >
-                <span className="h-2 w-2 rounded-full bg-success-500" />
-                جلسة آمنة نشطة
-              </span>
+              {/* مركز الإشعارات السيادية — جرس أحداث السيادة بعداد لحظي (SSE) */}
+              <AdminNotificationBell />
+              {/* كبسولات الحالة — من الشاشات الكبيرة فما فوق حصرًا على الشريط */}
+              <div className="hidden items-center gap-2 lg:flex">
+                <PushToggle />
+                <span
+                  className="flex items-center gap-2 rounded-xl border border-success-400/30 bg-success-400/10 px-3 py-1.5 text-xs font-bold text-success-600"
+                  title="جلسة JWT محصنة — HttpOnly + Secure + SameSite=Strict"
+                >
+                  <span className="h-2 w-2 rounded-full bg-success-500" />
+                  جلسة آمنة نشطة
+                </span>
+              </div>
             </div>
           </header>
 
