@@ -241,7 +241,11 @@ async function createArticle(args: McpArgs, meta: McpRequestMeta) {
         slug: finalSlug,
         summary: fixNunation(summary),
         content: fixNunation(content),
-        contentWithTashkeel: fixNunation(content),
+        /* النسخة المشكولة: ما يمرّه عميل الـ MCP يُحفظ كما هو (بعد تونين النون)،
+           وإلا فالمتن غير المشكول هو الافتراضي — لم يعد الحقل يُهمَل أبدًا */
+        contentWithTashkeel: str(args, "contentWithTashkeel")
+          ? fixNunation(str(args, "contentWithTashkeel")!)
+          : fixNunation(content),
         sectionId: sectionId ?? null,
         coverImage: str(args, "coverImage") || null,
         authorIntent: str(args, "authorIntent") ? fixNunation(str(args, "authorIntent")!) : null,
@@ -282,8 +286,26 @@ async function updateArticle(args: McpArgs, meta: McpRequestMeta) {
   if (str(args, "content") !== undefined) {
     const content = str(args, "content")!;
     data.content = fixNunation(content);
-    data.contentWithTashkeel = fixNunation(content);
+    /* النسخة المشكولة تُستبدل بالمتن فقط إن لم يمرّ العميل نسخة مشكولة صريحة
+       في نفس النداء — حتى لا يُسحق الحقن المشكول المتعمّد */
+    if (args["contentWithTashkeel"] === undefined) {
+      data.contentWithTashkeel = fixNunation(content);
+    }
     data.readingTimeSec = Math.max(readingSeconds(content), 60);
+  }
+  /* حقن/تحديث النسخة المشكولة صراحةً — null صريح يعني إعادة الضبط على المتن غير المشكول */
+  if (args["contentWithTashkeel"] !== undefined) {
+    const rawTashkeel = args["contentWithTashkeel"];
+    data.contentWithTashkeel =
+      typeof rawTashkeel === "string" && rawTashkeel.trim().length > 0
+        ? fixNunation(rawTashkeel.trim())
+        : fixNunation(existing.content);
+  }
+  /* باب التعليق لكل مقال — طيّ/فتح لحظي من الوكيل دون نشر */
+  let commentsGateToggled = false;
+  if (bool(args, "commentsEnabled") !== undefined) {
+    data.commentsEnabled = bool(args, "commentsEnabled");
+    commentsGateToggled = true;
   }
   const sectionId = await resolveSectionId(str(args, "sectionSlug"));
   if (sectionId !== undefined) data.sectionId = sectionId;
@@ -343,6 +365,11 @@ async function updateArticle(args: McpArgs, meta: McpRequestMeta) {
   });
 
   if (publishTransition || (existing.status === "PUBLISHED" && status !== undefined)) {
+    await revalidateArticlePaths(article.slug, article.sectionId ? undefined : null);
+  }
+
+  /* طيّ/فتح التعليقات يمسّ سلوك صفحة المقال — revalidate فوري عند التبديل */
+  if (commentsGateToggled) {
     await revalidateArticlePaths(article.slug, article.sectionId ? undefined : null);
   }
 

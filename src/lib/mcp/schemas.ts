@@ -16,7 +16,7 @@ export type McpToolSchema = {
 
 export const MCP_PROTOCOL_VERSION = "2025-03-26";
 export const MCP_SERVER_NAME = "kalam-sovereign-admin";
-export const MCP_SERVER_VERSION = "3.2.0";
+export const MCP_SERVER_VERSION = "3.3.0";
 
 export const MCP_TOOLS: McpToolSchema[] = [
   /* ==================== أ) أدوات المقالات ==================== */
@@ -65,6 +65,11 @@ export const MCP_TOOLS: McpToolSchema[] = [
       properties: {
         title: { type: "string", description: "عنوان المقال — إلزامي" },
         content: { type: "string", description: "متن المقال بتنسيق Markdown — إلزامي" },
+        contentWithTashkeel: {
+          type: "string",
+          description: "النسخة المشكولة كاملة من المتن (بالتشكيل والتنوين) — تُحفظ كما هي وتُعرض عند تفعيل مفتاح التشكيل؛ تُعتمد النسخة غير المشكولة افتراضيًا إن غابت",
+        },
+        coverImage: { type: "string", description: "رابط صورة الغلاف (Cloudinary أو رابط مباشر)" },
         summary: { type: "string", description: "ملخص المقال — يُشتق آليًا من أول المتن إن غاب" },
         sectionSlug: { type: "string", description: "معرف القسم slug (مثل zawaya-ruya)" },
         status: {
@@ -94,7 +99,15 @@ export const MCP_TOOLS: McpToolSchema[] = [
         id: { type: "string", description: "معرف المقال — إلزامي" },
         title: { type: "string", description: "عنوان جديد" },
         summary: { type: "string", description: "ملخص جديد" },
-        content: { type: "string", description: "متن جديد بـ Markdown" },
+        content: { type: "string", description: "متن جديد بـ Markdown — إن لم تُمرّر نسخة مشكولة صريحة في نفس النداء فُيُستبدل المشكول بهذا المتن" },
+        contentWithTashkeel: {
+          type: ["string", "null"],
+          description: "حقن/تحديث النسخة المشكولة كاملة صراحةً — لا تُسحق بمتن النداء؛ مرّر null صريحًا لإعادة الضبط على المتن غير المشكول",
+        },
+        commentsEnabled: {
+          type: "boolean",
+          description: "باب التعليق لهذا المقال تحديدًا — true يفتح وfalse يطوي حقل التعليقات لحظيًا دون نشر",
+        },
         slug: { type: "string", description: "معرف URL جديد" },
         sectionSlug: { type: "string", description: "نقل المقال لقسم آخر عبر slug" },
         status: {
