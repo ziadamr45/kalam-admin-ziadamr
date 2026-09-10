@@ -4,10 +4,10 @@ import { useCallback, useEffect, useState } from "react";
 import { Button, Card, useToast } from "@/components/ui";
 
 /**
- * بطاقة «قناة البريد المعاملاتي» — تفعيل Resend بلا طرفية ولا إعادة نشر:
- * ألصق المفتاح من لوحة Resend (حتى من الهاتف) → حفظ → بريد تجريبي حي.
- * المفتاح يُخزن في SystemSetting المشترك فتعمل رسائل الأمان والسيادة
- * على المنصة العامة واللوحة معًا لحظيًا.
+ * بطاقة «قناة البريد المعاملاتي» — مراقبة نقية:
+ * المفتاح أصبح مُفعّلًا من متغيرات البيئة (RESEND_API_KEY) على المشروعين
+ * وأُلغي مكان إدخاله من الإعدادات نهائيًا. هذه البطاقة تعرض حالة القناة
+ * والمفتاح المُقنَّع والمُرسِل الحالي، وتتيح بريدًا تجريبيًا حيًا للتحقق.
  */
 
 type ChannelStatus = {
@@ -21,9 +21,6 @@ type ChannelStatus = {
 export function EmailChannelCard() {
   const { toast } = useToast();
   const [status, setStatus] = useState<ChannelStatus | null>(null);
-  const [apiKey, setApiKey] = useState("");
-  const [from, setFrom] = useState("");
-  const [busy, setBusy] = useState(false);
   const [testing, setTesting] = useState(false);
 
   const load = useCallback(async () => {
@@ -40,31 +37,6 @@ export function EmailChannelCard() {
     void load();
   }, [load]);
 
-  const save = async () => {
-    if (!apiKey.trim() && !from.trim()) {
-      toast("ألصق مفتاح Resend أولًا (يبدأ بـ re_)", "error");
-      return;
-    }
-    setBusy(true);
-    try {
-      const res = await fetch("/api/email-channel", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ apiKey: apiKey.trim() || undefined, from: from.trim() || undefined }),
-      });
-      const data = await res.json();
-      if (!res.ok || !data.ok) {
-        toast(data.error || "تعذر الحفظ", "error");
-        return;
-      }
-      setStatus(data as ChannelStatus);
-      setApiKey("");
-      toast("فُعّلت قناة البريد — جرّب زر «إرسال بريد تجريبي» للتحقق الحي", "success");
-    } finally {
-      setBusy(false);
-    }
-  };
-
   const testSend = async () => {
     setTesting(true);
     try {
@@ -77,22 +49,6 @@ export function EmailChannelCard() {
       }
     } finally {
       setTesting(false);
-    }
-  };
-
-  const clearKey = async () => {
-    if (!window.confirm("سيُمسح المفتاح المخزن في قاعدة البيانات. متابعة؟")) return;
-    setBusy(true);
-    try {
-      await fetch("/api/email-channel", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ clear: true }),
-      });
-      await load();
-      toast("مُسح المفتاح المخزن", "success");
-    } finally {
-      setBusy(false);
     }
   };
 
@@ -119,10 +75,11 @@ export function EmailChannelCard() {
 
       <p className="text-xs leading-6 text-steel-500">
         هذه القناة ترسل فورًا: تنبيهات الأمان عند دخول جهاز جديد، وبريد بلوغ رتبة أهل الكلمة، وأحداث السيادة
-        الطارئة. المفتاح يُحفظ آمنًا في قاعدة البيانات ويعمل لحظيًا على المنصة العامة واللوحة معًا — دون طرفية ودون نشر جديد.
+        الطارئة. المفتاح مُفعّل من متغيرات البيئة (RESEND_API_KEY) على المشروعين معًا — لا يُدخل ولا
+        يُعدَّل من هنا.
       </p>
 
-      {status?.active && (
+      {status?.active ? (
         <div className="rounded-xl border border-steel-100 bg-steel-50 p-3 text-[11px] leading-6 text-steel-500">
           <div>
             <b className="text-steel-800">المفتاح الحالي:</b>{" "}
@@ -138,58 +95,16 @@ export function EmailChannelCard() {
             )}
           </div>
         </div>
+      ) : (
+        <div className="rounded-xl border border-steel-100 bg-steel-50 p-3 text-[11px] leading-6 text-steel-500">
+          القناة غير مفعّلة بعد — تأكد من نشر أحدث إصدار بعد ضبط متغير البيئة.
+        </div>
       )}
 
-      <div>
-        <label className="mb-1.5 block text-xs font-bold text-steel-700">
-          مفتاح Resend API — من لوحة Resend → API Keys (يبدأ بـ re_)
-        </label>
-        <input
-          type="password"
-          className="field font-mono"
-          dir="ltr"
-          placeholder="re_xxxxxxxxxxxxxxxxxxxxxxxx"
-          value={apiKey}
-          onChange={(e) => setApiKey(e.target.value)}
-          autoComplete="off"
-        />
-      </div>
-
-      <div>
-        <label className="mb-1.5 block text-xs font-bold text-steel-700">
-          عنوان المرسل (اختياري) — مثل: <span dir="ltr">security@ziadamr.me</span>
-        </label>
-        <input
-          type="text"
-          className="field"
-          dir="ltr"
-          placeholder="كلام له لازمة <security@ziadamr.me>"
-          value={from}
-          onChange={(e) => setFrom(e.target.value)}
-          autoComplete="off"
-        />
-        <p className="mt-1 text-[11px] leading-5 text-steel-400">
-          عنوان على النطاق الافتراضي onboarding@resend.dev يُرسل إلى بريد حساب Resend نفسه حصرًا؛
-          لتراسل كل القرّاء وثّق نطاقك في لوحة Resend وأدخل عنوانًا عليه.
-        </p>
-      </div>
-
       <div className="flex flex-wrap items-center gap-2">
-        <Button onClick={save} disabled={busy}>
-          {busy ? "جارٍ الحفظ.." : "حفظ وتفعيل"}
-        </Button>
         <Button variant="outline" onClick={testSend} disabled={testing || !status?.active}>
           {testing ? "جارٍ الإرسال.." : "إرسال بريد تجريبي"}
         </Button>
-        {status?.source === "db" && (
-          <button
-            onClick={clearKey}
-            disabled={busy}
-            className="text-[11px] font-bold text-steel-400 underline underline-offset-4 transition-opacity hover:opacity-70"
-          >
-            مسح المفتاح المخزن
-          </button>
-        )}
       </div>
     </Card>
   );
