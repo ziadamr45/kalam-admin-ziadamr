@@ -168,6 +168,7 @@ model User {
   loginLogs         LoginLog[]
   readingProgress   ReadingProgress[]
   notificationFeed  Notification[]
+  devices           UserDevice[]
 }
 
 /* حصة نقاش الذكاء الاصطناعي الدائمة — سجل استهلاك صارم لكل قارئ مسجل
@@ -789,21 +790,47 @@ enum NotificationChannel {
 /* الجدول المركزي الموحد لكل إشعارات المنظومة — المرسل المركزي
    lib/notifications/dispatcher.ts هو الطريق الوحيد للكتابة هنا */
 model Notification {
-  id        String              @id @default(cuid())
-  userId    String              // المعرف للمستلم (قارئ أو حساب صاحب المنصة)
-  user      User                @relation(fields: [userId], references: [id], onDelete: Cascade)
-  type      NotificationType
-  title     String
-  message   String              @db.Text
-  link      String?             // الرابط المباشر للحدث (رابط المقال أو المسار الإداري)
-  metadata  Json?               // تفاصيل إضافية: (السبب، عدد النقاط، عنوان IP، المتصفح)
-  isRead    Boolean             @default(false)
-  readAt    DateTime?
-  channel   NotificationChannel @default(ALL)
-  createdAt DateTime            @default(now())
+  id          String              @id @default(cuid())
+  userId      String              // المعرف للمستلم (قارئ أو حساب صاحب المنصة)
+  user        User                @relation(fields: [userId], references: [id], onDelete: Cascade)
+  type        NotificationType
+  title       String
+  message     String              @db.Text
+  link        String?             // الرابط المباشر للحدث (رابط المقال أو المسار الإداري)
+  metadata    Json?               // تفاصيل إضافية: (السبب، عدد النقاط، عنوان IP، المتصفح)
+  isRead      Boolean             @default(false)
+  readAt      DateTime?
+  dismissedAt DateTime?           // لحظة الإخفاء من القارئ — يخرج من الجرس والتوست نهائيًا مع بقاء التوثيق
+  channel     NotificationChannel @default(ALL)
+  createdAt   DateTime            @default(now())
 
   @@index([userId, isRead])
   @@index([userId, createdAt(sort: Desc)])
   @@index([createdAt])
   @@index([type])
+}
+
+/**
+ * سجل أجهزة القارئ الموثوق — قلب محرك أمان الجلسات:
+ * كل جهاز يدخل بحساب Google يوثق هنا ببصمة فريدة (userId + User-Agent).
+ * - أول ظهور: تنبيه أمني فوري (بريد إلزامي + بث ويب + جرس + سجل تدقيق).
+ * - ظهور معتاد: تحديث صامت لآخر نشاط وآخر IP.
+ * - حذف السجل من صفحة الملف = إبطال جلسة ذلك الجهاز فورًا
+ *   (الجلسة تحمل deviceHash وتُقارن بهذا الجدول في كل طلب).
+ */
+model UserDevice {
+  id           String   @id @default(cuid())
+  userId       String
+  user         User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  deviceHash   String   // تجزئة فريدة مشتقة من (userId + User-Agent)
+  browser      String?  // مثل: Chrome, Safari
+  os           String?  // مثل: Android 14, Windows 11, iOS
+  deviceType   String?  // mobile | tablet | desktop
+  lastIp       String?
+  location     String?  // المدينة والدولة (من ترويسات Vercel الطرفية)
+  lastActiveAt DateTime @default(now())
+  createdAt    DateTime @default(now())
+
+  @@unique([userId, deviceHash])
+  @@index([userId])
 }

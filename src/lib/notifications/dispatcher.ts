@@ -125,6 +125,34 @@ export function notificationEmailHtml(
 </body></html>`;
 }
 
+/**
+ * مصدر إعدادات قناة البريد — مزدوج بذكاء:
+ *  1) متغيرات البيئة (RESEND_API_KEY / SECURITY_EMAIL_FROM) إن وُجدت.
+ *  2) احتياطًا: جدول SystemSetting المشترك — تُكتب من بطاقة «قناة البريد»
+ *     في هذه اللوحة (لصق المفتاح من الهاتف دون طرفية أو إعادة نشر).
+ */
+export async function resolveEmailConfig(): Promise<{ key: string | null; from: string }> {
+  let key = process.env.RESEND_API_KEY?.trim() || null;
+  let from = process.env.SECURITY_EMAIL_FROM?.trim() || null;
+  if (key && from) return { key, from };
+  try {
+    const rows = await prisma.systemSetting.findMany({
+      where: { key: { in: ["RESEND_API_KEY", "SECURITY_EMAIL_FROM"] } },
+      select: { key: true, value: true },
+    });
+    for (const row of rows) {
+      const raw = row.value as unknown;
+      const val = typeof raw === "string" ? raw.trim() : ((raw as { value?: string })?.value ?? "").toString().trim();
+      if (!val) continue;
+      if (row.key === "RESEND_API_KEY" && !key) key = val;
+      if (row.key === "SECURITY_EMAIL_FROM" && !from) from = val;
+    }
+  } catch {
+    /* قاعدة البيانات غائبة — البيئة تكفي إن وجدت */
+  }
+  return { key, from: from ?? "كلام له لازمة <onboarding@resend.dev>" };
+}
+
 async function sendEmail(input: {
   to: string;
   title: string;
@@ -132,14 +160,14 @@ async function sendEmail(input: {
   link: string | null;
   html?: string | null;
 }): Promise<boolean> {
-  const key = process.env.RESEND_API_KEY;
+  const { key, from } = await resolveEmailConfig();
   if (!key) return false;
   try {
     const res = await fetch("https://api.resend.com/emails", {
       method: "POST",
       headers: { Authorization: `Bearer ${key}`, "Content-Type": "application/json" },
       body: JSON.stringify({
-        from: process.env.SECURITY_EMAIL_FROM ?? "كلام له لازمة <onboarding@resend.dev>",
+        from,
         to: [input.to],
         subject: input.title,
         html: input.html ?? notificationEmailHtml(input.title, input.message, input.link),

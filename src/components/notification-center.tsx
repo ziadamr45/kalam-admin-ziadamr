@@ -19,6 +19,7 @@ type AdminNotificationItem = {
   link: string | null;
   isRead: boolean;
   createdAt: string;
+  metadata?: { device?: string; location?: string; ip?: string | null; when?: string } | null;
 };
 
 type UrgentItem = { id: string; type: string; title: string; message: string; link: string | null } | null;
@@ -149,7 +150,159 @@ function useAdminNotifications() {
     }).catch(() => {});
   }, []);
 
-  return { items, unread, unreadAdmin, urgent, load, markAll, markOne };
+  /** الإخفاء النهائي — حذف تفاؤلي من القائمة + dismissedAt في قاعدة البيانات */
+  const dismiss = useCallback(async (item: AdminNotificationItem): Promise<void> => {
+    setItems((prev) => prev.filter((n) => n.id !== item.id));
+    setUrgent((u) => (u?.id === item.id ? null : u));
+    if (!item.isRead) {
+      setUnread((v) => Math.max(0, v - 1));
+      if (item.type.startsWith("ADMIN_")) setUnreadAdmin((v) => Math.max(0, v - 1));
+    }
+    await fetch("/api/admin/notifications", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ id: item.id, action: "dismiss" }),
+    }).catch(() => {});
+  }, []);
+
+  const [detail, setDetail] = useState<AdminNotificationItem | null>(null);
+  const openDetail = useCallback(
+    (item: AdminNotificationItem): void => {
+      setDetail(item);
+      if (!item.isRead) void markOne(item.id);
+    },
+    [markOne],
+  );
+
+  return { items, unread, unreadAdmin, urgent, detail, load, markAll, markOne, dismiss, openDetail, closeDetail: () => setDetail(null) };
+}
+
+/* ===================== نافذة تفاصيل الإشعار — النص الكامل بلا اقتطاع ===================== */
+
+const exactFmt = new Intl.DateTimeFormat("ar-EG", {
+  dateStyle: "full",
+  timeStyle: "short",
+  timeZone: "Africa/Cairo",
+});
+
+function AdminNotificationDetailModal({
+  item,
+  onClose,
+  onDismiss,
+}: {
+  item: AdminNotificationItem;
+  onClose: () => void;
+  onDismiss?: (item: AdminNotificationItem) => void;
+}) {
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") onClose();
+    };
+    document.addEventListener("keydown", onKey);
+    const prevOverflow = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    return () => {
+      document.removeEventListener("keydown", onKey);
+      document.body.style.overflow = prevOverflow;
+    };
+  }, [onClose]);
+
+  const color = typeColor(item.type);
+  const meta = item.metadata ?? null;
+
+  return (
+    <div
+      className="fixed inset-0 z-[100] flex items-end justify-center bg-black/45 p-4 backdrop-blur-[2px] sm:items-center"
+      onClick={onClose}
+      role="dialog"
+      aria-modal="true"
+      aria-label={item.title}
+    >
+      <div
+        className="w-full max-w-md animate-fade-in overflow-hidden rounded-2xl border border-steel-200 bg-white shadow-lg"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div className="flex items-center justify-between gap-2 border-b border-steel-100 px-4 py-3">
+          <span className="flex items-center gap-2">
+            <span className="mt-0 h-2.5 w-2.5 rounded-full" style={{ background: color }} />
+            <span
+              className="rounded-full px-2.5 py-0.5 text-[10px] font-bold"
+              style={{ background: `${color}18`, color }}
+            >
+              {item.type.startsWith("ADMIN_") ? "حدث سيادة إداري" : "إشعار"}
+            </span>
+            {!item.isRead && (
+              <span className="rounded-full bg-amber-100 px-2.5 py-0.5 text-[10px] font-bold text-amber-700">جديد</span>
+            )}
+          </span>
+          <button
+            onClick={onClose}
+            aria-label="إغلاق التفاصيل"
+            className="rounded-full p-1.5 text-lg leading-none text-steel-400 transition-colors hover:bg-steel-100"
+          >
+            ✕
+          </button>
+        </div>
+
+        <div className="max-h-[60vh] overflow-y-auto overscroll-contain px-4 py-4">
+          <h3 className="text-base font-extrabold leading-8 text-steel-900">{item.title}</h3>
+          <p className="mt-2 whitespace-pre-wrap text-sm leading-8 text-steel-600">{item.message}</p>
+
+          {meta && (meta.device || meta.location || meta.ip || meta.when) && (
+            <div className="mt-4 space-y-1.5 rounded-xl bg-steel-50 p-3 text-[11px] leading-6 text-steel-500">
+              {meta.device && (
+                <div>
+                  <b className="text-steel-800">الجهاز:</b> {meta.device}
+                </div>
+              )}
+              {meta.location && (
+                <div>
+                  <b className="text-steel-800">الموقع التقريبي:</b> {meta.location}
+                </div>
+              )}
+              {meta.ip && (
+                <div>
+                  <b className="text-steel-800">عنوان الشبكة:</b> {meta.ip}
+                </div>
+              )}
+              {meta.when && (
+                <div>
+                  <b className="text-steel-800">وقت الحدث:</b> {meta.when}
+                </div>
+              )}
+            </div>
+          )}
+
+          <div className="mt-4 text-[11px] text-steel-400">{exactFmt.format(new Date(item.createdAt))}</div>
+        </div>
+
+        <div className="flex items-center justify-between gap-2 border-t border-steel-100 px-4 py-3">
+          {item.link ? (
+            <Link
+              href={item.link}
+              onClick={onClose}
+              className="rounded-xl bg-amber-600 px-4 py-2 text-xs font-bold text-white transition-transform active:scale-[0.98]"
+            >
+              الانتقال إلى الحدث
+            </Link>
+          ) : (
+            <span />
+          )}
+          {onDismiss && (
+            <button
+              onClick={() => {
+                onDismiss(item);
+                onClose();
+              }}
+              className="text-xs font-bold text-steel-400 underline underline-offset-4 transition-opacity hover:opacity-70"
+            >
+              إخفاء هذا الإشعار نهائيًا
+            </button>
+          )}
+        </div>
+      </div>
+    </div>
+  );
 }
 
 /* ===================== شريط الطوارئ العلوي ===================== */
@@ -198,7 +351,7 @@ function BellGlyph({ size = 18 }: { size?: number }) {
 }
 
 export function AdminNotificationBell() {
-  const { items, unread, unreadAdmin, markAll, markOne } = useAdminNotifications();
+  const { items, unread, unreadAdmin, markAll, dismiss, openDetail, detail, closeDetail } = useAdminNotifications();
   const [open, setOpen] = useState(false);
   const [tab, setTab] = useState<"admin" | "all" | "unread">("admin");
   const ref = useRef<HTMLDivElement>(null);
@@ -292,46 +445,33 @@ export function AdminNotificationBell() {
                 {shown.map((n) => {
                   const color = typeColor(n.type);
                   return (
-                    <li key={n.id}>
-                      {n.link ? (
-                        <Link
-                          href={n.link}
-                          onClick={() => {
-                            if (!n.isRead) markOne(n.id);
-                            setOpen(false);
-                          }}
-                          className="block rounded-xl px-3 py-2.5 transition-colors hover:bg-steel-100"
-                        >
-                          <span className="flex items-start gap-2.5">
-                            <span className="mt-1 h-2 w-2 shrink-0 rounded-full" style={{ background: color }} />
-                            <span className="min-w-0 flex-1">
-                              <span className={`block text-xs leading-5 ${n.isRead ? "font-semibold text-steel-500" : "font-bold text-steel-800"}`}>
-                                {n.title}
-                              </span>
-                              <span className="mt-0.5 block truncate text-[11px] text-steel-400">{n.message}</span>
-                              <span className="mt-1 block text-[10px] text-steel-300">{timeAgo(n.createdAt)}</span>
+                    <li key={n.id} className="relative">
+                      <button
+                        onClick={() => openDetail(n)}
+                        className="block w-full rounded-xl px-3 py-2.5 pl-8 text-right transition-colors hover:bg-steel-100"
+                      >
+                        <span className="flex items-start gap-2.5">
+                          <span className="mt-1 h-2 w-2 shrink-0 rounded-full" style={{ background: color }} />
+                          <span className="min-w-0 flex-1">
+                            <span className={`block text-xs leading-5 ${n.isRead ? "font-semibold text-steel-500" : "font-bold text-steel-800"}`}>
+                              {n.title}
                             </span>
+                            <span className="mt-0.5 block truncate text-[11px] text-steel-400">{n.message}</span>
+                            <span className="mt-1 block text-[10px] text-steel-300">{timeAgo(n.createdAt)}</span>
                           </span>
-                        </Link>
-                      ) : (
-                        <button
-                          onClick={() => {
-                            if (!n.isRead) markOne(n.id);
-                          }}
-                          className="block w-full rounded-xl px-3 py-2.5 text-right transition-colors hover:bg-steel-100"
-                        >
-                          <span className="flex items-start gap-2.5">
-                            <span className="mt-1 h-2 w-2 shrink-0 rounded-full" style={{ background: color }} />
-                            <span className="min-w-0 flex-1">
-                              <span className={`block text-xs leading-5 ${n.isRead ? "font-semibold text-steel-500" : "font-bold text-steel-800"}`}>
-                                {n.title}
-                              </span>
-                              <span className="mt-0.5 block truncate text-[11px] text-steel-400">{n.message}</span>
-                              <span className="mt-1 block text-[10px] text-steel-300">{timeAgo(n.createdAt)}</span>
-                            </span>
-                          </span>
-                        </button>
-                      )}
+                        </span>
+                      </button>
+                      <button
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          void dismiss(n);
+                        }}
+                        aria-label={`إخفاء إشعار: ${n.title}`}
+                        title="إخفاء نهائي"
+                        className="absolute left-1.5 top-2 rounded-full p-1.5 text-[11px] leading-none text-steel-300 transition-colors hover:bg-steel-100 hover:text-steel-500"
+                      >
+                        ✕
+                      </button>
                     </li>
                   );
                 })}
@@ -340,6 +480,8 @@ export function AdminNotificationBell() {
           </div>
         </div>
       )}
+
+      {detail && <AdminNotificationDetailModal item={detail} onClose={closeDetail} onDismiss={dismiss} />}
     </div>
   );
 }

@@ -65,18 +65,26 @@ export async function GET(request: Request) {
         }
       };
 
-      const tick = async (): Promise<void> => {
+      const tick = async (isFirst = false): Promise<void> => {
         try {
           const [unreadAdmin, latest] = await Promise.all([
             prisma.notification.count({
-              where: { userId, isRead: false, type: { in: ADMIN_TYPES } },
+              where: { userId, isRead: false, dismissedAt: null, type: { in: ADMIN_TYPES } },
             }),
             prisma.notification.findFirst({
-              where: { userId, type: { in: ADMIN_TYPES } },
+              where: { userId, dismissedAt: null, type: { in: ADMIN_TYPES } },
               orderBy: { createdAt: "desc" },
               select: { id: true, title: true, message: true, link: true, type: true },
             }),
           ]);
+          /* النبضة الأولى تؤسس خط الأساس صامتة — لا إعادة إطلاق لإشعارات
+             قديمة عند الرفريش، والطوارئ الجديدة الحية فقط تُبث بisNewItem */
+          if (isFirst) {
+            lastUnreadAdmin = unreadAdmin;
+            lastId = latest?.id ?? null;
+            send({ unreadAdmin, isNewItem: false });
+            return;
+          }
           const changed = unreadAdmin !== lastUnreadAdmin || (latest && latest.id !== lastId);
           if (changed) {
             const isNewItem = Boolean(latest && latest.id !== lastId && unreadAdmin > lastUnreadAdmin);
@@ -91,8 +99,8 @@ export async function GET(request: Request) {
         }
       };
 
-      await tick();
-      interval = setInterval(tick, TICK_MS);
+      await tick(true);
+      interval = setInterval(() => void tick(), TICK_MS);
       timeout = setTimeout(stop, LIFETIME_MS);
     },
     cancel() {

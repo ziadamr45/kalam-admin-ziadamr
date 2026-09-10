@@ -7,7 +7,8 @@ import type { NotificationType } from "@prisma/client";
  * مركز الإشعارات السيادية في لوحة الأدمن — يقرأ الجدول المركزي الموحد
  * لحساب صاحب المنصة، ويفرز أحداث السيادة الإدارية عن الإشعارات العامة:
  *  GET  ?scope=admin|all — آخر 50 إشعارًا + عدادات غير المقروء + الطارئ الأعلى
- *  POST  — تعليم الكل أو إشعارًا بعينه كمقروء
+ *  POST  — تعليم الكل أو إشعارًا بعينه كمقروء، أو إخفاء نهائي { id, action: "dismiss" }
+ * (المخفية dismissedAt مستبعدة من القوائم والعدادات مع بقاء التوثيق)
  */
 
 const OWNER_EMAIL = "ziad90216@gmail.com";
@@ -42,7 +43,7 @@ export async function GET(request: Request) {
 
     const [items, unread, unreadAdmin, urgent] = await Promise.all([
       prisma.notification.findMany({
-        where,
+        where: { ...where, dismissedAt: null },
         orderBy: { createdAt: "desc" },
         take: 50,
         select: {
@@ -53,14 +54,15 @@ export async function GET(request: Request) {
           link: true,
           isRead: true,
           createdAt: true,
+          metadata: true,
         },
       }),
-      prisma.notification.count({ where: { userId: owner.id, isRead: false } }),
+      prisma.notification.count({ where: { userId: owner.id, isRead: false, dismissedAt: null } }),
       prisma.notification.count({
-        where: { userId: owner.id, isRead: false, type: { in: ADMIN_TYPES } },
+        where: { userId: owner.id, isRead: false, dismissedAt: null, type: { in: ADMIN_TYPES } },
       }),
       prisma.notification.findFirst({
-        where: { userId: owner.id, isRead: false, type: { in: ADMIN_TYPES } },
+        where: { userId: owner.id, isRead: false, dismissedAt: null, type: { in: ADMIN_TYPES } },
         orderBy: { createdAt: "desc" },
         select: { id: true, type: true, title: true, message: true, link: true },
       }),
@@ -87,6 +89,7 @@ export async function POST(request: Request) {
       all?: boolean;
       id?: string;
       adminOnly?: boolean;
+      action?: "read" | "dismiss";
     };
 
     if (body.all) {
@@ -94,9 +97,16 @@ export async function POST(request: Request) {
         where: {
           userId: owner.id,
           isRead: false,
+          dismissedAt: null,
           ...(body.adminOnly ? { type: { in: ADMIN_TYPES } } : {}),
         },
         data: { isRead: true, readAt: new Date() },
+      });
+    } else if (body.id && body.action === "dismiss") {
+      /* الإخفاء النهائي — يخرج من القوائم والعدادات مع بقاء التوثيق */
+      await prisma.notification.updateMany({
+        where: { userId: owner.id, id: body.id },
+        data: { dismissedAt: new Date(), isRead: true, readAt: new Date() },
       });
     } else if (body.id) {
       await prisma.notification.updateMany({
