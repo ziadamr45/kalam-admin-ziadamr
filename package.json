@@ -19,7 +19,7 @@
     "@prisma/client": "6.19.3",
     "@react-pdf/renderer": "^4.9.0",
     "jose": "5.9.6",
-    "next": "15.5.25",
+    "next": "15.5.28",
     "nextjs-toploader": "^3.9.17",
     "otplib": "12.0.1",
     "qrcode": "1.5.4",
