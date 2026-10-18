@@ -35,6 +35,19 @@ const PUBLIC_PATHS = [
 ];
 
 /**
+ * أصول إشعارات الويب الثابتة — تُجلب خارج سياق الجلسة حتمًا:
+ * أندرويد يجلب الأيقونة والبادج بنفسه بلا كوكي عند عرض الإشعار،
+ * والـSW يُسجل عند تحميل اللوحة؛ إقامة الجلسة عليهم تعني فشل
+ * تسجيل الـSW وسقوط البادج والأيقونة في كل إشعار. أصول عامة
+ * غير حساسة (شعار التطبيق وبادجه) تبقى تحت الترويسات الأمنية.
+ */
+const NOTIFICATION_ASSETS = [
+  "/sw.js",
+  "/icons/",
+  "/badge-admin-96x96.png",
+];
+
+/**
  * سياسة أمان المحتوى الصارمة للوحة:
  * - كل المصادر محصورة بالأصل — لا سكربت ولا إطار خارجي إطلاقًا
  * - object-src 'none' + base-uri/form-action 'self' — سد حقن XSS
@@ -111,8 +124,11 @@ export async function middleware(request: NextRequest) {
     }
   }
 
-  /* الصفحات الإدارية: تتطلب جلسة كاملة */
-  if (!isPublicPath && !isSetupPage) {
+  /* الصفحات الإدارية: تتطلب جلسة كاملة — عدا أصول الإشعارات الثابتة */
+  const isNotificationAsset = NOTIFICATION_ASSETS.some(
+    (p) => pathname === p || pathname.startsWith(p),
+  );
+  if (!isPublicPath && !isSetupPage && !isNotificationAsset) {
     const token = request.cookies.get(SESSION_COOKIE)?.value;
     const valid = token ? await verifySessionToken(token) : false;
 
