@@ -3,44 +3,6 @@
 import { useRef, useState } from "react";
 import { Button } from "@/components/ui";
 
-const extFromType = (t: string) =>
-  t === "image/webp" ? "webp" : t === "image/jpeg" ? "jpg" : t === "image/png" ? "png" : "img";
-
-/**
- * ضغط ذكي قبل الرفع — صور الكاميرا واللقطات الطولية الكبيرة (حتى 8MB)
- * تُصغَّر إلى أقصى بعد 2000px على الطول مع الحفاظ على نسبة الأبعاد كما هي
- * (9:16 تبقى 9:16 بلا أي قص) وإعادة ترميز بصيغ الويب الحديثة،
- * ويبقى حجم الحمولة دائمًا تحت سقف جسم الطلب على الحافة السحابية.
- */
-async function shrinkImage(file: File): Promise<File> {
-  if (file.size <= 1.5 * 1024 * 1024) return file;
-  try {
-    const bitmap = await createImageBitmap(file);
-    const scale = Math.min(1, 2000 / Math.max(bitmap.width, bitmap.height));
-    const w = Math.max(1, Math.round(bitmap.width * scale));
-    const h = Math.max(1, Math.round(bitmap.height * scale));
-    const canvas = document.createElement("canvas");
-    canvas.width = w;
-    canvas.height = h;
-    const ctx = canvas.getContext("2d");
-    if (!ctx) return file;
-    ctx.drawImage(bitmap, 0, 0, w, h);
-    bitmap.close();
-    const base = file.name.replace(/\.[^.]+$/, "") || "cover";
-    const webp = await new Promise<Blob | null>((r) => canvas.toBlob(r, "image/webp", 0.85));
-    if (webp && webp.size < file.size) {
-      return new File([webp], `${base}.${extFromType(webp.type)}`, { type: webp.type });
-    }
-    const jpeg = await new Promise<Blob | null>((r) => canvas.toBlob(r, "image/jpeg", 0.88));
-    if (jpeg && jpeg.size < file.size) {
-      return new File([jpeg], `${base}.${extFromType(jpeg.type)}`, { type: jpeg.type });
-    }
-    return file;
-  } catch {
-    return file; // أي تعذر في الضغط — الرفع بالملف الأصلي كما هو
-  }
-}
-
 /**
  * رافع الصور الذكي — سحب وإفلات أو نقرة واحدة:
  * معاينة لحظية، رفع سحابي مباشر (السيرفر يحفظ سرّ Cloudinary)،
@@ -73,25 +35,21 @@ export function ImageUploader({
       setError("تُقبل الصور فقط (JPG / PNG / WebP)");
       return;
     }
+    if (file.size > 8 * 1024 * 1024) {
+      setError("الصورة أكبر من 8MB — اختر صورة أخف");
+      return;
+    }
 
     setBusy(true);
-    setProgress(8);
+    setProgress(10);
 
     try {
-      // الضغط التلقائي أولًا ثم فحص الحجم — فالصور الثقيلة تُخف قبل النقل
-      const payload = await shrinkImage(file);
-      setProgress(30);
-      if (payload.size > 8 * 1024 * 1024) {
-        setError("الصورة أكبر من 8MB حتى بعد الضغط التلقائي — اختر صورة أخف");
-        return;
-      }
-
       const form = new FormData();
-      form.append("file", payload);
-      form.append("filename", payload.name);
+      form.append("file", file);
+      form.append("filename", file.name);
       form.append("folder", folder);
 
-      setProgress(55);
+      setProgress(40);
       const res = await fetch("/api/upload", { method: "POST", body: form });
       const data = await res.json().catch(() => ({}));
       setProgress(95);
@@ -166,10 +124,9 @@ export function ImageUploader({
             }`}
           >
             {value ? (
-              /* المعاينة تتبع أبعاد الصورة الفعلية — الطولية 9:16 تظهر كاملة بلا قص */
-              <div className="relative flex w-full items-center justify-center bg-steel-50 dark:bg-zinc-900">
+              <div className={`relative ${aspect} w-full`}>
                 {/* eslint-disable-next-line @next/next/no-img-element */}
-                <img src={value} alt="معاينة الصورة" className="max-h-80 w-auto max-w-full object-contain" />
+                <img src={value} alt="معاينة الصورة" className="absolute inset-0 h-full w-full object-cover" />
                 {/* غطاء التغيير يظهر عند المرور أو الرفع */}
                 <span className="absolute inset-0 flex items-center justify-center bg-black/50 text-xs font-bold text-white opacity-0 transition-opacity group-hover:opacity-100">
                   {busy ? "جارٍ الرفع.." : "اضغط أو أفلِت صورة جديدة للاستبدال"}
@@ -186,7 +143,7 @@ export function ImageUploader({
                   {busy ? "جارٍ الرفع إلى التخزين السحابي.." : "اسحب الصورة هنا أو انقر للاختيار من جهازك"}
                 </p>
                 <p className="text-[10px] text-steel-400">
-                  JPG / PNG / WebP — تُضغط وتُحسَّن تلقائيًا · كل النسب تُقبل (عمودية 9:16 وأفقية 16:9)
+                  JPG / PNG / WebP — حتى 8MB · تُحسَّن تلقائيًا بأحدث صيغ الويب
                 </p>
               </div>
             )}
