@@ -2,6 +2,9 @@ import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { articleRevalidatePaths, revalidatePublicPaths } from "@/lib/revalidate";
 import { writeAudit } from "@/lib/guard";
+import { notifyArticlePublished } from "@/lib/notify-publish";
+
+export const maxDuration = 60;
 
 /**
  * مهمة Vercel Cron — النشر المجدول التلقائي
@@ -35,6 +38,13 @@ export async function GET(request: Request) {
           checklistPassed: true,
         },
       });
+
+      /* إشعار القراء — النشر المجدول نفس حدث النشر اليدوي */
+      const full = await prisma.article.findUnique({
+        where: { id: article.id },
+        select: { id: true, title: true, slug: true, summary: true },
+      });
+      if (full) await notifyArticlePublished(full);
 
       const section = article.sectionId
         ? await prisma.section.findUnique({

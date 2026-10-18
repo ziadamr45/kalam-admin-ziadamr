@@ -6,6 +6,9 @@ import { readingSeconds } from "@/lib/readingTime";
 import { getSystemSettings } from "@/lib/settings";
 import { articleRevalidatePaths, revalidatePublicPaths } from "@/lib/revalidate";
 import { fixNunation } from "@/lib/nunation";
+import { notifyArticlePublished } from "@/lib/notify-publish";
+
+export const maxDuration = 60;
 
 type Params = { params: Promise<{ id: string }> };
 
@@ -129,12 +132,28 @@ export async function PATCH(request: Request, { params }: Params) {
 
     const article = await prisma.article.update({ where: { id }, data: data as never });
 
+    /* إشعار القراء بنشر مقال جديد — جرس المنصة + بث ويب (فقط عند الانتقال
+       الفعلي إلى منشور؛ حفظ منشور أصلًا لا يعيد الإشعار) */
+    const publishNotified =
+      body.status === "PUBLISHED" && existing.status !== "PUBLISHED"
+        ? await notifyArticlePublished({
+            id: article.id,
+            title: article.title,
+            slug: article.slug,
+            summary: article.summary,
+          })
+        : null;
+
     await writeAudit({
       adminId: guard.adminId,
       action: body.status === "PUBLISHED" ? "article.published" : "article.updated",
       entity: "Article",
       entityId: article.id,
-      meta: { title: article.title, status: article.status },
+      meta: {
+        title: article.title,
+        status: article.status,
+        ...(publishNotified ? { notified: publishNotified } : {}),
+      },
       ip: getClientIp(request),
     });
 
