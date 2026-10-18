@@ -130,3 +130,111 @@ export function allocateWordTimings(
   }
   return out;
 }
+
+/**
+ * طوابع الكلمات واعية بوقفات النطق — من PCM الخام مباشرة:
+ * التوزيع التناسبي الأعمى يتجاهل وقفات الكلام الطبيعية (فواصل الجمل والأنفاس،
+ * وصلت 168 وقفة في مقال واحد)، فيقفز التظليل اللحظي ثوانٍ أمام الصوت عند كل
+ * وقفة ثم يلحق به. هنا تُكشف نطاقات الكلام الفعلية بطاقة RMS على نوافذ 20ms
+ * وتُوزَّع الكلمات على زمن الكلام الصافي فقط — فتتطابق الكلمة مع صوتها.
+ * أي فشل في الكشف يعيد التوزيع التناسبي الآمن دون إيقاف التوليد.
+ */
+export function allocateWordTimingsFromPcm(
+  pcm: Buffer,
+  sampleRate: number,
+  words: string[],
+  startSec: number,
+  fallbackDurationSec: number,
+): WordTiming[] {
+  const n = words.length;
+  if (n === 0) return [];
+  const winSec = 0.02;
+  const win = Math.max(1, Math.floor(sampleRate * winSec));
+  const samples = Math.floor(pcm.length / 2);
+  const frames = Math.floor(samples / win);
+  const proportional = () => allocateWordTimings(words, startSec, fallbackDurationSec);
+  if (frames < 5) return proportional();
+
+  /* طاقة كل نافذة RMS */
+  const rms = new Array<number>(frames);
+  for (let f = 0; f < frames; f++) {
+    let sum = 0;
+    const base = f * win;
+    for (let i = base; i < base + win; i++) {
+      const v = pcm.readInt16LE(i * 2);
+      sum += v * v;
+    }
+    rms[f] = Math.sqrt(sum / win);
+  }
+
+  /* عتبة تكيفية من توزيع الطاقة — كلام TTS نظيف بضجيج أرضية شبه معدوم */
+  const sorted = [...rms].sort((a, b) => a - b);
+  const noise = sorted[Math.floor(sorted.length * 0.1)] || 0;
+  const peak = sorted[Math.floor(sorted.length * 0.97)] || 1;
+  const threshold = Math.max(noise * 3, peak * 0.06, 80);
+
+  /* نطاقات الكلام: فجوة صمت ≥ 200ms تفصل النطاقين */
+  const minSilFrames = Math.max(1, Math.floor(0.2 / winSec));
+  const minRunFrames = Math.max(1, Math.floor(0.1 / winSec));
+  const raw: { a: number; b: number }[] = [];
+  let cur: { a: number; b: number } | null = null;
+  let silence = 0;
+  for (let f = 0; f < frames; f++) {
+    if (rms[f] >= threshold) {
+      if (!cur) cur = { a: f, b: f };
+      else cur.b = f;
+      silence = 0;
+    } else if (cur) {
+      silence += 1;
+      if (silence >= minSilFrames) {
+        raw.push(cur);
+        cur = null;
+        silence = 0;
+      }
+    }
+  }
+  if (cur) raw.push(cur);
+  const runs = raw.filter((r) => r.b - r.a + 1 >= minRunFrames);
+  if (runs.length === 0) return proportional();
+
+  /* الخط الافتراضي: زمن الكلام الصافي حصريًا (الوقفات تُقتصر خارج التوزيع) */
+  const seg = runs.map((r) => ({
+    vStart: 0,
+    rStart: r.a * winSec,
+    len: (r.b - r.a + 1) * winSec,
+  }));
+  let vTotal = 0;
+  for (const s of seg) {
+    s.vStart = vTotal;
+    vTotal += s.len;
+  }
+  if (vTotal < 0.3) return proportional();
+
+  const realOf = (tv: number): number => {
+    for (let i = seg.length - 1; i >= 0; i--) {
+      if (tv >= seg[i].vStart) {
+        return startSec + seg[i].rStart + Math.min(tv - seg[i].vStart, seg[i].len);
+      }
+    }
+    return startSec + (seg[0]?.rStart ?? 0);
+  };
+
+  /* نفس أوزان الطول المجرّد من التشكيل — لكن فوق الكلام الصافي حصرًا */
+  const weights = words.map((w) => Math.max(1, w.replace(/[\u064B-\u065F\u0670]/g, "").length) + 1);
+  const total = weights.reduce((a, b) => a + b, 0);
+  const out: WordTiming[] = [];
+  let acc = 0;
+  for (let i = 0; i < n; i++) {
+    const sv = (acc / total) * vTotal;
+    acc += weights[i];
+    const ev = (acc / total) * vTotal;
+    const s = realOf(sv);
+    const e = Math.max(realOf(ev), s + 0.08);
+    out.push({
+      w: words[i],
+      s: Math.round(s * 100) / 100,
+      e: Math.round(e * 100) / 100,
+    });
+  }
+  return out;
+}

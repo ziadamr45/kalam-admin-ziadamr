@@ -26,7 +26,7 @@ import { encodeNarration, pcmDurationSec } from "@/lib/audio-encode";
 import {
   buildSegmentPlan,
   spokenSource,
-  allocateWordTimings,
+  allocateWordTimingsFromPcm,
 } from "@/lib/audio-narration";
 import { uploadAudio, destroyAudio } from "@/lib/cloudinary";
 import {
@@ -251,7 +251,8 @@ export async function runAudioJobStep(job: AudioJob): Promise<boolean> {
       const { pcm, sampleRate } = await synthesizeChunk(rec.text, { attempts: 2 });
       const duration = Math.round(pcmDurationSec(pcm, sampleRate) * 100) / 100;
       const encoded = encodeNarration(pcm);
-      const timings = allocateWordTimings(rec.words, offset, duration);
+      /* توزيع واعٍ بوقفات النطق من PCM الخام — التظليل لا يسبق الصوت عند الوقفات */
+      const timings = allocateWordTimingsFromPcm(pcm, sampleRate, rec.words, offset, duration);
 
       const safeSlug =
         (article.slug || "article").replace(/[^a-z0-9-_]/gi, "-").slice(0, 60) || "article";

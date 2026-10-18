@@ -54,6 +54,19 @@ function typeColor(type: string): string {
   return "#64748B";
 }
 
+/**
+ * محوّل الروابط: إشعارات المالك تُصنع أصلًا للمنصة العامة (روابطها /me و/profile
+ * و/article/<slug>)، واللوحة لا تملك هذه المسارات أصلًا فكان «الانتقال إلى الحدث»
+ * يهبط في 404. تُترجم هنا لمقابلاتها الإدارية: الملف الشخصي ← المستخدمون،
+ * والمقال ← إدارة المقالات. الروابط الإدارية الأصلية تمر كما هي.
+ */
+function adminLink(link: string | null | undefined): string | null {
+  if (!link) return null;
+  if (link.startsWith("/me") || link.startsWith("/profile")) return "/users";
+  if (link.startsWith("/article/")) return "/articles";
+  return link;
+}
+
 function useAdminNotifications() {
   const [items, setItems] = useState<AdminNotificationItem[]>([]);
   const [unread, setUnread] = useState(0);
@@ -312,17 +325,20 @@ function AdminNotificationDetailModal({
         </div>
 
         <div className="flex shrink-0 items-center justify-between gap-2 border-t border-steel-100 px-4 py-3">
-          {item.link ? (
-            <Link
-              href={item.link}
-              onClick={onClose}
-              className="rounded-xl bg-amber-600 px-4 py-2 text-xs font-bold text-white transition-transform active:scale-[0.98]"
-            >
-              الانتقال إلى الحدث
-            </Link>
-          ) : (
-            <span />
-          )}
+          {(() => {
+            const dest = adminLink(item.link);
+            return dest ? (
+              <Link
+                href={dest}
+                onClick={onClose}
+                className="rounded-xl bg-amber-600 px-4 py-2 text-xs font-bold text-white transition-transform active:scale-[0.98]"
+              >
+                الانتقال إلى الحدث
+              </Link>
+            ) : (
+              <span />
+            );
+          })()}
           {onDismiss && (
             <button
               onClick={() => {
@@ -378,7 +394,7 @@ export function AdminUrgentBar() {
         >
           عرض كاملًا
         </button>
-        <Link href={urgent.link ?? "/system?tab=errors"} className="underline underline-offset-4 hover:opacity-80">
+        <Link href={adminLink(urgent.link) ?? "/system?tab=errors"} className="underline underline-offset-4 hover:opacity-80">
           فتح
         </Link>
         <button onClick={() => markOne(urgent.id)} className="underline underline-offset-4 hover:opacity-80">
