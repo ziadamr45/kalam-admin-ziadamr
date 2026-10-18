@@ -24,6 +24,7 @@ function LoginForm() {
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
   const [lockInfo, setLockInfo] = useState("");
+  const [succeeded, setSucceeded] = useState(false);
 
   /* بصمة الجهاز تُحسب مسبقًا وتُرفض الأجهزة غير المعتمدة إن كان الحظر مفعلًا */
   const [fingerprint, setFingerprint] = useState("");
@@ -86,8 +87,14 @@ function LoginForm() {
           setError(data.error || "الرمز غير صحيح");
           return;
         }
-        router.push(next);
-        router.refresh();
+        /* طمأنة صريحة لحظة النجاح قبل الانتقال — التحقق الداخلي (جلسة +
+           جهاز موثوق + سجل أمني) قد يأخذ ثوانٍ على خادم بارد، والصمت
+           عندها يبدو انسدادًا؛ هنا الرسالة أولًا ثم فتح اللوحة */
+        setSucceeded(true);
+        setTimeout(() => {
+          router.push(next);
+          router.refresh();
+        }, 700);
       } catch {
         setError("تعذر الاتصال بالخادم");
       } finally {
@@ -187,15 +194,27 @@ function LoginForm() {
                 autoFocus
               />
 
-              {error && <p className="text-xs font-bold text-danger-400">{error}</p>}
+              {error && !succeeded && <p className="text-xs font-bold text-danger-400">{error}</p>}
 
-              <button
-                type="submit"
-                disabled={busy || code.length !== 6}
-                className="w-full rounded-xl bg-copper-600 py-3 text-sm font-bold text-white shadow-soft transition-all hover:bg-copper-500 disabled:opacity-50"
-              >
-                {busy ? "جارٍ التحقق.." : "فتح اللوحة"}
-              </button>
+              {succeeded ? (
+                <div
+                  className="rounded-xl border border-success-500/40 bg-success-500/10 p-3 text-center"
+                  role="status"
+                >
+                  <p className="text-sm font-bold text-success-400">✓ تم التحقق بنجاح</p>
+                  <p className="mt-1 text-[11px] leading-5 text-steel-200">
+                    تم فتح جلستك بأمان — جارٍ نقلتك إلى اللوحة..
+                  </p>
+                </div>
+              ) : (
+                <button
+                  type="submit"
+                  disabled={busy || code.length !== 6}
+                  className="w-full rounded-xl bg-copper-600 py-3 text-sm font-bold text-white shadow-soft transition-all hover:bg-copper-500 disabled:opacity-50"
+                >
+                  {busy ? "جارٍ التحقق.." : "فتح اللوحة"}
+                </button>
+              )}
               <button
                 type="button"
                 onClick={() => setStep("credentials")}

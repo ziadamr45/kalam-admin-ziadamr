@@ -5,7 +5,7 @@ import { Prisma } from "@prisma/client";
 import { requireSession, isRejected, writeAudit, getClientIp } from "@/lib/guard";
 import { prisma } from "@/lib/prisma";
 import { destroyAudio } from "@/lib/cloudinary";
-import { kickWorker } from "@/lib/audio-job";
+import { kickWorker, normalizeChunks } from "@/lib/audio-job";
 
 /*
  * دورة حياة الصوت — البوابة الأمامية للمهمة الخلفية:
@@ -35,7 +35,14 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
 
     const article = await prisma.article.findUnique({
       where: { id },
-      select: { slug: true, audioStatus: true, audioJobId: true },
+      select: {
+        slug: true,
+        audioStatus: true,
+        audioJobId: true,
+        audioChunks: true,
+        audioProgress: true,
+        audioTotal: true,
+      },
     });
     if (!article) {
       return NextResponse.json({ error: "المقال غير موجود" }, { status: 404 });
@@ -56,9 +63,21 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
       );
     }
 
+    /* استئناف ذكي: بعد فشل سابق تبقى المقاطع المكتملة محفوظة (نصوصها
+       وروابطها المؤقتة) — إعادة المحاولة تكمل من أول مقطع ناقص بدل
+       حرق الحصة من الصفر؛ الوضع الجديد فقط (NONE/READY) يبدأ تخطيطًا نظيفًا */
+    const savedChunks = normalizeChunks(article.audioChunks);
+    const continueFromSaved =
+      article.audioStatus === "FAILED" && Boolean(savedChunks);
+
     let jobId = article.audioJobId ?? "";
-    if (!resuming) {
-      /* مهمة جديدة نظيفة — معرف فريد يحرس السلسلة ضد أي خطوات يتيمة */
+    if (!resuming && !continueFromSaved) {
+      /* مهمة جديدة نظيفة — تنظيف أي أصول مؤقتة يتيمة من مهمة سابقة أولًا */
+      if (savedChunks) {
+        await Promise.all(
+          savedChunks.filter((c) => c.publicId).map((c) => destroyAudio(c.publicId!)),
+        ).catch(() => {});
+      }
       jobId = `job-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
       await prisma.article.update({
         where: { id },
@@ -69,6 +88,17 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
           audioChunks: Prisma.DbNull,
           audioProgress: 0,
           audioTotal: 0,
+          audioUpdatedAt: new Date(),
+        },
+      });
+    } else if (!resuming && continueFromSaved) {
+      jobId = `job-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
+      await prisma.article.update({
+        where: { id },
+        data: {
+          audioStatus: "PROCESSING",
+          audioJobId: jobId,
+          audioError: null,
           audioUpdatedAt: new Date(),
         },
       });
@@ -84,7 +114,11 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
       action: resuming ? "article.audio_resumed" : "article.audio_started",
       entity: "Article",
       entityId: id,
-      meta: { slug: article.slug, jobId },
+      meta: {
+        slug: article.slug,
+        jobId,
+        ...(continueFromSaved ? { resumedFromSaved: true, progress: article.audioProgress } : {}),
+      },
       ip: getClientIp(request),
     });
 
@@ -95,7 +129,9 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
         jobId,
         message: resuming
           ? "أُعيد إطلاق سلسلة المعالجة الصوتية في الخلفية — ستُكمل من حيث توقفت"
-          : "بدأت عملية المعالجة الصوتية في الخلفية، يمكنك حفظ المقال أو نشره أو مغادرة الصفحة بأمان",
+          : continueFromSaved
+            ? `أُعيد إطلاق المعالجة في الخلفية من حيث توقفت (اكتمل ${article.audioProgress} من ${article.audioTotal})`
+            : "بدأت عملية المعالجة الصوتية في الخلفية، يمكنك حفظ المقال أو نشره أو مغادرة الصفحة بأمان",
       },
       { status: 202 },
     );
@@ -123,6 +159,7 @@ export async function GET(request: Request, { params }: { params: Promise<{ id: 
         audioError: true,
         audioUpdatedAt: true,
         audioWords: true,
+        audioJobId: true,
       },
     });
     if (!article) {
@@ -133,6 +170,16 @@ export async function GET(request: Request, { params }: { params: Promise<{ id: 
       article.audioStatus === "PROCESSING" &&
       Boolean(article.audioUpdatedAt) &&
       Date.now() - article.audioUpdatedAt!.getTime() > STALE_MS;
+
+    /* شفاء ذاتي: سلسلة معلقة (لا نبض منذ دقائق) تُفيض من هنا مباشرة —
+       الاستعلام الخفيف نفسه يعيد إطلاق العامل فلا انتظار تدخل بشري،
+       وحارس audioJobId يجعل الإطلاق آمنًا حتى مع تكرار الاستعلام */
+    if (stale && article.audioJobId) {
+      const job = { articleId: id, jobId: article.audioJobId, adminId: null };
+      after(() => {
+        void kickWorker(job);
+      });
+    }
 
     return NextResponse.json({
       audioStatus: article.audioStatus,
@@ -160,7 +207,7 @@ export async function DELETE(request: Request, { params }: { params: Promise<{ i
   try {
     const article = await prisma.article.findUnique({
       where: { id },
-      select: { slug: true, audioPublicId: true, audioStatus: true },
+      select: { slug: true, audioPublicId: true, audioStatus: true, audioChunks: true },
     });
     if (!article) {
       return NextResponse.json({ error: "المقال غير موجود" }, { status: 404 });
@@ -168,6 +215,13 @@ export async function DELETE(request: Request, { params }: { params: Promise<{ i
 
     /* إن كانت معالجة حيّة فهذه النقرة «إيقاف وإزالة»: مسح audioJobId
        يقتل السلسلة فورًا — كل الخطوات اليتيمة تصطدم بحارس المهمة وتنتهي */
+    const orphanTemps = normalizeChunks(article.audioChunks);
+    if (orphanTemps) {
+      await Promise.all(
+        orphanTemps.filter((c) => c.publicId).map((c) => destroyAudio(c.publicId!)),
+      ).catch(() => {});
+    }
+
     await prisma.article.update({
       where: { id },
       data: {

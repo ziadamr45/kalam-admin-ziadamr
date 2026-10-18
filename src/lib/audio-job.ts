@@ -41,8 +41,10 @@ import { writeAudit } from "@/lib/guard";
 const GAP_MS = 12_000;
 /** قاعدة التراجع الأُسّي عند 429: 20ث × رقم المحاولة (20/40/60) */
 const BACKOFF_BASE_MS = 20_000;
-/** أعلى عدد إعادات للمقطع الواحد قبل إعلان الفشل النهائي */
-const MAX_CHUNK_RETRIES = 3;
+/** أعلى عدد إعادات للمقطع الواحد قبل إعلان الفشل النهائي —
+    حصة Gemini المجانية تتجدد كل دقيقة، خمس محاولات متباعدة (~5 دقائق)
+    تمنح فرصة حقيقية لعبور نافذة الامتلاء دون مساس بالتقدم المحفوظ */
+const MAX_CHUNK_RETRIES = 5;
 /** أطول شريحة نوم داخل استدعاء واحد — تحمي مهلة الدالة السحابية (60ث) */
 const MAX_SLEEP_MS = 15_000;
 /** أعلى مقاطع للمهمة الواحدة (≈ 40 دقيقة صوت بالمقاطع الكبيرة) */
@@ -71,7 +73,8 @@ type ChunkRec = {
   mime: string;
 };
 
-function normalizeChunks(raw: unknown): ChunkRec[] | null {
+/** تطبيع سجل المقاطع المخزّن — تصدير عام لبوابة المهمة (الاستئناف الذكي والتنظيف) */
+export function normalizeChunks(raw: unknown): ChunkRec[] | null {
   if (!Array.isArray(raw) || raw.length === 0) return null;
   return raw.map((c: Partial<ChunkRec> | null) => ({
     text: String(c?.text ?? ""),
@@ -160,7 +163,11 @@ export async function kickWorker(job: AudioJob): Promise<void> {
  */
 export async function runAudioJobStep(job: AudioJob): Promise<boolean> {
   const { articleId, jobId } = job;
-  if (inFlight.has(articleId)) return true;
+  /* خطوة أخرى لنفس المقال تعمل الآن في هذه العملية → انسحب بلا إطلاق
+     الخطوة التالية: العامل الحي سيُطلق التالية بنفسه عند اكتماله —
+     إعادة الإطلاق هنا كانت تُكوّن سلسلة نداءات عديمة الجدوى تتكاثر
+     طوال مدة الخطوة الحية (نوم بوابة الانتظار حتى) */
+  if (inFlight.has(articleId)) return false;
   inFlight.add(articleId);
   try {
     const article = await prisma.article.findUnique({
@@ -281,12 +288,18 @@ export async function runAudioJobStep(job: AudioJob): Promise<boolean> {
         const ok = await touchJob(articleId, jobId, {
           audioChunks: chunks as never,
           audioError: `المقطع ${idx + 1}: ${
-            status === 429 ? "تجاوز حد الطلبات (429)" : "ضغط مؤقت على الخدمة"
+            status === 429 ? "حصة التوليد ممتلئة مؤقتًا (429)" : "ضغط مؤقت على الخدمة"
           } — إعادة تلقائية بعد ${Math.max(1, Math.round((rec.notBefore - Date.now()) / 1000))}ث (محاولة ${rec.attempts}/${MAX_CHUNK_RETRIES})`,
         });
         return ok;
       }
-      const msg = err instanceof Error ? err.message : "تعذر توليد الصوت — أعد المحاولة";
+      const doneCount = chunks.filter((c) => c.url).length;
+      const msg =
+        status === 429
+          ? `حصة التوليد ممتلئة الآن — تقدمك محفوظ (اكتمل ${doneCount} من ${chunks.length}) وأعد المحاولة بعد دقائق فسيُكمل من حيث توقف`
+          : err instanceof Error
+            ? err.message
+            : "تعذر توليد الصوت — أعد المحاولة";
       await failAudioJob(articleId, jobId, msg);
       return false;
     }
@@ -394,18 +407,21 @@ async function finalizeAudioJob(job: AudioJob, chunks: ChunkRec[]): Promise<void
 
 /* ============================ إعلان الفشل ============================ */
 
+/**
+ * إعلان فشل المهمة — دون مساس بالتقدم:
+ * المقاطع المكتملة (نصوصها وروابطها المؤقتة على التخزين السحابي)
+ * تبقى محفوظة في Neon، فإعادة المحاولة تستأنف من أول مقطع ناقص
+ * بدل حرق الحصة من الصفر في كل مرة — دورة الموت القديمة.
+ * الأصول المؤقتة تُنظف إما عند الختم النهائي أو عند بدء نظيف جديد.
+ */
 async function failAudioJob(articleId: string, jobId: string, message: string): Promise<void> {
   const article = await prisma.article.findUnique({
     where: { id: articleId },
-    select: { audioJobId: true, audioChunks: true },
+    select: { audioJobId: true, audioChunks: true, audioProgress: true, audioTotal: true },
   });
   if (!article || article.audioJobId !== jobId) return; // مهمة أحدث سيطرت — لا مساس
 
-  /* تنظيف الأصول المؤقتة لهذه المهمة تحديدًا */
   const chunks = normalizeChunks(article.audioChunks) ?? [];
-  await Promise.all(
-    chunks.filter((c) => c.publicId).map((c) => destroyAudio(c.publicId!)),
-  );
 
   await prisma.article
     .update({
@@ -414,8 +430,9 @@ async function failAudioJob(articleId: string, jobId: string, message: string): 
         audioStatus: "FAILED",
         audioError: message.slice(0, 300),
         audioJobId: null,
-        audioChunks: Prisma.DbNull,
-        audioProgress: 0,
+        audioChunks: chunks.length ? (chunks as never) : Prisma.DbNull,
+        audioProgress: chunks.length ? chunks.filter((c) => c.url).length : 0,
+        audioTotal: chunks.length || article.audioTotal || 0,
         audioUpdatedAt: new Date(),
       },
     })

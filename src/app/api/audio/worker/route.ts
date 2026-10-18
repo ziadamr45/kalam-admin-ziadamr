@@ -61,8 +61,22 @@ export async function POST(request: Request) {
             adminId: job.adminId ?? null,
           }),
         });
-        kick.catch(() => {});
-        await Promise.race([kick, new Promise((r) => setTimeout(r, 2500))]);
+        /* حماية النتيجة: «ok» وصل الرد | «fail» فشل الشببة قاطعًا |
+           «timeout» بارد الهدف وما يزال يطير (الإطلاق المتأخر يكمل عادة) */
+        const kickGuarded = kick.then(
+          () => "ok" as const,
+          () => "fail" as const,
+        );
+        const settled = await Promise.race([
+          kickGuarded,
+          new Promise<"timeout">((r) => setTimeout(() => r("timeout"), 2500)),
+        ]);
+        /* فشل الشبكة القاطع → الشفاء الذاتي: نفّذ الخطوة داخل هذا السياق
+           نفسه فلا تموت السلسلة — حارس audioJobId يجعلها آمنة حتى مع أي
+           تداخل نادر، وكشف التعليق في مسار الحالة صمام أمان أخير */
+        if (settled === "fail") {
+          await runAudioJobStep(job).catch(() => {});
+        }
       } catch {
         /* إن فشل الإرسال تبقى المهمة PROCESSING وكشف التعليق (stale)
            في مسار الحالة يسمح للأدمن بإعادة إطلاق السلسلة بضغطة */

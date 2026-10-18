@@ -95,7 +95,10 @@ export function AudioStudio({
         });
       } else if (s === "FAILED") {
         setStatus("FAILED");
-        setProgress(null);
+        /* التقدم المحفوظ يبقى معروضًا — إعادة المحاولة تكمل من أول مقطع ناقص */
+        const done = Number(d.done ?? 0);
+        const total = Number(d.total ?? 0);
+        setProgress(total > 0 ? { done, total } : null);
         setErrorText(d.error || "فشل التوليد الصوتي — أعد المحاولة");
       } else {
         setStatus("NONE");
@@ -293,7 +296,8 @@ export function AudioStudio({
           {stale && (
             <div className="mt-2 rounded-lg border border-amber-400/40 bg-amber-400/5 p-2">
               <p className="text-[10px] font-bold leading-5 text-amber-600">
-                بدت سلسلة المعالجة معلقة (لا نبض منذ دقائق) — أعد إطلاقها وستُكمل من حيث توقفت:
+                بدت السلسلة معلقة (لا نبض منذ دقائق) — النظام يعيد إطلاقها تلقائيًا خلال لحظات،
+                ويمكنك إعادة إطلاقها الآن فتُكمل من حيث توقفت:
               </p>
               <button
                 onClick={() => start(true)}
@@ -306,15 +310,20 @@ export function AudioStudio({
         </div>
       )}
 
-      {/* لوحة الفشل — سبب واضح + إعادة محاولة نظيفة */}
+      {/* لوحة الفشل — سبب واضح + متابعة من حيث التوقف (التقدم محفوظ في الخادم) */}
       {status === "FAILED" && (
         <div className="rounded-xl border border-danger-400/30 bg-danger-400/5 p-3">
           <p className="text-[11px] font-bold leading-6 text-danger-600">{errorText}</p>
+          {progress && progress.done > 0 && (
+            <p className="mt-1 text-[10px] font-bold leading-5 text-success-600">
+              تقدمك محفوظ: اكتمل {progress.done} من {progress.total} مقطعًا — المتابعة لن تعيد ما أُنجز
+            </p>
+          )}
           <button
             onClick={() => start(false)}
             className="mt-1.5 rounded-lg bg-danger-600 px-3 py-1.5 text-[10px] font-bold text-white transition-transform active:scale-[0.98]"
           >
-            إعادة المحاولة
+            {progress && progress.done > 0 ? "متابعة التوليد من حيث توقف" : "إعادة المحاولة"}
           </button>
         </div>
       )}

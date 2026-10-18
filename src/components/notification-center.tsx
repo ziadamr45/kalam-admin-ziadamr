@@ -194,6 +194,8 @@ function AdminNotificationDetailModal({
   onClose: () => void;
   onDismiss?: (item: AdminNotificationItem) => void;
 }) {
+  const [copied, setCopied] = useState(false);
+
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if (e.key === "Escape") onClose();
@@ -210,19 +212,31 @@ function AdminNotificationDetailModal({
   const color = typeColor(item.type);
   const meta = item.metadata ?? null;
 
+  const copyFull = async () => {
+    try {
+      await navigator.clipboard.writeText(`${item.title}\n\n${item.message}`);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    } catch {
+      /* الحافظة مرفوضة — النص معروض كاملًا أمام المستخدم على أي حال */
+    }
+  };
+
   return (
     <div
-      className="fixed inset-0 z-[100] flex items-end justify-center bg-black/45 p-4 backdrop-blur-[2px] sm:items-center"
+      className="fixed inset-0 z-[100] flex items-end justify-center bg-black/45 p-3 backdrop-blur-[2px] sm:items-center sm:p-4"
       onClick={onClose}
       role="dialog"
       aria-modal="true"
       aria-label={item.title}
     >
+      {/* بطاقة مرنة عموديًا: الرأس والتذييل ثابتان والمحتوى يتمدد ويمرّر —
+          لا يمكن أبدًا أن يتجاوز 92% من الشاشة فلا يُقص أي حرف على أي جهاز */}
       <div
-        className="w-full max-w-md animate-fade-in overflow-hidden rounded-2xl border border-steel-200 bg-white shadow-lg"
+        className="flex max-h-[92vh] w-full max-w-md animate-fade-in flex-col overflow-hidden rounded-2xl border border-steel-200 bg-white shadow-lg"
         onClick={(e) => e.stopPropagation()}
       >
-        <div className="flex items-center justify-between gap-2 border-b border-steel-100 px-4 py-3">
+        <div className="flex shrink-0 items-center justify-between gap-2 border-b border-steel-100 px-4 py-3">
           <span className="flex items-center gap-2">
             <span className="mt-0 h-2.5 w-2.5 rounded-full" style={{ background: color }} />
             <span
@@ -244,9 +258,9 @@ function AdminNotificationDetailModal({
           </button>
         </div>
 
-        <div className="max-h-[60vh] overflow-y-auto overscroll-contain px-4 py-4">
+        <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-4 py-4">
           <h3 className="text-base font-extrabold leading-8 text-steel-900">{item.title}</h3>
-          <p className="mt-2 whitespace-pre-wrap text-sm leading-8 text-steel-600">{item.message}</p>
+          <p className="mt-2 whitespace-pre-wrap break-words text-sm leading-8 text-steel-600">{item.message}</p>
 
           {meta && (meta.device || meta.location || meta.ip || meta.when) && (
             <div className="mt-4 space-y-1.5 rounded-xl bg-steel-50 p-3 text-[11px] leading-6 text-steel-500">
@@ -273,10 +287,18 @@ function AdminNotificationDetailModal({
             </div>
           )}
 
-          <div className="mt-4 text-[11px] text-steel-400">{exactFmt.format(new Date(item.createdAt))}</div>
+          <div className="mt-4 flex items-center justify-between gap-2">
+            <span className="text-[11px] text-steel-400">{exactFmt.format(new Date(item.createdAt))}</span>
+            <button
+              onClick={copyFull}
+              className="rounded-lg border border-steel-200 px-2.5 py-1 text-[10px] font-bold text-steel-500 transition-colors hover:bg-steel-50"
+            >
+              {copied ? "✓ نُسخ كاملًا" : "نسخ النص كاملًا"}
+            </button>
+          </div>
         </div>
 
-        <div className="flex items-center justify-between gap-2 border-t border-steel-100 px-4 py-3">
+        <div className="flex shrink-0 items-center justify-between gap-2 border-t border-steel-100 px-4 py-3">
           {item.link ? (
             <Link
               href={item.link}
@@ -308,9 +330,11 @@ function AdminNotificationDetailModal({
 /* ===================== شريط الطوارئ العلوي ===================== */
 
 export function AdminUrgentBar() {
-  const { urgent, markOne } = useAdminNotifications();
+  const { items, urgent, markOne, openDetail, detail, closeDetail, dismiss } = useAdminNotifications();
   if (!urgent) return null;
   const isAlert = urgent.type === "ADMIN_SYSTEM_ALERT";
+  /* العنصر الكامل من القائمة (يحمل isRead وcreatedAt اللذين تعرضهما النافذة) */
+  const fullItem = items.find((n) => n.id === urgent.id) ?? (urgent as AdminNotificationItem);
   return (
     <div
       className="flex flex-wrap items-center justify-between gap-2 border-b px-4 py-2 text-xs font-bold lg:px-8"
@@ -321,13 +345,25 @@ export function AdminUrgentBar() {
       }}
       role="alert"
     >
-      <span className="flex min-w-0 items-center gap-2">
+      {/* ضغطة على نص التنبيه نفسه تفتح التفاصيل الكاملة — الشريط ملخص 90 حرفًا
+          بحكم موقعه، والنص الكامل يُعرض في نافذة التفاصيل بلا أي اقتطاع */}
+      <button
+        onClick={() => openDetail(fullItem)}
+        className="flex min-w-0 flex-1 items-center gap-2 text-right"
+        aria-label="عرض التنبيه كاملًا"
+      >
         <span className="inline-block h-2 w-2 shrink-0 animate-pulse rounded-full" style={{ background: isAlert ? "#DC2626" : "#EA580C" }} />
         <span className="truncate">
           {urgent.title} — {urgent.message.slice(0, 90)}
         </span>
-      </span>
+      </button>
       <span className="flex shrink-0 items-center gap-2">
+        <button
+          onClick={() => openDetail(fullItem)}
+          className="underline underline-offset-4 hover:opacity-80"
+        >
+          عرض كاملًا
+        </button>
         <Link href={urgent.link ?? "/system?tab=errors"} className="underline underline-offset-4 hover:opacity-80">
           فتح
         </Link>
@@ -335,6 +371,10 @@ export function AdminUrgentBar() {
           تمت المعالجة
         </button>
       </span>
+
+      {detail && (
+        <AdminNotificationDetailModal item={detail} onClose={closeDetail} onDismiss={dismiss} />
+      )}
     </div>
   );
 }
