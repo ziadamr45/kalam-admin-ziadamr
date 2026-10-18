@@ -19,6 +19,11 @@ const SETUP_COOKIE = "kalam_admin_setup";
 const PUBLIC_PATHS = [
   "/login",
   "/api/auth/login",
+  /* المرحلة الثانية من الدخول: التحقق من الرمز المتغير — الجلسة الكاملة
+     لم تُصدر بعد بطبيعة الحال، وحمايته الحقيقية هي كوكي preauth الموقّع
+     (SameSite=Strict، 5 دقائق) + الرمز نفسه أمام المسار مباشرة.
+     إقامة الجلسة عليه كانت تُرجع كل محاولة دخول بـ«جلسة غير صالحة» */
+  "/api/auth/verify-2fa",
   "/api/auth/logout",
   "/api/health",
   "/api/cron",
