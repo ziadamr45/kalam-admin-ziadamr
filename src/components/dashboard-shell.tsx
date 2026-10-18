@@ -290,7 +290,11 @@ export function DashboardShell({
             </div>
           </header>
 
-          <main className="flex-1 p-4 lg:p-8">{children}</main>
+          {/* حاوية بعرض أقصى — على شاشات الكمبيوتر الواسعة لا يتمدد المحتوى
+              حتى يفقد شكله، بل يبقى متمركزًا بمقاس مريح للعين على كل الأجهزة */}
+          <main className="flex-1 p-3 sm:p-4 lg:p-8">
+            <div className="mx-auto w-full max-w-7xl">{children}</div>
+          </main>
         </div>
       </div>
 

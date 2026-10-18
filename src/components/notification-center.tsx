@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { useCallback, useEffect, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 
 /**
  * مركز الإشعارات السيادية في لوحة الأدمن:
@@ -195,6 +196,15 @@ function AdminNotificationDetailModal({
   onDismiss?: (item: AdminNotificationItem) => void;
 }) {
   const [copied, setCopied] = useState(false);
+  /* البوابة إلى جسم الصفحة إلزامية: النافذة تُستدعى من داخل الجرس/شريط الطوارئ
+     وهما داخل هيدر عليه backdrop-blur — وأي عنصر بـbackdrop-filter يصير حاوية
+     إسناد لأبنائه fixed، فتنحبس النافذة في صندوق الهيدر (56px) وتُقص من فوق.
+     البوابة تخرجها من ذلك السياق إلى الشاشة كلها على كل الأجهزة. */
+  const [mounted, setMounted] = useState(false);
+  useEffect(() => {
+    setMounted(true);
+    return () => setMounted(false);
+  }, []);
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -222,7 +232,9 @@ function AdminNotificationDetailModal({
     }
   };
 
-  return (
+  if (!mounted) return null;
+
+  return createPortal(
     <div
       className="fixed inset-0 z-[100] flex items-end justify-center bg-black/45 p-3 backdrop-blur-[2px] sm:items-center sm:p-4"
       onClick={onClose}
@@ -231,9 +243,10 @@ function AdminNotificationDetailModal({
       aria-label={item.title}
     >
       {/* بطاقة مرنة عموديًا: الرأس والتذييل ثابتان والمحتوى يتمدد ويمرّر —
-          لا يمكن أبدًا أن يتجاوز 92% من الشاشة فلا يُقص أي حرف على أي جهاز */}
+          لا يمكن أبدًا أن يتجاوز 92% من الشاشة فلا يُقص أي حرف على أي جهاز،
+          وتتسع على الكمبيوتر والتابلت لقراءة مريحة */}
       <div
-        className="flex max-h-[92vh] w-full max-w-md animate-fade-in flex-col overflow-hidden rounded-2xl border border-steel-200 bg-white shadow-lg"
+        className="flex max-h-[92vh] w-full max-w-md flex-col overflow-hidden rounded-2xl border border-steel-200 bg-white shadow-lg animate-fade-up sm:max-w-lg md:max-w-2xl"
         onClick={(e) => e.stopPropagation()}
       >
         <div className="flex shrink-0 items-center justify-between gap-2 border-b border-steel-100 px-4 py-3">
@@ -323,7 +336,8 @@ function AdminNotificationDetailModal({
           )}
         </div>
       </div>
-    </div>
+    </div>,
+    document.body,
   );
 }
 
@@ -354,7 +368,7 @@ export function AdminUrgentBar() {
       >
         <span className="inline-block h-2 w-2 shrink-0 animate-pulse rounded-full" style={{ background: isAlert ? "#DC2626" : "#EA580C" }} />
         <span className="truncate">
-          {urgent.title} — {urgent.message.slice(0, 90)}
+          {urgent.title} — {urgent.message.slice(0, 120)}
         </span>
       </button>
       <span className="flex shrink-0 items-center gap-2">

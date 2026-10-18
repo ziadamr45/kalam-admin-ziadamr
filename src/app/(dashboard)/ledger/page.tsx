@@ -255,7 +255,7 @@ export default function LedgerPage() {
 
       {/* الملخص التنفيذي */}
       {summary && (
-        <div className="grid grid-cols-3 gap-3 lg:grid-cols-6">
+        <div className="grid grid-cols-3 gap-3 md:grid-cols-6">
           {stats.map((s) => (
             <div key={s.label} className="rounded-xl border border-steel-100 bg-white p-4 text-center">
               <p className={`text-2xl font-bold tabular-nums ${s.tone}`}>{eastern(s.n)}</p>

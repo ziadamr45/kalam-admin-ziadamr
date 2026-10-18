@@ -86,8 +86,8 @@ export function AnalyticsPanels({
         <span className="text-[11px] text-steel-400">محسوبة لحظة الفتح من قاعدة البيانات الحية</span>
       </div>
 
-      {/* البطاقات العليا */}
-      <div className="grid grid-cols-2 gap-4 lg:grid-cols-6">
+      {/* البطاقات العليا — عمودان هاتفًا وثلاثة تابلت وستة كمبيوتر */}
+      <div className="grid grid-cols-2 gap-3 sm:gap-4 md:grid-cols-3 lg:grid-cols-6">
         <StatCard label="إجمالي المشاهدات" value={totals.views} hint="كل المقالات المنشورة" />
         <StatCard label="قراءات مكتملة" value={totals.completedReads} hint={`نسبة الإكمال ${new Intl.NumberFormat("ar-EG").format(completionRate)}%`} />
         <StatCard label="تفاعلات الإعجاب" value={totals.interactions} hint="إعجاب + عدم إعجاب" />
@@ -121,7 +121,7 @@ export function AnalyticsPanels({
         </div>
       </Card>
 
-      <div className="grid gap-6 lg:grid-cols-2">
+      <div className="grid gap-6 md:grid-cols-2">
         {/* أكثر المقالات قراءة */}
         <Card className="p-5">
           <h2 className="mb-4 text-sm font-bold text-steel-800">أكثر المقالات قراءة</h2>

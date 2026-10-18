@@ -40,13 +40,13 @@ function DailyInteractions() {
         <p className="py-10 text-center text-sm text-steel-400">جارٍ التحميل..</p>
       ) : (
         <>
-          <div className="mb-5 grid grid-cols-3 gap-3">
+          <div className="mb-5 grid grid-cols-3 gap-2 sm:gap-3">
             {[
               { label: "دخول Google", value: data.logins24h, tone: "text-success-600" },
               { label: "إعجابات", value: data.likes24h, tone: "text-copper-700" },
               { label: "استياءات", value: data.dislikes24h, tone: "text-danger-600" },
             ].map((s) => (
-              <div key={s.label} className="rounded-xl border border-steel-100 p-4 text-center">
+              <div key={s.label} className="rounded-xl border border-steel-100 p-3 text-center sm:p-4">
                 <p className={`text-xl font-bold ${s.tone}`}>{easternDigits(s.value)}</p>
                 <p className="mt-1 text-[10px] text-steel-400">{s.label}</p>
               </div>
@@ -91,7 +91,7 @@ export default function AuditPage() {
         </p>
       </div>
 
-      <div className="grid gap-6 xl:grid-cols-2">
+      <div className="grid gap-6 md:grid-cols-2">
         <AuditPanel />
         <div className="space-y-6">
           <ErrorsPanel />

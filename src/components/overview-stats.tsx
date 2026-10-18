@@ -80,15 +80,15 @@ export function OverviewStats({ data }: { data: OverviewData }) {
         </button>
       </div>
 
-      {/* بطاقات الإحصاء */}
-      <div className="grid grid-cols-2 gap-4 lg:grid-cols-4">
+      {/* بطاقات الإحصاء — عمودان هاتفًا وثلاثة تابلت وأربعة كمبيوتر */}
+      <div className="grid grid-cols-2 gap-3 sm:gap-4 md:grid-cols-4">
         <StatCard title="زيارات اليوم" value={fmt(data.visitsToday)} sub={`الأسبوع: ${fmt(data.visitsThisWeek)}`} delta={data.weeklyDelta} tone="copper" />
         <StatCard title="قراءات متكاملة اليوم" value={fmt(data.completedToday)} sub={`معدل الإكمال: ${fmt(data.completionRate)}%`} tone="steel" />
         <StatCard title="إعجابات / عدم إعجاب" value={`${fmt(data.likesTotal)} / ${fmt(data.dislikesTotal)}`} sub="إجمالي تفاعلات المنصة" tone="steel" />
         <StatCard title="تعليقات بانتظار المراجعة" value={fmt(data.commentsPending)} sub="تحتاج قرارك الآن" tone={data.commentsPending > 0 ? "danger" : "steel"} action={{ label: "مراجعة", href: "/comments" }} />
       </div>
 
-      <div className="grid grid-cols-2 gap-4 lg:grid-cols-4">
+      <div className="grid grid-cols-2 gap-3 sm:gap-4 md:grid-cols-4">
         <StatCard title="مشاركات الاقتباسات" value={fmt(data.sharesTotal)} sub="عبر السوشيال ميديا" tone="steel" />
         <StatCard title="مقالات منشورة" value={fmt(data.publishedCount)} sub="منشورة حاليًا" tone="steel" action={{ label: "إدارة", href: "/articles" }} />
         <StatCard title="مقالات مجدولة" value={fmt(data.scheduledCount)} sub="ستنشر تلقائيًا" tone="steel" />
@@ -96,7 +96,7 @@ export function OverviewStats({ data }: { data: OverviewData }) {
       </div>
 
       {/* صف القراء المسجلين — حسابات Google الحقيقية */}
-      <div className="grid grid-cols-2 gap-4 lg:grid-cols-4">
+      <div className="grid grid-cols-2 gap-3 sm:gap-4 md:grid-cols-4">
         <StatCard
           title="قراء مسجلون"
           value={fmt(data.usersTotal)}
@@ -125,9 +125,9 @@ export function OverviewStats({ data }: { data: OverviewData }) {
         />
       </div>
 
-      {/* المخططات */}
-      <div className="grid gap-6 lg:grid-cols-3">
-        <Card className="p-5 lg:col-span-2">
+      {/* المخططات — عمود واحد هاتفًا وعمودان تابلت وثلاثة كمبيوتر */}
+      <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-3">
+        <Card className="p-5 md:col-span-2 lg:col-span-2">
           <h3 className="mb-4 text-sm font-bold text-steel-800">الزيارات — آخر ١٤ يومًا</h3>
           <div dir="ltr" className="h-64">
             <ResponsiveContainer width="100%" height="100%">
@@ -188,8 +188,8 @@ export function OverviewStats({ data }: { data: OverviewData }) {
         </Card>
       </div>
 
-      <div className="grid gap-6 lg:grid-cols-3">
-        <Card className="p-5 lg:col-span-2">
+      <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-3">
+        <Card className="p-5 md:col-span-2 lg:col-span-2">
           <h3 className="mb-4 text-sm font-bold text-steel-800">الأكثر قراءة (مشاهدات + إعجابات)</h3>
           {data.topArticles.length === 0 ? (
             <p className="py-16 text-center text-xs text-steel-400">لا مقالات منشورة بعد</p>

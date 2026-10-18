@@ -93,7 +93,7 @@ export function Modal({
       onClick={onClose}
     >
       <div
-        className={`max-h-[90vh] w-full overflow-y-auto rounded-2xl bg-white p-6 shadow-lift animate-fade-up ${wide ? "max-w-3xl" : "max-w-lg"}`}
+        className={`max-h-[90vh] w-full overflow-y-auto rounded-2xl bg-white p-4 shadow-lift animate-fade-up sm:p-6 ${wide ? "max-w-3xl" : "max-w-lg"}`}
         onClick={(e) => e.stopPropagation()}
       >
         <div className="mb-4 flex items-center justify-between">

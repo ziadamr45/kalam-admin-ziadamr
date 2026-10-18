@@ -261,7 +261,7 @@ export function SystemPanels() {
       {/* ================== النبض الحي ================== */}
       {tab === "pulse" && (
         <div className="space-y-4">
-          <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
+          <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
             <StatCard
               label="استجابة Neon DB"
               value={db ? `${db.latencyMs}ms` : "—"}
@@ -282,7 +282,7 @@ export function SystemPanels() {
             />
           </div>
 
-          <div className="grid gap-4 lg:grid-cols-2">
+          <div className="grid gap-4 md:grid-cols-2">
             <Card className="p-4">
               <p className="mb-3 text-sm font-black text-steel-700">أكثر المسارات مرورًا — آخر {telemetry?.traffic.windowMinutes ?? 60} دقيقة</p>
               <div className="space-y-2">
@@ -445,7 +445,7 @@ export function SystemPanels() {
 
       {/* ================== الحصص الخارجية ================== */}
       {tab === "quotas" && telemetry && (
-        <div className="grid gap-4 lg:grid-cols-2">
+        <div className="grid gap-4 md:grid-cols-2">
           {(
             [
               ["محاورة Gemini النصية", telemetry.quotas.geminiChat],
