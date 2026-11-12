@@ -15,8 +15,8 @@ export type McpToolSchema = {
 };
 
 export const MCP_PROTOCOL_VERSION = "2025-03-26";
-export const MCP_SERVER_NAME = "kalam-sovereign-admin";
-export const MCP_SERVER_VERSION = "3.3.0";
+export const MCP_SERVER_NAME = "كلام له لازمة - Kalam Laho Lazma";
+export const MCP_SERVER_VERSION = "4.0.0";
 
 export const MCP_TOOLS: McpToolSchema[] = [
   /* ==================== أ) أدوات المقالات ==================== */
@@ -1106,6 +1106,622 @@ export const MCP_TOOLS: McpToolSchema[] = [
     description:
       "فحص أمني حي لبوابات المصادقة: يجرّب نداءات مجهولة (بلا جلسة ولا كوكيز) على كل نقطة النهاية التفاعلية للمنصة العامة ويتحقق أنها مغلقة بإحكام (401/403) — التعليقات، تصويت التعليقات والمقالات، الحفظ، محاورة الذكاء الاصطناعي، المقترحات، الاشتراكات، الملف الشخصي، محو الحساب.",
     inputSchema: { type: "object", properties: {} },
+  },
+
+  /* ==================== و) مركز السيطرة والتحكم (مخططات ناقصة أُكملت) ==================== */
+  {
+    name: "get_system_telemetry",
+    description:
+      "مرصد النظام الحي: نبض قاعدة Neon (زمن الاستجابة) وحالة خدمات المنصة الخارجية (Gemini وResend وCloudinary) ومؤشرات الإنتاج من نداء واحد — نقطة البداية لأي تشخيص صحة.",
+    inputSchema: { type: "object", properties: {} },
+  },
+  {
+    name: "get_traffic_log",
+    description:
+      "سجل حركة المنصة الحي من جدول الأحداث: من دخل ومتى وإلى أي مسار، مع فلترة بمستخدم أو مسار وعرض الأخطاء فقط — عينك على ما يجعل الآن داخل المنصة العامة.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        seconds: { type: "number", description: "آخر كم ثانية (افتراضي 600، من 60 إلى 86400)" },
+        userId: { type: "string", description: "فلترة بمعرف مستخدم محدد" },
+        errorOnly: { type: "boolean", description: "الأخطاء فقط" },
+        path: { type: "string", description: "فلترة بمسار (مثل /article)" },
+        limit: { type: "number", description: "عدد الأحداث (افتراضي 60، أقصى 200)" },
+      },
+    },
+  },
+  {
+    name: "get_server_errors",
+    description:
+      "آخر أخطاء الخادم المسجلة (500 وما شابه) بتفاصيلها لتنقيح الأعطال — أحدثها أولًا مع مسار الطلب وسبب الجذر.",
+    inputSchema: {
+      type: "object",
+      properties: { limit: { type: "number", description: "عدد الأخطاء (افتراضي 25، أقصى 100)" } },
+    },
+  },
+  {
+    name: "get_api_quotas",
+    description:
+      "استهلاك حصص الخدمات الخارجية: Gemini (توليد الصوت والنقاش) وResend (البريد) وCloudinary (الوسائط) — الأرقام الحية من جداول تتبع الاستخدام.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        key: { type: "string", description: "فلترة بخدمة محددة (مثل gemini)" },
+        category: { type: "string", description: "فلترة بفئة الاستخدام" },
+      },
+    },
+  },
+  {
+    name: "get_site_config",
+    description:
+      "قراءة التكوين السيادي الحي للمنصة (جدول SiteConfig): اسم الموقع والوصف والعناوين والتفضيلات العامة — القيمة النافذة الآن على الإنتاج لا في الملفات.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        key: { type: "string", description: "مفتاح محدد — يُترك فارغًا لجلب التكوين كاملًا" },
+        category: { type: "string", description: "فلترة بفئة" },
+      },
+    },
+  },
+  {
+    name: "set_site_config",
+    description:
+      "تعديل التكوين السيادي وتطبيقه لحظيًا على الإنتاج دون إعادة نشر — يُعيد تحقق كاش المنصة العامة فورًا. كل تعديل يُوثق في سجل التدقيق.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        entries: {
+          type: "array",
+          description: "مصفوفة [{ key, value }] — مفتاح واحد على الأقل",
+          items: { type: "object", properties: { key: { type: "string" }, value: {} } },
+        },
+      },
+      required: ["entries"],
+    },
+  },
+  {
+    name: "admin_cli",
+    description:
+      "التيرمينال السيادي الكامل — نفس محرك واجهة /system في اللوحة: sys info | cache purge | user inspect <email> | user ban/unban <email> | config set <key> <value> | db stats | traffic tail | errors tail | security tail — أي أمر مقبول في واجهة الويب يعمل هنا.",
+    inputSchema: {
+      type: "object",
+      properties: { command: { type: "string", description: "نص الأمر كاملًا — مثال: user inspect ziad90216@gmail.com" } },
+      required: ["command"],
+    },
+  },
+  {
+    name: "send_test_push",
+    description:
+      "بث إشعار تجريبي لأجهزة صاحب المنصة المسجلة لفحص حيوية قناة التنبيهات الفورية (Web Push) — افتراضيًا رسالة فحص قياسية أو نص مخصص.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        title: { type: "string", description: "عنوان الإشعار — اختياري" },
+        body: { type: "string", description: "متن الإشعار — اختياري" },
+      },
+    },
+  },
+  {
+    name: "get_security_overview",
+    description:
+      "اللوحة الأمنية المجمعة لآخر 24 ساعة في نداء واحد: محاولات الاختراق الفاشلة واندفاعات Brute-force واصطياد Honeypot وتجاوزات حدود المعدل وأحدث التنبيهات والأخطاء — قراءة سريعة لصحة الدرع.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        alertsLimit: { type: "number", description: "عدد التنبيهات (افتراضي 15، أقصى 50)" },
+        errorsLimit: { type: "number", description: "عدد الأخطاء (افتراضي 10، أقصى 30)" },
+      },
+    },
+  },
+  {
+    name: "kalam_manage_vip_privileges",
+    description:
+      "إدارة العضوية المميزة المستقلة (VIP): check فحص الحالة الكاملة | grant منح بكبسولة مخصصة وصلاحيات | set_privileges تعديل مفاتيح الصلاحيات | revoke سحب — كيان مستقل تمامًا عن التوثيق الرسمي، ولا يُمس حساب صاحب المنصة.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        action: { type: "string", enum: ["check", "grant", "set_privileges", "revoke"], description: "الفعل المطلوب" },
+        email: { type: "string", description: "بريد القارئ المستهدف" },
+        badgeTitle: { type: "string", description: "مسمى الكبسولة (إلزامي مع grant)" },
+        badgeColor: { type: "string", description: "لون الكبسولة hex — افتراضي #7C3AED" },
+        reason: { type: "string", description: "السبب — إلزامي مع grant وset_privileges وrevoke ويثبت في الإشعار والسجل" },
+        role: { type: "string", enum: ["USER", "MODERATOR", "EDITOR", "ADMIN"], description: "رتبة تُمنح مع العضوية (اختياري)" },
+        privileges: { type: "object", description: "مفاتيح الصلاحيات {key: true/false} — تُدمج جزئيًا فوق الموجود" },
+        welcomePoints: { type: "number", description: "نقاط ترحيبية مع المنح" },
+        resetRole: { type: "boolean", description: "مع revoke: تصفير الرتبة الممنوحة أيضًا" },
+      },
+      required: ["action", "email"],
+    },
+  },
+  {
+    name: "kalam_manage_verification",
+    description:
+      "إدارة التوثيق الرسمي (إثبات الهوية فقط): check | grant منح | update تعديل التصنيف أو المسمى | revoke سحب — بلا أي امتيازات ذاتية؛ العضوية المميزة كيان مستقل يُدار بأداة أخرى.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        action: { type: "string", enum: ["check", "grant", "update", "revoke"], description: "الفعل المطلوب" },
+        email: { type: "string", description: "بريد القارئ المستهدف" },
+        verificationType: { type: "string", enum: ["OWNER", "OFFICIAL_AUTHOR", "FAMILY_CORE", "NOTABLE"], description: "تصنيف التوثيق — افتراضي OFFICIAL_AUTHOR" },
+        verificationLabel: { type: "string", description: "مسمى عرض اختياري بجانب الختم" },
+        reason: { type: "string", description: "السبب (إلزامي مع revoke)" },
+      },
+      required: ["action", "email"],
+    },
+  },
+  {
+    name: "kalam_dispatch_vip_notification",
+      description:
+      "إطلاق إشعار التوثيق/العضوية لمستخدم عبر القنوات الثلاث (جرس داخلي + Push + بريد معاملاتي) بأحداث جاهزة GRANTED | ELITE | MODIFIED | REVOKED | VERIFIED | UNVERIFIED أو CUSTOM بنص حر كامل.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        email: { type: "string", description: "بريد المستخدم المستهدف" },
+        event: { type: "string", enum: ["GRANTED", "ELITE", "MODIFIED", "REVOKED", "VERIFIED", "UNVERIFIED", "CUSTOM"], description: "نوع الحدث — افتراضي CUSTOM" },
+        customTitle: { type: "string", description: "العنوان (إلزامي مع CUSTOM)" },
+        customBody: { type: "string", description: "المتن (إلزامي مع CUSTOM)" },
+        badgeTitle: { type: "string", description: "مسمى الكبسولة للأحداث الجاهزة" },
+        badgeColor: { type: "string", description: "لون الكبسولة للأحداث الجاهزة" },
+        reason: { type: "string", description: "السبب للأحداث الجاهزة" },
+      },
+      required: ["email"],
+    },
+  },
+  {
+    name: "kalam_get_audit_summary",
+    description:
+      "السجل السيادي للتدقيق والامتثال: أرقام تنفيذية (إجمالي القيود وتوزيعها) + آخر القيود التفصيلية (الفاعل والمستهدف والسبب والدليل) — بفترة أيام وفئة وحد.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        days: { type: "number", description: "آخر كم يوم (افتراضي 7، من 1 إلى 365)" },
+        limit: { type: "number", description: "عدد القيود المعروضة (افتراضي 20، أقصى 100)" },
+        category: { type: "string", description: "فلترة بفئة القيد" },
+      },
+    },
+  },
+  {
+    name: "kalam_execute_hard_delete",
+    description:
+      "المحو السيادي الشامل لحساب قارئ — حذف تام غير رجعي لكل آثاره (مقالات وتعليقات وتفاعلات ووسائط واشتراكات) موثقًا بالسبب والدليل: سبب إلزامي من الثلاثة المعتمدة OFFICIAL_USER_REQUEST | SEVERE_DIALOGUE_VIOLATION | SECURITY_ABUSE مع دليل URL عند الحاجة — بوابة الحماية تمنع محو المالك.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        email: { type: "string", description: "بريد الحساب المستهدف" },
+        reasonCode: { type: "string", enum: ["OFFICIAL_USER_REQUEST", "SEVERE_DIALOGUE_VIOLATION", "SECURITY_ABUSE"], description: "تصنيف السبب المعتمد — إلزامي" },
+        reason: { type: "string", description: "تفصيل السبب" },
+        evidenceUrl: { type: "string", description: "رابط الدليل (بلاغ/لقطة)" },
+      },
+      required: ["email", "reasonCode"],
+    },
+  },
+  {
+    name: "kalam_generate_audit_pdf",
+    description:
+      "توليد التقرير الرقابي الفاخر (PDF) لآخر أسبوع أو شهر مع رابط تنزيل موقّع صالح 30 يومًا — يُوثق التوليد في السجل.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        range: { type: "string", enum: ["weekly", "monthly"], description: "نطاق التقرير — افتراضي weekly" },
+      },
+    },
+  },
+
+  /* ==================== ز) البنية التحتية — GitHub (v4.0.0) ==================== */
+  {
+    name: "gh_get_repo",
+    description:
+      "نظرة شاملة على أحد مستودعي المنصة على GitHub: المعلومات الأساسية والفرع الافتراضي وقائمة الفروع مع آخر SHA لكل فرع — نقطة البداية لأي عمل كودي.",
+    inputSchema: {
+      type: "object",
+      properties: { repo: { type: "string", enum: ["public", "admin"], description: "public الموقع العام (افتراضي) | admin لوحة الأدمن" } },
+    },
+  },
+  {
+    name: "gh_list_tree",
+    description:
+      "استكشاف شجرة ملفات المستودع كاملة أو من مسار محدد — أسماء الملفات وأنواعها وأحجامها، لمعرفة مكان أي كود قبل قراءته أو تعديله.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        repo: { type: "string", enum: ["public", "admin"], description: "المستودع — افتراضي public" },
+        ref: { type: "string", description: "الفرع أو SHA — افتراضي main" },
+        path: { type: "string", description: "تضييق على مسار — مثال: src/lib" },
+      },
+    },
+  },
+  {
+    name: "gh_get_file",
+    description: "قراءة ملف كامل من المستودع بمحتواه النصي وSHA الخاص به — الكود والإعدادات وprisma/schema.prisma وكل شيء.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        repo: { type: "string", enum: ["public", "admin"], description: "المستودع — افتراضي public" },
+        path: { type: "string", description: "مسار الملف — مثال: src/app/layout.tsx — إلزامي" },
+        ref: { type: "string", description: "الفرع أو SHA — افتراضي main" },
+      },
+      required: ["path"],
+    },
+  },
+  {
+    name: "gh_save_file",
+    description:
+      "إنشاء أو تعديل أي ملف في المستودع بكوميت مباشر: مرر المسار والمحتوى الكامل الجديد ورسالة الكوميت — يعرف تلقائيًا أن الملف قائم (تحديث) أم جديد (إنشاء). يُوثق في سجل التدقيق.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        repo: { type: "string", enum: ["public", "admin"], description: "المستودع — افتراضي public" },
+        path: { type: "string", description: "مسار الملف — إلزامي" },
+        content: { type: "string", description: "النص الكامل الجديد للملف — إلزامي" },
+        message: { type: "string", description: "رسالة الكوميت" },
+        branch: { type: "string", description: "الفرع — افتراضي main" },
+        sha: { type: "string", description: "SHA الملف إن كنت تملكه — يُجلب تلقائيًا إن غاب" },
+      },
+      required: ["path", "content"],
+    },
+  },
+  {
+    name: "gh_delete_file",
+    description: "حذف ملف من المستودع بكوميت موثق — يجلب SHA تلقائيًا ويرسل الحذف إلى الفرع المحدد. يُوثق في سجل التدقيق.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        repo: { type: "string", enum: ["public", "admin"], description: "المستودع — افتراضي public" },
+        path: { type: "string", description: "مسار الملف — إلزامي" },
+        message: { type: "string", description: "رسالة كوميت الحذف" },
+        branch: { type: "string", description: "الفرع — افتراضي main" },
+      },
+      required: ["path"],
+    },
+  },
+  {
+    name: "gh_list_commits",
+    description: "سجل الكوميتات الأحدث أولًا — بفلترة اختيارية بمسار ملف محدد لمعرفة من غيّر ماذا ومتى.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        repo: { type: "string", enum: ["public", "admin"], description: "المستودع — افتراضي public" },
+        path: { type: "string", description: "فلترة بملف محدد" },
+        limit: { type: "number", description: "عدد الكوميتات (افتراضي 15، أقصى 50)" },
+      },
+    },
+  },
+  {
+    name: "gh_get_diff",
+    description:
+      "مقارنة مرجعين (SHA أو فرعين أو main~3) — الكوميتات الفاصلة والملفات المتغيرة مع patch كل ملف: فرق دقيق قبل أي قرار دمج أو تراجع.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        repo: { type: "string", enum: ["public", "admin"], description: "المستودع — افتراضي public" },
+        base: { type: "string", description: "المرجع الأقدم — إلزامي" },
+        head: { type: "string", description: "المرجع الأحدث — إلزامي" },
+      },
+      required: ["base", "head"],
+    },
+  },
+  {
+    name: "gh_create_branch",
+    description: "إنشاء فرع جديد من فرع قائم (افتراضيًا من main) — لعمل تعديلات معزولة قبل دمجها. يُوثق في سجل التدقيق.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        repo: { type: "string", enum: ["public", "admin"], description: "المستودع — افتراضي public" },
+        branch: { type: "string", description: "اسم الفرع الجديد — إلزامي" },
+        from: { type: "string", description: "الفرع الأصل — افتراضي main" },
+      },
+      required: ["branch"],
+    },
+  },
+  {
+    name: "gh_merge_branch",
+    description: "دمج فرع داخل فرع مباشرة على GitHub (base المستقبل ← head المصدر) بكوميت دمج موثق.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        repo: { type: "string", enum: ["public", "admin"], description: "المستودع — افتراضي public" },
+        base: { type: "string", description: "الفرع المستقبل — إلزامي" },
+        head: { type: "string", description: "الفرع المصدر — إلزامي" },
+        message: { type: "string", description: "رسالة كوميت الدمج" },
+      },
+      required: ["base", "head"],
+    },
+  },
+  {
+    name: "gh_dispatch_workflow",
+    description: "تشغيل GitHub Actions يدويًا (workflow_dispatch) على فرع محدد مع مدخلات اختيارية — إطلاق أي مسار آلي معرف في المستودع.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        repo: { type: "string", enum: ["public", "admin"], description: "المستودع — افتراضي public" },
+        workflow: { type: "string", description: "اسم ملف الـworkflow — مثال: deploy.yml — إلزامي" },
+        ref: { type: "string", description: "الفرع — افتراضي main" },
+        inputs: { type: "object", description: "مدخلات الـworkflow" },
+      },
+      required: ["workflow"],
+    },
+  },
+  {
+    name: "gh_list_action_runs",
+    description: "آخر تشغيلات GitHub Actions في المستودع: الحالة والنتيجة والفرع والكوميت ورابط التفاصيل.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        repo: { type: "string", enum: ["public", "admin"], description: "المستودع — افتراضي public" },
+        limit: { type: "number", description: "عدد التشغيلات (افتراضي 10، أقصى 30)" },
+      },
+    },
+  },
+  {
+    name: "gh_get_action_run",
+    description: "تفاصيل تشغيل Actions محدد: كل الـjobs وخطواتها وزمن كل خطوة ونتيجتها — تشخيص فشل البناء خطوة بخطوة.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        repo: { type: "string", enum: ["public", "admin"], description: "المستودع — افتراضي public" },
+        run_id: { type: "number", description: "معرف التشغيل من gh_list_action_runs — إلزامي" },
+      },
+      required: ["run_id"],
+    },
+  },
+  {
+    name: "gh_dependabot_alerts",
+    description:
+      "تنبيهات الأمان (Dependabot) للمستودع: الحزم المعرضة وشدة الخطورة والنطاق المصاب وأول إصدار مُصلح — بحالة مفتوحة افتراضيًا أو مؤرشفة.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        repo: { type: "string", enum: ["public", "admin"], description: "المستودع — افتراضي public" },
+        state: { type: "string", enum: ["open", "dismissed", "fixed", "all"], description: "حالة التنبيه — افتراضي open" },
+      },
+    },
+  },
+
+  /* ==================== ح) البنية التحتية — Vercel (v4.0.0) ==================== */
+  {
+    name: "vercel_list_deployments",
+    description: "آخر نشرات أي مشروع من مشروعي المنصة: الحالة والهدف والإنتاج والكوميت ورابط المفتش — بفلترة بالإنتاج production.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        project: { type: "string", enum: ["public", "admin"], description: "المشروع — افتراضي public" },
+        limit: { type: "number", description: "عدد النشرات (افتراضي 10، أقصى 30)" },
+        target: { type: "string", enum: ["production", "preview"], description: "فلترة بالهدف" },
+      },
+    },
+  },
+  {
+    name: "vercel_get_deployment",
+    description: "تفاصيل نشرة محددة: حالتها وهدفها والكوميت المرتبط والأسماء المستعارة (النطاقات) الموجهة إليها.",
+    inputSchema: {
+      type: "object",
+      properties: { id: { type: "string", description: "معرف النشرة uid أو رابطها — إلزامي" } },
+      required: ["id"],
+    },
+  },
+  {
+    name: "vercel_get_deployment_logs",
+    description: "سجلات بناء نشرة محددة (Build Logs) بالأسطر الزمنية — تشخيص فشل النشر سطرًا سطرًا.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        id: { type: "string", description: "معرف النشرة — إلزامي" },
+        limit: { type: "number", description: "أقصى أسطر معروضة (افتراضي 80، أقصى 300)" },
+      },
+      required: ["id"],
+    },
+  },
+  {
+    name: "vercel_redeploy",
+    description:
+      "إطلاق نشر إنتاج جديد فورًا لمشروع المنصة (من أحدث main افتراضيًا أو SHA محدد) — نفس زر Redeploy في اللوحة. يُوثق في سجل التدقيق.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        project: { type: "string", enum: ["public", "admin"], description: "المشروع — افتراضي public" },
+        ref: { type: "string", description: "الفرع أو SHA — افتراضي main" },
+      },
+    },
+  },
+  {
+    name: "vercel_rollback",
+    description:
+      "التراجع لنسخة سابقة: محاولة التراجع الفوري الرسمي أولًا، وإن لم يتاح يطلق نشرًا إنتاجيًا جديدًا من SHA النسخة المستهدفة — النتيجة واحدة: الإنتاج يعود لكود النسخة القديمة. يُوثق في سجل التدقيق.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        project: { type: "string", enum: ["public", "admin"], description: "المشروع — افتراضي public" },
+        id: { type: "string", description: "معرف النشرة القديمة المستهدفة — إلزامي" },
+      },
+      required: ["id"],
+    },
+  },
+  {
+    name: "vercel_list_env",
+    description:
+      "متغيرات بيئة المشروع من Vercel مباشرة: الأسماء والأهداف والقيم — مخفية افتراضيًا وتُكشف بـreveal=true (تعامل بحرص).",
+    inputSchema: {
+      type: "object",
+      properties: {
+        project: { type: "string", enum: ["public", "admin"], description: "المشروع — افتراضي public" },
+        reveal: { type: "boolean", description: "كشف القيم الحقيقية — افتراضي false" },
+      },
+    },
+  },
+  {
+    name: "vercel_set_env",
+    description:
+      "إضافة أو تعديل متغير بيئة على المشروع (upsert): إنه موجود يُحدَّث وإنه جديد يُنشأ — يحتاج إعادة نشر بعده ليصبح حيًا. يُوثق في سجل التدقيق.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        project: { type: "string", enum: ["public", "admin"], description: "المشروع — افتراضي public" },
+        key: { type: "string", description: "اسم المتغير — إلزامي" },
+        value: { type: "string", description: "القيمة — إلزامي" },
+        target: { type: "string", description: "البيئات مفصولة بفاصلة: production,preview,development — الافتراضي الثلاثة" },
+      },
+      required: ["key", "value"],
+    },
+  },
+  {
+    name: "vercel_delete_env",
+    description: "حذف متغير بيئة من المشروع بالاسم — يُوثق في سجل التدقيق. يحتاج إعادة نشر بعده ليأخذ مفعوله.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        project: { type: "string", enum: ["public", "admin"], description: "المشروع — افتراضي public" },
+        key: { type: "string", description: "اسم المتغير — إلزامي" },
+      },
+      required: ["key"],
+    },
+  },
+  {
+    name: "vercel_domains",
+    description: "إدارة نطاقات المشروع: list عرضها وحالة تحققها | add إضافة نطاق جديد | remove إزالته.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        project: { type: "string", enum: ["public", "admin"], description: "المشروع — افتراضي public" },
+        action: { type: "string", enum: ["list", "add", "remove"], description: "الفعل — افتراضي list" },
+        domain: { type: "string", description: "النطاق — إلزامي مع add|remove" },
+      },
+    },
+  },
+  {
+    name: "vercel_project_info",
+    description: "إعدادات المشروع من Vercel: الاسم والفريموركس وأوامر البناء والتثبيت وآخر نشرة.",
+    inputSchema: {
+      type: "object",
+      properties: { project: { type: "string", enum: ["public", "admin"], description: "المشروع — افتراضي public" } },
+    },
+  },
+  {
+    name: "vercel_get_crons",
+    description: "المهام المجدولة (Cron Jobs) للمنصة كما هي معرفة في vercel.json بمستودع المشروع — المسارات والجداول الزمنية.",
+    inputSchema: {
+      type: "object",
+      properties: { project: { type: "string", enum: ["public", "admin"], description: "المشروع — افتراضي public" } },
+    },
+  },
+
+  /* ==================== ط) قاعدة البيانات Neon (v4.0.0) ==================== */
+  {
+    name: "db_inspect_schema",
+    description:
+      "فحص مخطط قاعدة Neon الحية: كل الجداول بأعداد صفوفها التقريبية وأعمدتها وأحجامها على القرص — أو تفصيل جدول واحد بأعمدته كاملة.",
+    inputSchema: {
+      type: "object",
+      properties: { table: { type: "string", description: "جدول محدد لتفصيل أعمدته — يُترك فارغًا لعرض الجداول كلها" } },
+    },
+  },
+  {
+    name: "db_query",
+    description:
+      "الاستعلام التنفيذي المؤمن على Neon — CRUD كامل: وضع select للقراءة (SELECT/WITH/SHOW/EXPLAIN بسقف صفوف) ووضع execute للكتابة (INSERT/UPDATE/DELETE) بإقرار نصي إلزامي confirm='أؤقر التنفيذ'. عبارة واحدة، وعبارات تدمير القاعدة محجوبة نهائيًا، وكل نداء يُوثق في السجل.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        sql: { type: "string", description: "العبارة — مثال: SELECT count(*) FROM \"Article\" — عبارة واحدة بلا ;" },
+        mode: { type: "string", enum: ["select", "execute"], description: "يُستنتج تلقائيًا إن غاب" },
+        confirm: { type: "string", description: "الإقرار النصي 'أؤقر التنفيذ' — إلزامي في وضع execute" },
+        limit: { type: "number", description: "سقف صفوف العرض في select (افتراضي 100، أقصى 200)" },
+      },
+      required: ["sql"],
+    },
+  },
+  {
+    name: "db_migrations",
+    description: "حالة مهاجرات Prisma على قاعدة الإنتاج: آخر المهاجرات المطبقة وزمنها وأي مهاجر معلق أو فاشل.",
+    inputSchema: { type: "object", properties: {} },
+  },
+  {
+    name: "kalam_get_audit_log",
+    description:
+      "سجل التدقيق الخام (AuditLog) بفلاتر حرّة: آخر العمليات الموثقة بأفعالها وكياناتها وIP الفاعل وmeta الكاملة — السجل الذي تكتب فيه كل الأدوات المغيّرة.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        action: { type: "string", description: "فلترة بنص الفعل — مثال: mcp.gh_save_file" },
+        hours: { type: "number", description: "آخر كم ساعة (افتراضي 24، أقصى 720)" },
+        limit: { type: "number", description: "عدد السطور (افتراضي 50، أقصى 200)" },
+      },
+    },
+  },
+
+  /* ==================== ي) الخدمات السيادية (v4.0.0) ==================== */
+  {
+    name: "cloudinary_upload_file",
+    description:
+      "رفع ملف إلى Cloudinary مباشرة: صورة (image) أو ملف خام (raw) أو فيديو — بقرار file إما رابط مباشر أو بيانات base64، مع مجلد ومعرف عام اختياريين. يُرجع الرابط الآمن ورابط التسليم المحسّن للصور. يُوثق في سجل التدقيق.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        file: { type: "string", description: "رابط مباشر https:// أو data:image/png;base64,.... — إلزامي" },
+        resource: { type: "string", enum: ["image", "raw", "video"], description: "نوع المورد — افتراضي image" },
+        public_id: { type: "string", description: "المعرف العام النهائي (بدون الامتداد)" },
+        folder: { type: "string", description: "المجلد — يُنشأ تلقائيًا عند أول رفع" },
+        invalidate: { type: "boolean", description: "إبطال كاش CDN بعد الرفع" },
+      },
+      required: ["file"],
+    },
+  },
+  {
+    name: "cloudinary_rename_asset",
+    description:
+      "إعادة تسمية/نقل أصل Cloudinary إلى معرف عام جديد (حتى بين مجلدات مختلفة) — تنظيم المكتبة دون إعادة رفع. يُوثق في سجل التدقيق.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        from_public_id: { type: "string", description: "المعرف الحالي — إلزامي" },
+        to_public_id: { type: "string", description: "المعرف الجديد — إلزامي" },
+        resource: { type: "string", enum: ["image", "raw", "video"], description: "نوع المورد — افتراضي image" },
+        invalidate: { type: "boolean", description: "إبطال كاش CDN" },
+      },
+      required: ["from_public_id", "to_public_id"],
+    },
+  },
+  {
+    name: "resend_send_email",
+    description:
+      "إرسال بريد مخصص عبر Resend من نطاق المنصة: إلى أي عناوين مفصولة بفاصلة، بنص HTML أو خام، من عنوان المرسل المعتمد افتراضيًا — لرسائل مباشرة خارج قوالب الإشعارات. يُوثق في سجل التدقيق.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        to: { type: "string", description: "عناوين المستلمين مفصولة بفاصلة — إلزامي" },
+        subject: { type: "string", description: "عنوان الرسالة — إلزامي" },
+        html: { type: "string", description: "متن HTML (بديل عن text)" },
+        text: { type: "string", description: "متن خام (بديل عن html)" },
+        from: { type: "string", description: "عنوان مرسل بديل — الافتراضي من تكوين المنصة" },
+        reply_to: { type: "string", description: "عنوان الرد" },
+      },
+      required: ["to", "subject"],
+    },
+  },
+  {
+    name: "resend_manage",
+    description: "إدارة نطاقات Resend: list عرض النطاقات وحالة تحققها | get تفاصيل نطاق وسجلات DNS المطلوبة.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        action: { type: "string", enum: ["list", "get"], description: "الفعل — افتراضي list" },
+        domain_id: { type: "string", description: "معرف النطاق مع action=get" },
+      },
+    },
+  },
+  {
+    name: "kalam_push_admin_custom",
+    description:
+      "إشعار Push مخصص لأجهزة صاحب المنصة المسجلة (هاتفه وحاسوبه) بأي عنوان ومتن ورابط — تنبيهات شخصية خارج قنوات الأمن الآلية. يُوثق في سجل التدقيق.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        title: { type: "string", description: "العنوان — إلزامي" },
+        body: { type: "string", description: "المتن — إلزامي" },
+        url: { type: "string", description: "الرابط الذي يفتح عند الضغط — افتراضي /" },
+        tag: { type: "string", description: "وسم تجميع الإشعارات" },
+      },
+      required: ["title", "body"],
+    },
   },
 
 ];

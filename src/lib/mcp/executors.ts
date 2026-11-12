@@ -31,19 +31,17 @@ import {
   destroyCloudinaryAsset,
 } from "@/lib/cloudinary";
 import { kickWorker } from "@/lib/audio-job";
+import { executeGhTool } from "@/lib/mcp/gh";
+import { executeVcTool } from "@/lib/mcp/vc";
+import { executeDbTool } from "@/lib/mcp/dbx";
+import { executeSvcTool } from "@/lib/mcp/svc";
 
 /* ============================ الأنواع ============================ */
+/* الأنواع وخطأ الأداة الموحد صاروا في base.ts — يُعاد تصديرهم حفاظًا
+   على توافق كل المستوردين القديمين (route.ts وما واراه) */
 
-export type McpArgs = Record<string, unknown>;
-export type McpRequestMeta = { ip: string };
-
-export class McpToolError extends Error {
-  details?: unknown;
-  constructor(message: string, details?: unknown) {
-    super(message);
-    this.details = details;
-  }
-}
+import { McpToolError, type McpArgs, type McpRequestMeta } from "@/lib/mcp/base";
+export { McpToolError, type McpArgs, type McpRequestMeta } from "@/lib/mcp/base";
 
 const ARTICLE_STATUSES: ArticleStatus[] = ["DRAFT", "SCHEDULED", "PUBLISHED", "ARCHIVED"];
 const COMMENT_STATUSES: CommentStatus[] = ["PENDING", "APPROVED", "REJECTED"];
@@ -3279,6 +3277,45 @@ export async function executeMcpTool(
       return executeHardDeleteTool(args, meta);
     case "kalam_generate_audit_pdf":
       return generateAuditPdfTool(args, meta);
+
+    /* ==================== البنية التحتية السيادية — v4.0.0 ==================== */
+    case "gh_get_repo":
+    case "gh_list_tree":
+    case "gh_get_file":
+    case "gh_save_file":
+    case "gh_delete_file":
+    case "gh_list_commits":
+    case "gh_get_diff":
+    case "gh_create_branch":
+    case "gh_merge_branch":
+    case "gh_dispatch_workflow":
+    case "gh_list_action_runs":
+    case "gh_get_action_run":
+    case "gh_dependabot_alerts":
+      return executeGhTool(name, args, meta);
+    case "vercel_list_deployments":
+    case "vercel_get_deployment":
+    case "vercel_get_deployment_logs":
+    case "vercel_redeploy":
+    case "vercel_rollback":
+    case "vercel_list_env":
+    case "vercel_set_env":
+    case "vercel_delete_env":
+    case "vercel_domains":
+    case "vercel_project_info":
+    case "vercel_get_crons":
+      return executeVcTool(name, args, meta);
+    case "db_inspect_schema":
+    case "db_query":
+    case "db_migrations":
+    case "kalam_get_audit_log":
+      return executeDbTool(name, args, meta);
+    case "cloudinary_upload_file":
+    case "cloudinary_rename_asset":
+    case "resend_send_email":
+    case "resend_manage":
+    case "kalam_push_admin_custom":
+      return executeSvcTool(name, args, meta);
     default:
       throw new McpToolError(`أداة غير معروفة: «${name}»`);
   }
