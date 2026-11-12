@@ -151,16 +151,39 @@ export async function POST(request: Request) {
     }
 
     if (!deviceTrusted) {
-      await raiseAlert({
-        type: "NEW_DEVICE_LOGIN",
-        severity: "WARN",
-        message: `دخول من جهاز/شبكة جديدة: ${username} من ${ip}`,
-        meta: {
-          ip,
-          userAgent: userAgent.slice(0, 200),
-          deviceHash: deviceHash?.slice(0, 16) ?? null,
-        },
-      });
+      /* منع تكرار التنبيه: نفس الجهاز (أو نفس المتصفح بلا بصمة) من نفس
+         الـ IP خلال 24 ساعة يُسجَّل تنبيهًا واحدًا فقط — كان كل دخول
+         يولّد تنبيهًا جديدًا فتكدّست 8 تنبيهات خلال يومين لنفس الجهاز.
+         الدخول نفسه لا يتأثر إطلاقًا (الإلغاء للتنبيه فقط)، وأي فشل
+         في استعلام الإلغاء يُطلق التنبيه طبيعيًا (الأمان أولًا) */
+      const NEW_DEVICE_DEDUPE_MS = 24 * 60 * 60_000;
+      const deviceKeyFilters = deviceHash
+        ? [{ meta: { path: ["deviceHash"], equals: deviceHash.slice(0, 16) } }]
+        : [{ meta: { path: ["userAgent"], equals: userAgent.slice(0, 200) } }];
+      const recentSameAlert = await prisma.securityAlert
+        .findFirst({
+          where: {
+            type: "NEW_DEVICE_LOGIN",
+            createdAt: { gte: new Date(Date.now() - NEW_DEVICE_DEDUPE_MS) },
+            meta: { path: ["ip"], equals: ip },
+            AND: deviceKeyFilters,
+          },
+          orderBy: { createdAt: "desc" },
+        })
+        .catch(() => null);
+
+      if (!recentSameAlert) {
+        await raiseAlert({
+          type: "NEW_DEVICE_LOGIN",
+          severity: "WARN",
+          message: `دخول من جهاز/شبكة جديدة: ${username} من ${ip}`,
+          meta: {
+            ip,
+            userAgent: userAgent.slice(0, 200),
+            deviceHash: deviceHash?.slice(0, 16) ?? null,
+          },
+        });
+      }
     }
 
     await prisma.loginAttempt.create({
