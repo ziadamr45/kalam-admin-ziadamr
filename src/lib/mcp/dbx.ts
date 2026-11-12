@@ -157,7 +157,7 @@ async function getAuditLog(args: McpArgs): Promise<unknown> {
   const where: Record<string, unknown> = {
     createdAt: { gte: new Date(Date.now() - hours * 60 * 60_000) },
   };
-  if (action) where.action = { contains: action.toUpperCase() };
+  if (action) where.action = { contains: action, mode: "insensitive" };
   const rows = await prisma.auditLog.findMany({
     where,
     orderBy: { createdAt: "desc" as const },

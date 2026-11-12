@@ -41,9 +41,11 @@ function cldSignature(params: Record<string, string>, secret: string): string {
 
 async function cldForm(endpoint: string, params: Record<string, string>, fileField?: { name: string; value: string }) {
   const { cloud, key, secret } = cloudinaryCreds();
-  const signature = cldSignature(params, secret);
+  /* الطابع الزمني معلمة إلزامية للتوقيع — تُوقَّع مع البقية وتُرسل معها */
+  const signed = { ...params, timestamp: String(Math.floor(Date.now() / 1000)) };
+  const signature = cldSignature(signed, secret);
   const form = new FormData();
-  for (const [k, v] of Object.entries(params)) form.append(k, v);
+  for (const [k, v] of Object.entries(signed)) form.append(k, v);
   form.append("api_key", key);
   form.append("signature", signature);
   if (fileField) form.append(fileField.name, fileField.value);

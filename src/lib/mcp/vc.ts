@@ -92,7 +92,7 @@ async function vcListDeployments(args: McpArgs) {
       url: x.url,
       state: x.readyState,
       target: x.target,
-      created: new Date(x.created_at).toISOString(),
+      created: new Date(x.created ?? x.created_at ?? Date.now()).toISOString(),
       sha: (x.meta?.githubCommitSha ?? x.meta?.gitlabCommitSha ?? "").slice(0, 10) || null,
       commitMsg: (x.meta?.githubCommitMessage ?? x.meta?.gitlabCommitMessage ?? "").split("\n")[0] || null,
       inspector: x.inspectorUrl,
