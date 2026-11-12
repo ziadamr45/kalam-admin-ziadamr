@@ -81,8 +81,9 @@ async function vcListDeployments(args: McpArgs) {
   const { data } = await vcApi("GET", `/v6/deployments?${qs}`);
   const d = data as {
     deployments: {
-      uid: string; url: string; state: string; readyState: string; target: string | null;
-      created_at: number; meta: Record<string, string>; inspectorUrl: string | null;
+      uid: string; url: string; state?: string; readyState: string; target: string | null;
+      created?: number; created_at?: number | null;
+      meta: Record<string, string>; inspectorUrl: string | null;
     }[];
   };
   return {
