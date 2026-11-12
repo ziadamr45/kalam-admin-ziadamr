@@ -46,7 +46,11 @@ async function ghApi(
   path: string,
   body?: unknown,
 ): Promise<{ status: number; data: unknown }> {
-  const res = await fetch(`https://api.github.com/repos/${repo}/${path}`, {
+  /* مسار فارغ = جذر المستودع — بلا شرطة مائلة آخرية وإلا رد جيت هب 404 */
+  const url = path
+    ? `https://api.github.com/repos/${repo}/${path}`
+    : `https://api.github.com/repos/${repo}`;
+  const res = await fetch(url, {
     method,
     headers: {
       Authorization: `Bearer ${ghToken()}`,
@@ -119,7 +123,8 @@ async function ghGetFile(args: McpArgs) {
   const repo = resolveRepo(str(args, "repo"));
   const path = str(args, "path");
   if (!path) throw new McpToolError("مسار الملف path إلزامي — مثال: src/app/layout.tsx");
-  const ref = str(args, "ref") ?? "main";
+  /* ref أو branch — تقبل التسميتين تفاديًا لالتباس العملاء */
+  const ref = str(args, "ref") ?? str(args, "branch") ?? "main";
   const encoded = path.split("/").map(encodeURIComponent).join("/");
   const { data } = await ghApi("GET", repo, `contents/${encoded}?ref=${encodeURIComponent(ref)}`);
   const f = data as { content?: string; encoding?: string; sha: string; size: number; html_url: string };
@@ -378,6 +383,26 @@ async function ghDependabotAlerts(args: McpArgs) {
   };
 }
 
+async function ghDeleteBranch(args: McpArgs, meta: McpRequestMeta) {
+  const repo = resolveRepo(str(args, "repo"));
+  const branch = str(args, "branch");
+  if (!branch) throw new McpToolError("اسم الفرع branch إلزامي");
+  const def = await ghApi("GET", repo, "");
+  if ((def.data as { default_branch?: string }).default_branch === branch) {
+    throw new McpToolError(`«${branch}» هو الفرع الافتراضي للمستودع — حذفه يدمّر النشر، مرفوض`);
+  }
+  await ghApi("DELETE", repo, `git/refs/heads/${encodeURIComponent(branch)}`);
+  await writeAudit({
+    adminId: null,
+    action: "mcp.gh_delete_branch",
+    entity: "GitHub",
+    entityId: `${repo}:${branch}`,
+    meta: { via: "gemini-spark-mcp" },
+    ip: meta.ip,
+  });
+  return { deleted: true, repo, branch };
+}
+
 /* ============================ الموزّع ============================ */
 
 export async function executeGhTool(name: string, args: McpArgs, meta: McpRequestMeta): Promise<unknown> {
@@ -391,6 +416,7 @@ export async function executeGhTool(name: string, args: McpArgs, meta: McpReques
     case "gh_get_diff": return ghGetDiff(args);
     case "gh_create_branch": return ghCreateBranch(args, meta);
     case "gh_merge_branch": return ghMergeBranch(args, meta);
+    case "gh_delete_branch": return ghDeleteBranch(args, meta);
     case "gh_dispatch_workflow": return ghDispatchWorkflow(args, meta);
     case "gh_list_action_runs": return ghListActionRuns(args);
     case "gh_get_action_run": return ghGetActionRun(args);

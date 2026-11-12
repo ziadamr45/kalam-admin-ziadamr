@@ -3288,6 +3288,7 @@ export async function executeMcpTool(
     case "gh_get_diff":
     case "gh_create_branch":
     case "gh_merge_branch":
+    case "gh_delete_branch":
     case "gh_dispatch_workflow":
     case "gh_list_action_runs":
     case "gh_get_action_run":

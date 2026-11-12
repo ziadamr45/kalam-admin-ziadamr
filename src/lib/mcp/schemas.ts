@@ -1230,6 +1230,19 @@ export const MCP_TOOLS: McpToolSchema[] = [
     },
   },
   {
+    name: "gh_delete_branch",
+    description:
+      "حذف فرع من المستودع بعد انتهاء العمل منه (الفرع الافتراضي main محمي من الحذف رفضًا صريحًا). يُوثق في سجل التدقيق.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        repo: { type: "string", enum: ["public", "admin"], description: "المستودع — افتراضي public" },
+        branch: { type: "string", description: "اسم الفرع المراد حذفه — إلزامي" },
+      },
+      required: ["branch"],
+    },
+  },
+  {
     name: "gh_dispatch_workflow",
     description: "تشغيل GitHub Actions يدويًا (workflow_dispatch) على فرع محدد مع مدخلات اختيارية — إطلاق أي مسار آلي معرف في المستودع.",
     inputSchema: {
