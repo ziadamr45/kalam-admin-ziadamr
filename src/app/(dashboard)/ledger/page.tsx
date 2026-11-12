@@ -205,7 +205,7 @@ export default function LedgerPage() {
                 key={p.value}
                 onClick={() => setDays(p.value)}
                 className={`rounded-lg px-3.5 py-1.5 text-xs font-bold transition-all ${
-                  days === p.value ? "bg-white text-steel-900 shadow-sm" : "text-steel-500 hover:text-steel-700"
+                  days === p.value ? "bg-white text-steel-900 shadow-xs" : "text-steel-500 hover:text-steel-700"
                 }`}
               >
                 {p.label}
@@ -308,7 +308,7 @@ export default function LedgerPage() {
                     <p className="text-steel-500">
                       <span className="font-bold text-steel-700">الفاعل:</span>{" "}
                       <span dir="ltr">{e.actorEmail}</span>{" "}
-                      <span className="rounded bg-steel-100 px-1.5 py-0.5 text-[9px] font-bold text-steel-500">{e.actorRole}</span>
+                      <span className="rounded-sm bg-steel-100 px-1.5 py-0.5 text-[9px] font-bold text-steel-500">{e.actorRole}</span>
                     </p>
                     <p className="text-steel-500">
                       <span className="font-bold text-steel-700">المستهدف:</span>{" "}

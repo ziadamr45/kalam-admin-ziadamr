@@ -11,7 +11,7 @@ import "./globals.css";
 const readex = Readex_Pro({
   subsets: ["arabic", "latin"],
   weight: ["300", "400", "500", "600", "700"],
-  variable: "--font-ui",
+  variable: "--font-readex",
   display: "swap",
 });
 

@@ -129,16 +129,16 @@ export function ChecklistManager({
                 className="field min-h-0 flex-1 resize-none border-transparent p-1 text-sm leading-7 hover:border-steel-200"
               />
               <div className="mt-1 flex flex-col gap-1">
-                <button onClick={() => move(i, -1)} className="rounded p-1 text-steel-400 hover:bg-steel-100" aria-label="أعلى">
+                <button onClick={() => move(i, -1)} className="rounded-sm p-1 text-steel-400 hover:bg-steel-100" aria-label="أعلى">
                   ▲
                 </button>
-                <button onClick={() => move(i, 1)} className="rounded p-1 text-steel-400 hover:bg-steel-100" aria-label="أسفل">
+                <button onClick={() => move(i, 1)} className="rounded-sm p-1 text-steel-400 hover:bg-steel-100" aria-label="أسفل">
                   ▼
                 </button>
               </div>
               <button
                 onClick={() => remove(item.id)}
-                className="mt-1 rounded p-1.5 text-danger-500 hover:bg-danger-400/10"
+                className="mt-1 rounded-sm p-1.5 text-danger-500 hover:bg-danger-400/10"
                 aria-label="حذف المعيار"
               >
                 <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><path d="M3 6h18M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2m3 0v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6" /></svg>

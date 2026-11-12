@@ -121,7 +121,7 @@ export function SovereignTerminal({ open, onToggle }: { open: boolean; onToggle:
   if (!open) return null;
 
   return (
-    <div className="fixed inset-x-0 bottom-0 z-[80] flex h-[62vh] min-h-80 flex-col border-t-2 border-copper-600/60 bg-steel-950 shadow-[0_-20px_60px_rgba(0,0,0,0.5)]" role="dialog" aria-label="التيرمينال السيادي">
+    <div className="fixed inset-x-0 bottom-0 z-80 flex h-[62vh] min-h-80 flex-col border-t-2 border-copper-600/60 bg-steel-950 shadow-[0_-20px_60px_rgba(0,0,0,0.5)]" role="dialog" aria-label="التيرمينال السيادي">
       {/* شريط العنوان */}
       <div className="flex items-center justify-between border-b border-steel-800 px-4 py-2">
         <div className="flex items-center gap-2">
@@ -165,7 +165,7 @@ export function SovereignTerminal({ open, onToggle }: { open: boolean; onToggle:
           disabled={busy}
           spellCheck={false}
           autoComplete="off"
-          className="w-full bg-transparent font-mono text-sm text-steel-100 caret-copper-400 outline-none placeholder:text-steel-600"
+          className="w-full bg-transparent font-mono text-sm text-steel-100 caret-copper-400 outline-hidden placeholder:text-steel-600"
           placeholder="اكتب أمرًا… (help | sys info | cache purge | user inspect …)"
         />
       </div>

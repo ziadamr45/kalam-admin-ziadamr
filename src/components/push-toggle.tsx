@@ -94,7 +94,7 @@ export function PushToggle() {
     <button
       onClick={enable}
       disabled={state === "enabling"}
-      className="flex items-center gap-2 rounded-xl bg-copper-600 px-3.5 py-1.5 text-xs font-bold text-white shadow-sm transition-all hover:bg-copper-500 active:scale-[0.97] disabled:opacity-60"
+      className="flex items-center gap-2 rounded-xl bg-copper-600 px-3.5 py-1.5 text-xs font-bold text-white shadow-xs transition-all hover:bg-copper-500 active:scale-[0.97] disabled:opacity-60"
       title="فعّل الإشعارات الفورية لتصلك التنبيهات على هاتفك وحاسوبك فور حدوث أي نشاط"
     >
       <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">

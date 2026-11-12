@@ -63,7 +63,7 @@ export default function Setup2FAPage() {
   );
 
   return (
-    <main className="flex min-h-screen items-center justify-center bg-gradient-to-b from-steel-900 via-steel-800 to-steel-950 p-4">
+    <main className="flex min-h-screen items-center justify-center bg-linear-to-b from-steel-900 via-steel-800 to-steel-950 p-4">
       <div className="w-full max-w-md">
         <div className="mb-8 text-center">
           <h1 className="text-xl font-bold text-white">تفعيل التحقق بخطوتين (إلزامي)</h1>

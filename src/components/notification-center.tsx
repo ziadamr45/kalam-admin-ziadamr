@@ -210,7 +210,7 @@ function AdminNotificationDetailModal({
 }) {
   const [copied, setCopied] = useState(false);
   /* البوابة إلى جسم الصفحة إلزامية: النافذة تُستدعى من داخل الجرس/شريط الطوارئ
-     وهما داخل هيدر عليه backdrop-blur — وأي عنصر بـbackdrop-filter يصير حاوية
+     وهما داخل هيدر عليه backdrop-blur-sm — وأي عنصر بـbackdrop-filter يصير حاوية
      إسناد لأبنائه fixed، فتنحبس النافذة في صندوق الهيدر (56px) وتُقص من فوق.
      البوابة تخرجها من ذلك السياق إلى الشاشة كلها على كل الأجهزة. */
   const [mounted, setMounted] = useState(false);
@@ -249,7 +249,7 @@ function AdminNotificationDetailModal({
 
   return createPortal(
     <div
-      className="fixed inset-0 z-[100] flex items-end justify-center bg-black/45 p-3 backdrop-blur-[2px] sm:items-center sm:p-4"
+      className="fixed inset-0 z-100 flex items-end justify-center bg-black/45 p-3 backdrop-blur-[2px] sm:items-center sm:p-4"
       onClick={onClose}
       role="dialog"
       aria-modal="true"
@@ -286,7 +286,7 @@ function AdminNotificationDetailModal({
 
         <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-4 py-4">
           <h3 className="text-base font-extrabold leading-8 text-steel-900">{item.title}</h3>
-          <p className="mt-2 whitespace-pre-wrap break-words text-sm leading-8 text-steel-600">{item.message}</p>
+          <p className="mt-2 whitespace-pre-wrap wrap-break-word text-sm leading-8 text-steel-600">{item.message}</p>
 
           {meta && (meta.device || meta.location || meta.ip || meta.when) && (
             <div className="mt-4 space-y-1.5 rounded-xl bg-steel-50 p-3 text-[11px] leading-6 text-steel-500">
@@ -497,7 +497,7 @@ export function AdminNotificationBell() {
                 aria-selected={tab === key}
                 onClick={() => setTab(key)}
                 className={`rounded-lg px-2 py-1.5 text-[11px] font-bold transition-all ${
-                  tab === key ? "bg-white text-amber-600 shadow-sm" : "text-steel-500"
+                  tab === key ? "bg-white text-amber-600 shadow-xs" : "text-steel-500"
                 }`}
               >
                 {label}

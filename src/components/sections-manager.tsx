@@ -205,7 +205,7 @@ export function SectionsManager() {
               <div className="min-w-0 flex-1">
                 <div className="flex flex-wrap items-center gap-2">
                   <p className="font-bold text-steel-900">{s.name}</p>
-                  <code className="rounded bg-steel-100 px-1.5 py-0.5 text-[10px] text-steel-500" dir="ltr">
+                  <code className="rounded-sm bg-steel-100 px-1.5 py-0.5 text-[10px] text-steel-500" dir="ltr">
                     /section/{s.slug}
                   </code>
                   {s.active ? <Badge tone="success">ظاهر</Badge> : <Badge tone="neutral">مخفي</Badge>}

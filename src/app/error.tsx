@@ -10,8 +10,8 @@ export default function AuthError({
   reset: () => void;
 }) {
   return (
-    <main className="flex min-h-screen items-center justify-center bg-gradient-to-b from-steel-900 via-steel-800 to-steel-950 p-4">
-      <div className="w-full max-w-sm rounded-2xl border border-steel-700 bg-steel-800/80 p-8 text-center shadow-lift backdrop-blur">
+    <main className="flex min-h-screen items-center justify-center bg-linear-to-b from-steel-900 via-steel-800 to-steel-950 p-4">
+      <div className="w-full max-w-sm rounded-2xl border border-steel-700 bg-steel-800/80 p-8 text-center shadow-lift backdrop-blur-sm">
         <h1 className="text-lg font-bold text-white">حدث عطل لحظي</h1>
         <p className="mt-3 text-sm leading-7 text-steel-300">
           جرّب إعادة المحاولة.. وإن تكرر فتواصل مع صاحب المنصة.

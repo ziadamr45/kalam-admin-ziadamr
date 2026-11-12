@@ -104,7 +104,7 @@ export function DashboardShell({
       <div className="flex min-h-screen overflow-x-clip bg-steel-50">
         {/* الشريط الجانبي الكحلي — أعلى طبقة على الإطلاق (z-[60]) ينزلق فوق كل عناصر الصفحة */}
         <aside
-          className={`fixed inset-y-0 right-0 z-[60] w-64 transform bg-steel-900 transition-transform duration-300 ease-fluid lg:static lg:translate-x-0 ${
+          className={`fixed inset-y-0 right-0 z-60 w-64 transform bg-steel-900 transition-transform duration-300 ease-fluid lg:static lg:translate-x-0 ${
             sidebarOpen ? "translate-x-0" : "translate-x-full lg:translate-x-0"
           }`}
         >
@@ -228,7 +228,7 @@ export function DashboardShell({
 
         {sidebarOpen && (
           <div
-            className="fixed inset-0 z-[55] bg-steel-950/60 lg:hidden"
+            className="fixed inset-0 z-55 bg-steel-950/60 lg:hidden"
             onClick={() => setSidebarOpen(false)}
           />
         )}
@@ -237,7 +237,7 @@ export function DashboardShell({
         <div className="flex min-w-0 flex-1 flex-col">
           {/* شريط الطوارئ السيادي — التنبيهات الإدارية الطارئة بالبرتقالي والأحمر */}
           <AdminUrgentBar />
-          <header className="sticky top-0 z-20 flex h-14 items-center justify-between gap-2 border-b border-steel-100 bg-white/90 px-3 backdrop-blur sm:px-4 lg:px-8">
+          <header className="sticky top-0 z-20 flex h-14 items-center justify-between gap-2 border-b border-steel-100 bg-white/90 px-3 backdrop-blur-sm sm:px-4 lg:px-8">
             {/* يمين الشاشة: الهامبرغر (موبايل) + الهوية المختصرة (موبايل) + سطر الوضع (سطح المكتب) */}
             <div className="flex min-w-0 items-center gap-2">
               <button

@@ -752,7 +752,7 @@ export function ArticleEditor({
           الطبقة z-30 تحت الدرج (z-[60]) والـ Backdrop (z-[55])،
           ويختفي تمامًا مع تعطيل تفاعله لحظة فتح القائمة الجانبية */}
       <div
-        className={`fixed inset-x-0 bottom-0 z-30 border-t border-steel-100 bg-white/95 p-3 backdrop-blur transition-opacity duration-200 dark:border-zinc-800 dark:bg-zinc-900/95 lg:pr-64 ${
+        className={`fixed inset-x-0 bottom-0 z-30 border-t border-steel-100 bg-white/95 p-3 backdrop-blur-sm transition-opacity duration-200 dark:border-zinc-800 dark:bg-zinc-900/95 lg:pr-64 ${
           sidebarOpen ? "pointer-events-none opacity-0" : "opacity-100"
         }`}
       >

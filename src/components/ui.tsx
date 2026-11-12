@@ -89,7 +89,7 @@ export function Modal({
   if (!open) return null;
   return (
     <div
-      className="fixed inset-0 z-[65] flex items-center justify-center bg-steel-950/60 p-4 backdrop-blur-sm"
+      className="fixed inset-0 z-65 flex items-center justify-center bg-steel-950/60 p-4 backdrop-blur-xs"
       onClick={onClose}
     >
       <div
@@ -126,7 +126,7 @@ export function Toggle({
     >
       <span className={`relative inline-block h-6 w-11 shrink-0 rounded-full transition-colors duration-300 ${checked ? "bg-success-500" : "bg-steel-200"}`}>
         <span
-          className="absolute top-1 h-4 w-4 rounded-full bg-white shadow transition-all duration-300 ease-fluid"
+          className="absolute top-1 h-4 w-4 rounded-full bg-white shadow-sm transition-all duration-300 ease-fluid"
           style={{ right: checked ? "4px" : "24px" }}
         />
       </span>
@@ -158,7 +158,7 @@ export function ToastProvider({ children }: { children: React.ReactNode }) {
   return (
     <ToastContext.Provider value={{ toast }}>
       {children}
-      <div className="pointer-events-none fixed bottom-6 left-6 z-[70] flex flex-col gap-2">
+      <div className="pointer-events-none fixed bottom-6 left-6 z-70 flex flex-col gap-2">
         {toasts.map((t) => (
           <div
             key={t.id}

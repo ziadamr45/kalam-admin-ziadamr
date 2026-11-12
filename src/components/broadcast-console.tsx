@@ -43,7 +43,7 @@ const KIND_LABELS: Record<string, string> = {
 };
 
 const inputCls =
-  "w-full rounded-xl border border-steel-200 bg-white px-4 py-2.5 text-sm text-steel-900 outline-none transition-colors focus:border-copper-500";
+  "w-full rounded-xl border border-steel-200 bg-white px-4 py-2.5 text-sm text-steel-900 outline-hidden transition-colors focus:border-copper-500";
 
 export function BroadcastConsole() {
   const { toast } = useToast();
@@ -193,7 +193,7 @@ export function BroadcastConsole() {
                 setSelected(null);
               }}
               className={`rounded-lg px-4 py-2 text-xs font-bold transition-all ${
-                target === "all" ? "bg-steel-900 text-white shadow-sm" : "text-steel-600 hover:text-steel-900"
+                target === "all" ? "bg-steel-900 text-white shadow-xs" : "text-steel-600 hover:text-steel-900"
               }`}
             >
               جميع المستخدمين
@@ -201,7 +201,7 @@ export function BroadcastConsole() {
             <button
               onClick={() => setTarget("user")}
               className={`rounded-lg px-4 py-2 text-xs font-bold transition-all ${
-                target === "user" ? "bg-steel-900 text-white shadow-sm" : "text-steel-600 hover:text-steel-900"
+                target === "user" ? "bg-steel-900 text-white shadow-xs" : "text-steel-600 hover:text-steel-900"
               }`}
             >
               مستخدم بعينه
@@ -359,7 +359,7 @@ export function BroadcastConsole() {
         <button
           onClick={send}
           disabled={!formReady || sending}
-          className="mt-5 w-full rounded-2xl bg-copper-600 px-6 py-3.5 text-sm font-bold text-white shadow-sm transition-all hover:bg-copper-500 active:scale-[0.99] disabled:cursor-not-allowed disabled:opacity-50"
+          className="mt-5 w-full rounded-2xl bg-copper-600 px-6 py-3.5 text-sm font-bold text-white shadow-xs transition-all hover:bg-copper-500 active:scale-[0.99] disabled:cursor-not-allowed disabled:opacity-50"
         >
           {sending ? "جارٍ البث.." : "إرسال الإشعار الآن"}
         </button>

@@ -105,7 +105,7 @@ function LoginForm() {
   );
 
   return (
-    <main className="flex min-h-screen items-center justify-center bg-gradient-to-b from-steel-900 via-steel-800 to-steel-950 p-4">
+    <main className="flex min-h-screen items-center justify-center bg-linear-to-b from-steel-900 via-steel-800 to-steel-950 p-4">
       <div className="w-full max-w-sm">
         {/* الهوية — شعار اللوحة المولَّد فوق النموذج: طابع أمان واحترافية */}
         <div className="mb-8 text-center">
@@ -121,7 +121,7 @@ function LoginForm() {
           <p className="mt-1 text-xs text-steel-300">كلام له لازمة — دخول محمي بطبقتين</p>
         </div>
 
-        <div className="rounded-2xl border border-steel-700 bg-steel-800/80 p-6 shadow-lift backdrop-blur">
+        <div className="rounded-2xl border border-steel-700 bg-steel-800/80 p-6 shadow-lift backdrop-blur-sm">
           {step === "credentials" ? (
             <form onSubmit={submitCredentials} className="space-y-4">
               <div>

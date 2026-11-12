@@ -76,7 +76,7 @@ export function ContentPreview({ raw }: { raw: string }) {
             <ol
               key={block.id}
               start={block.start}
-              className="space-y-1.5 pe-6 text-sm leading-8 text-steel-700 [list-style-type:arabic-indic]"
+              className="space-y-1.5 pe-6 text-sm leading-8 text-steel-700 list-[arabic-indic]"
             >
               {items}
             </ol>

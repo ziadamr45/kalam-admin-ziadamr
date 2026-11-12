@@ -228,7 +228,7 @@ export function ErrorsPanel() {
                 className="w-full text-right"
               >
                 <div className="flex min-w-0 items-start justify-between gap-3">
-                  <p className="min-w-0 break-words text-xs font-bold text-danger-600">{e.message}</p>
+                  <p className="min-w-0 wrap-break-word text-xs font-bold text-danger-600">{e.message}</p>
                   <span className="shrink-0 rounded-full bg-danger-400/15 px-2 py-0.5 text-[10px] font-bold text-danger-600">
                     ×{e.count}
                   </span>
