@@ -61,19 +61,23 @@ export async function POST(request: Request) {
 
     const scope = typeof payload.scope === "string" ? payload.scope : "mcp:admin";
     const resource = typeof payload.resource === "string" ? payload.resource : undefined;
+    /* رقم الإلغاء tv ينتقل من رمز التفويض إلى رمزي الوصول والتحديث —
+       أي زيادة لاحقة له في SystemSetting تنهيهما فورًا (مفتاح الطوارئ) */
+    const tv = Number(payload.tv ?? 0) || 0;
     const accessToken = await signOAuthToken(
       {
         iss: origin,
         sub: "gemini-spark",
         client_id: clientId,
         scope,
+        tv,
         ...(resource ? { aud: resource } : {}),
       },
       "at",
       ACCESS_TOKEN_TTL_SEC,
     );
     const refreshToken = await signOAuthToken(
-      { iss: origin, client_id: clientId, scope },
+      { iss: origin, client_id: clientId, scope, tv },
       "rt",
       REFRESH_TOKEN_TTL_SEC,
     );
@@ -113,15 +117,18 @@ export async function POST(request: Request) {
       : typeof payload.scope === "string"
         ? payload.scope
         : "mcp:admin";
+    /* رمز التحديث الجديد يحمل نفس رقم الإلغاء القديم — إن صُدر مفتاح الطوارئ
+       فلن يصل هذا المسار أصلًا لأن الرمز القديم يُرفض عند المصادقة */
+    const tv = Number(payload.tv ?? 0) || 0;
 
     const accessToken = await signOAuthToken(
-      { iss: origin, sub: "gemini-spark", client_id: clientId, scope },
+      { iss: origin, sub: "gemini-spark", client_id: clientId, scope, tv },
       "at",
       ACCESS_TOKEN_TTL_SEC,
     );
     /* تدوير رمز التحديث — رمز جديد مع كل استخدام */
     const rotatedRefresh = await signOAuthToken(
-      { iss: origin, client_id: clientId, scope },
+      { iss: origin, client_id: clientId, scope, tv },
       "rt",
       REFRESH_TOKEN_TTL_SEC,
     );

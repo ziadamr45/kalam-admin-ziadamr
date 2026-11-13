@@ -7,7 +7,7 @@ import {
 } from "@/lib/mcp/schemas";
 import { executeMcpTool, McpToolError, type McpArgs } from "@/lib/mcp/executors";
 import { getClientIp } from "@/lib/guard";
-import { getOrigin, verifyOAuthToken } from "@/lib/mcp/oauth";
+import { getOrigin, getMcpTokenVersion, verifyOAuthToken } from "@/lib/mcp/oauth";
 
 /**
  * ============================================================
@@ -65,9 +65,14 @@ async function authorized(request: Request): Promise<boolean> {
     }
   }
 
-  /* الممر 2: رمز وصول OAuth 2.0 صادر عن نقطة /token */
+  /* الممر 2: رمز وصول OAuth 2.0 صادر عن نقطة /token — مع فحص مفتاح الطوارئ:
+     رقم الإلغاء tv المحفور في الرمز يجب أن يطابق الرقم الحالي في SystemSetting —
+     أي زيادة (mcp revoke-tokens في التيرمينال السيادي) تنهي فورًا كل الرموز
+     المفتوحة السابقة: وصول وتحديث، دون مساس بالرموز الصادرة بعده */
   const payload = await verifyOAuthToken(token, "at");
-  return Boolean(payload);
+  if (!payload) return false;
+  const tv = Number(payload.tv ?? 0) || 0;
+  return tv === (await getMcpTokenVersion());
 }
 
 /* ============================ أدوات JSON-RPC ============================ */

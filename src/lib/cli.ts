@@ -1,10 +1,11 @@
 import "server-only";
 import { prisma } from "@/lib/prisma";
-import { writeAudit } from "@/lib/guard";
+import { writeAudit, raiseAlert } from "@/lib/guard";
 import { revalidatePath } from "next/cache";
 import { rankForScore } from "@/lib/ranks";
 import { revalidatePublicPaths } from "@/lib/revalidate";
 import { MCP_SERVER_VERSION } from "@/lib/mcp/schemas";
+import { bumpMcpTokenVersion } from "@/lib/mcp/oauth";
 import {
   getSiteConfigMap,
   saveSiteConfigEntries,
@@ -44,6 +45,7 @@ const HELP_LINES: CliLine[] = [
   { type: "muted", text: "  user ban <email> [سبب] | unban <email> — تعطيل/تفعيل الحساب" },
   { type: "muted", text: "  user hard-delete <email> --reason-code .. --reason \"..\" --evidence \"https://..\" — المحو السيادي الشامل الموثق بالدليل" },
   { type: "muted", text: "  audit list --days N [--category ..] | audit inspect <id> | audit export-pdf --range weekly|monthly — السجل السيادي والتقارير" },
+  { type: "muted", text: "  mcp revoke-tokens — مفتاح طوارئ السيادة: إلغاء كل رموز MCP المفتوحة (وصول وتحديث) فورًا" },
   { type: "muted", text: "  article status <slug> | toggle-comments <slug> — إحصاءات المقال وباب التعليق" },
   { type: "muted", text: "  config list | get <key> | set <key> <value> — التكوين السيادي اللحظي" },
   { type: "muted", text: "  db stats | slow-queries      — القاعدة: الجداول والحجم والعمليات البطيئة" },
@@ -974,6 +976,38 @@ export async function runCliCommand(raw: string, ctx: CliContext): Promise<CliLi
         if ((sub ?? "").toLowerCase() !== "purge")
           return [{ type: "error", text: "الصيغة: cache purge [all | <path>] | cache purge-all" }];
         return cmdCachePurge(pathParts.join(" ") || "all");
+      }
+
+      case "mcp": {
+        const sub = (rest[0] ?? "").toLowerCase();
+        if (sub === "revoke-tokens" || sub === "kill-switch") {
+          /* مفتاح الطوارئ السيادي — ينهي كل رموز MCP المفتوحة فورًا
+             برفع رقم الإلغاء tv الذي يُفحص مع كل نداء RPC */
+          const version = await bumpMcpTokenVersion();
+          await raiseAlert({
+            type: "MCP_TOKENS_REVOKED",
+            severity: "CRITICAL",
+            message: `أُصدر مفتاح الطوارئ — أُلغيت كل رموز MCP المفتوحة (رقم الإلغاء ${version}) بواسطة ${ctx.adminUsername}`,
+            meta: { by: ctx.adminUsername, version, source: ctx.source },
+          });
+          await writeAudit({
+            adminId: ctx.adminId,
+            action: "mcp.tokens.revoked",
+            meta: { version, source: ctx.source },
+            ip: ctx.ip,
+          });
+          return [
+            { type: "ok", text: `🔓 أُلغيت كل رموز الوصول والتحديث المفتوحة فورًا — رقم الإلغاء الحالي: ${version}` },
+            { type: "info", text: "أي أداة أو عميل متصل سيفشل عند أول نداء تالٍ — سيعاد ربطه عبر صفحة التفويض المحصّنة (كلمة المرور + التحقق الثنائي)" },
+            { type: "muted", text: "الوضع الساكن (Bearer بسرّ GEMINI_SPARK_MCP_SECRET) غير متأثر — إن أردت إلغاءه بدّل السرّ نفسه في متغيرات البيئة" },
+          ];
+        }
+        return [
+          {
+            type: "error",
+            text: `أمر mcp غير معروف: mcp ${sub || "—"} — المتاح: mcp revoke-tokens (مفتاح طوارئ إلغاء كل رموز MCP المفتوحة)`,
+          },
+        ];
       }
 
       case "user": {

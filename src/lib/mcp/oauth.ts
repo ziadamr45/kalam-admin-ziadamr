@@ -1,5 +1,6 @@
 import { SignJWT, jwtVerify } from "jose";
 import { createHash, createHmac, randomUUID, timingSafeEqual } from "crypto";
+import { prisma } from "@/lib/prisma";
 
 /**
  * ============================================================
@@ -231,19 +232,47 @@ export function oauthErrorResponse(
   );
 }
 
-/* ============================ خنق محاولات كلمة المرور ============================ */
+/* ============================ مفتاح طوارئ الرموز (Kill Switch) ============================
 
-const attempts = new Map<string, { n: number; ts: number }>();
+   tv (tokenVersion) يُحفر داخل رمز التفويض عند إصداره من صفحة التفويض، فينتقل
+   إلى رموز الوصول والتحديث عند /token، ويُقارن لحظة كل استدعاء بالقيمة الحالية
+   في SystemSetting (MCP_TOKEN_VERSION). أي زيادة للرقم تنهي فورًا كل الرموز
+   المفتوحة السابقة — وصول وتحديث — دون مساس بالرموز الصادرة بعده. ذاكرة 15
+   ثانية تمنع استعلام قاعدة بيانات إضافيًا مع كل نداء RPC دون تعطيل الفورية
+   (أقصى تأخير لإبطال شامل: ثوانٍ معدودة). */
 
-export function oauthRateLimited(ip: string): boolean {
-  const now = Date.now();
-  const rec = attempts.get(ip);
-  if (!rec || now - rec.ts > 5 * 60_000) {
-    attempts.set(ip, { n: 1, ts: now });
-    return false;
+const TOKEN_VERSION_KEY = "MCP_TOKEN_VERSION";
+let tvCache: { v: number; at: number } | null = null;
+const TV_CACHE_MS = 15_000;
+
+/** رقم الإلغاء الحالي — يُقارن بـ tv المحفور في الرمز لحظة كل استدعاء */
+export async function getMcpTokenVersion(): Promise<number> {
+  if (tvCache && Date.now() - tvCache.at < TV_CACHE_MS) return tvCache.v;
+  let v = 0;
+  try {
+    const row = await prisma.systemSetting.findUnique({ where: { key: TOKEN_VERSION_KEY } });
+    if (row) {
+      const raw = row.value as unknown;
+      v = Number(typeof raw === "object" && raw !== null ? (raw as { n?: unknown }).n : raw) || 0;
+    }
+  } catch {
+    /* قاعدة البيانات غائبة — الافتراض 0 يُبقي الرموز الحالية صالحة */
   }
-  rec.n += 1;
-  return rec.n > 10;
+  tvCache = { v, at: Date.now() };
+  return v;
+}
+
+/** مفتاح الطوارئ — يزيد رقم الإلغاء فينهي كل الرموز المفتوحة فورًا ويعيد الرقم الجديد */
+export async function bumpMcpTokenVersion(): Promise<number> {
+  const next = (await getMcpTokenVersion()) + 1;
+  const value = { n: next } as never;
+  await prisma.systemSetting.upsert({
+    where: { key: TOKEN_VERSION_KEY },
+    update: { value },
+    create: { key: TOKEN_VERSION_KEY, value },
+  });
+  tvCache = { v: next, at: Date.now() };
+  return next;
 }
 
 /* ============================ تحليل جسم طلب Token ============================ */
