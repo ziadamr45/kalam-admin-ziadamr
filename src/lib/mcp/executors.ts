@@ -30,7 +30,17 @@ import {
   listCloudinaryAssets,
   destroyCloudinaryAsset,
 } from "@/lib/cloudinary";
+import { uploadImage, cloudinaryConfigured } from "@/lib/cloudinary";
 import { kickWorker } from "@/lib/audio-job";
+import { TTS_VOICES, TTS_VOICE } from "@/lib/gemini-tts";
+import { generateCoverArt, geminiChat, geminiConfigured, GeminiError } from "@/lib/gemini-inference";
+import { buildArtPrompt, sanitizeForPrompt } from "@/lib/cover-prompt";
+import {
+  resolveEmailConfig,
+  notificationEmailHtml,
+  OWNER_EMAIL,
+  getOwnerUserId,
+} from "@/lib/notifications/dispatcher";
 import { executeGhTool } from "@/lib/mcp/gh";
 import { executeVcTool } from "@/lib/mcp/vc";
 import { executeDbTool } from "@/lib/mcp/dbx";
@@ -511,6 +521,11 @@ async function triggerAudioGeneration(args: McpArgs, meta: McpRequestMeta) {
   const id = str(args, "id");
   if (!id) throw new McpToolError("معرف المقال إلزامي");
   const resume = bool(args, "resume") === true;
+  /* اختيار صوت القارئ لهذه المهمة — يُحفظ على المقال ويُستخدم في كل مقاطع السلسلة */
+  const voice = str(args, "voice");
+  if (voice && !(TTS_VOICES as readonly string[]).includes(voice)) {
+    throw new McpToolError(`صوت غير معروف: «${voice}» — من قائمة Gemini الرسمية مثل: ${TTS_VOICES.slice(0, 10).join("، ")}…`);
+  }
 
   const article = await prisma.article.findUnique({
     where: { id },
@@ -528,22 +543,23 @@ async function triggerAudioGeneration(args: McpArgs, meta: McpRequestMeta) {
     };
   }
 
-  let jobId = article.audioJobId ?? "";
-  if (!resuming) {
-    jobId = `job-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
-    await prisma.article.update({
-      where: { id },
-      data: {
-        audioStatus: "PROCESSING",
-        audioJobId: jobId,
-        audioError: null,
-        audioChunks: Prisma.DbNull,
-        audioProgress: 0,
-        audioTotal: 0,
-        audioUpdatedAt: new Date(),
-      },
-    });
-  }
+    let jobId = article.audioJobId ?? "";
+    if (!resuming) {
+      jobId = `job-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
+      await prisma.article.update({
+        where: { id },
+        data: {
+          audioStatus: "PROCESSING",
+          audioJobId: jobId,
+          audioError: null,
+          audioChunks: Prisma.DbNull,
+          audioProgress: 0,
+          audioTotal: 0,
+          audioUpdatedAt: new Date(),
+          ...(voice ? { audioVoice: voice } : {}),
+        },
+      });
+    }
 
   /* الانفصال عن العميل: السلسلة تكمل في الخلفية بعد إرسال الرد */
   const { after } = await import("next/server");
@@ -919,14 +935,15 @@ async function listUsers(args: McpArgs) {
 
 async function manageUser(args: McpArgs, meta: McpRequestMeta) {
   const userId = str(args, "userId");
+  const email = str(args, "email");
   const action = str(args, "action");
-  if (!userId || !action) throw new McpToolError("معرف المستخدم والفعل إلزاميان");
+  if ((!userId && !email) || !action) throw new McpToolError("معرف المستخدم userId (أو email بديلًا عنه) والفعل إلزاميان");
 
   const target = await prisma.user.findUnique({
-    where: { id: userId },
+    where: userId ? { id: userId } : { email: email! },
     select: { id: true, customName: true, name: true, email: true, banned: true, customImage: true },
   });
-  if (!target) throw new McpToolError(`لا يوجد مستخدم بالمعرف «${userId}»`);
+  if (!target) throw new McpToolError(`لا يوجد مستخدم بمعرف «${userId ?? email}»`);
   const label = target.customName ?? target.name ?? target.email ?? target.id;
 
   if (action === "ban" || action === "unban") {
@@ -1049,6 +1066,134 @@ async function manageUser(args: McpArgs, meta: McpRequestMeta) {
       revoked: true,
       removedSessions: removed.count,
       user: { id: target.id, displayName: label },
+    };
+  }
+
+  /* تعديل البطاقة الفكرية المخصصة — كل حقل يُمرَّر صراحةً وقيمة null تصفّره
+     (اسم العرض، الصورة، النبذة، النبذة الموسعة، روابط التواصل الموثقة) */
+  if (action === "update_identity") {
+    const data: Record<string, unknown> = {};
+    const rawName = args["customName"];
+    const rawImage = args["customImage"];
+    const rawBio = args["bio"];
+    const rawExtBio = args["extendedBio"];
+    const rawLinks = args["verifiedSocialLinks"];
+
+    if (rawName !== undefined) {
+      if (rawName === null || String(rawName).trim() === "") data.customName = null;
+      else {
+        const v = String(rawName).trim();
+        if (v.length > 60) throw new McpToolError("الاسم المخصص يتجاوز 60 حرفًا");
+        data.customName = v;
+      }
+    }
+    if (rawImage !== undefined) {
+      if (rawImage === null || String(rawImage).trim() === "") data.customImage = null;
+      else {
+        const v = String(rawImage).trim();
+        if (!/^https:\/\//.test(v) && !/^data:image\/(png|jpeg|webp);base64,/.test(v)) {
+          throw new McpToolError("رابط الصورة يجب أن يكون https:// أو data:image/…؛base64");
+        }
+        if (v.length > 1_500_000) throw new McpToolError("صورة الأفاتار أكبر من سقف البوابة");
+        data.customImage = v;
+      }
+    }
+    for (const [key, raw] of [["bio", rawBio], ["extendedBio", rawExtBio]] as const) {
+      if (raw !== undefined) {
+        if (raw === null || String(raw).trim() === "") data[key] = null;
+        else {
+          const v = String(raw).trim();
+          if (v.length > 5000) throw new McpToolError(`نص ${key} يتجاوز 5000 حرف`);
+          data[key] = v;
+        }
+      }
+    }
+    if (rawLinks !== undefined) {
+      if (rawLinks === null) data.verifiedSocialLinks = null;
+      else if (typeof rawLinks === "object" && rawLinks !== null && !Array.isArray(rawLinks)) {
+        const obj = rawLinks as Record<string, unknown>;
+        const clean: Record<string, string> = {};
+        for (const [k, v] of Object.entries(obj)) {
+          if (v === null || v === undefined) continue;
+          const s = String(v).trim();
+          if (!/^https?:\/\//.test(s)) {
+            throw new McpToolError(`رابط «${k}» غير صالح — يجب أن يبدأ http(s)://`);
+          }
+          clean[k] = s.slice(0, 500);
+        }
+        data.verifiedSocialLinks = clean;
+      } else {
+        throw new McpToolError("verifiedSocialLinks يجب أن يكون كائن { website, facebook, x, … } أو null لمسحه");
+      }
+    }
+
+    if (Object.keys(data).length === 0) {
+      throw new McpToolError("مرر حقلاً واحدًا على الأقل: customName أو customImage أو bio أو extendedBio أو verifiedSocialLinks");
+    }
+
+    const updated = await prisma.user.update({ where: { id: target.id }, data: data as never });
+    await writeAudit({
+      adminId: null,
+      action: "mcp.user_identity_updated",
+      entity: "User",
+      entityId: target.id,
+      meta: { via: "gemini-spark-mcp", user: label, fields: Object.keys(data) },
+      ip: meta.ip,
+    });
+    return {
+      updated: true,
+      user: { id: updated.id, displayName: label },
+      changedFields: Object.keys(data),
+    };
+  }
+
+  /* أجهزة القارئ (UserDevice) — جرد ثم إبطال جهاز بعينه */
+  if (action === "list_devices") {
+    const limit = Math.min(Math.max(num(args, "limit") ?? 20, 1), 50);
+    const devices = await prisma.userDevice.findMany({
+      where: { userId: target.id },
+      orderBy: { lastActiveAt: "desc" },
+      take: limit,
+    });
+    return {
+      user: { id: target.id, displayName: label },
+      count: devices.length,
+      devices: devices.map((d) => ({
+        id: d.id,
+        deviceHash: d.deviceHash.slice(0, 12) + "…",
+        browser: d.browser ?? null,
+        os: d.os ?? null,
+        deviceType: d.deviceType ?? null,
+        lastIp: d.lastIp ?? null,
+        location: d.location ?? null,
+        lastActiveAt: d.lastActiveAt.toISOString(),
+        createdAt: d.createdAt.toISOString(),
+      })),
+    };
+  }
+
+  if (action === "revoke_device") {
+    const deviceId = str(args, "deviceId");
+    if (!deviceId) throw new McpToolError("deviceId إلزامي مع revoke_device — من list_devices");
+    const removed = await prisma.userDevice.deleteMany({
+      where: { id: deviceId, userId: target.id },
+    });
+    if (removed.count === 0) {
+      throw new McpToolError("الجهاز غير موجود أو لا ينتمي لهذا المستخدم");
+    }
+    await writeAudit({
+      adminId: null,
+      action: "mcp.user_device_revoked",
+      entity: "UserDevice",
+      entityId: deviceId,
+      meta: { via: "gemini-spark-mcp", user: label },
+      ip: meta.ip,
+    });
+    return {
+      revoked: true,
+      deviceId,
+      user: { id: target.id, displayName: label },
+      note: "أُبطل تعريف الجهاز — الجلسة المرتبطة به لن تُقبل مجددًا وسيظهر كجهاز جديد عند أول عودة",
     };
   }
 
@@ -2136,7 +2281,7 @@ async function runMaintenance(args: McpArgs, meta: McpRequestMeta) {
       keepDays,
       prunedRequestLogs: result.requestLogs,
       prunedServerErrors: result.serverErrors,
-      note: "\u0642\u064f\u0644\u0651\u0650\u0645\u062a \u0633\u062c\u0644\u0627\u062a \u0627\u0644\u0645\u0631\u0627\u0642\u0628\u0629 \u0627\u0644\u0623\u0642\u062f\u0645 \u0645\u0646 ${keepDays} \u064a\u0648\u0645\u064b\u0627",
+      note: `قُلِّمت سجلات المراقبة الأقدم من ${keepDays} يومًا`,
     };
   }
   throw new McpToolError(`فعل غير معروف: «${action}»`);
@@ -3159,6 +3304,659 @@ async function kalamAuditAuthGatesTool(args: McpArgs, meta: McpRequestMeta) {
   };
 }
 
+/* ============================ التغطية الكاملة v5.0.0 ============================ */
+
+/** توليد غلاف المقال بالذكاء الاصطناعي: برومبت مخصص أو صياغة آلية من جوهر
+ *  المقال ثم سلسلة المحركات (Imagen → Gemini Image → Pollinations) ورفع
+ *  سحابي وربط فوري بالمقال — ووضع preview لفحص البرومبت دون رسم */
+async function generateArticleCover(args: McpArgs, meta: McpRequestMeta) {
+  const id = str(args, "id");
+  if (!id) throw new McpToolError("معرف المقال (أو slug) إلزامي");
+  const customPrompt = str(args, "prompt");
+  const preview = bool(args, "preview") === true;
+
+  const article =
+    (await prisma.article.findUnique({
+      where: { id },
+      select: { id: true, title: true, summary: true, content: true, slug: true, sectionId: true },
+    })) ??
+    (await prisma.article.findUnique({
+      where: { slug: id },
+      select: { id: true, title: true, summary: true, content: true, slug: true, sectionId: true },
+    }));
+  if (!article) throw new McpToolError(`لا يوجد مقال بمعرف «${id}»`);
+
+  const core = sanitizeForPrompt(article.content ?? "").slice(0, 1600);
+
+  /* البرومبت: مخصص صريح ← يُعتمد كما هو | قالب المنصة ← يرقّيه Gemini من الجوهر */
+  let artPrompt = customPrompt ?? buildArtPrompt(article.title, article.summary ?? "", core);
+  let promptEngine = customPrompt ? "custom" : "template";
+  if (!customPrompt && geminiConfigured()) {
+    try {
+      const synthesized = await geminiChat({
+        candidates: ["gemini-2.5-flash", "gemini-2.5-flash-lite", "gemini-2.0-flash"],
+        memoKind: "cover-prompt",
+        timeoutMs: 12_000,
+        temperature: 0.85,
+        maxOutputTokens: 300,
+        system:
+          "أنت مدير فني لمنصة مقالات فكرية عربية. مهمتك استخراج الجوهر الفكري للمقال وترجمته إلى سطر توجيه فني إنجليزي واحد لتوليد صورة. أخرج السطر الإنجليزي فقط دون أي شرح أو علامات تنسيق أو اقتباسات.",
+        turns: [
+          {
+            role: "user",
+            text: [
+              "حوّل جوهر المقال التالي إلى سطر توجيه فني إنجليزي واحد (image-generation prompt)",
+              "بالقالب الحرفي التالي مع تعبئة [Theme] بخلاصة الفكرة بلغة إنجليزية بليغة:",
+              "Generate a minimal, abstract, thought-provoking editorial artwork representing: [Theme], dark cinematic tones, elegant lighting, warm copper accent glow, modern minimalist style, ultra-high resolution, no text.",
+              "",
+              `عنوان المقال: ${article.title}`,
+              article.summary ? `المختصر: ${article.summary}` : "",
+              `المتن: ${core}`,
+            ]
+              .filter(Boolean)
+              .join("\n"),
+          },
+        ],
+      });
+      const cleaned = synthesized.replace(/["'`]+/g, "").replace(/\s+/g, " ").trim();
+      if (cleaned.length >= 40 && /[a-zA-Z]/.test(cleaned)) {
+        artPrompt = cleaned;
+        promptEngine = "gemini";
+      }
+    } catch {
+      /* صمت تام — القالب الاحتياطي يكفي */
+    }
+  }
+
+  /* وضع المعاينة: البرومبت فقط دون رسم — لفحص الصياغة قبل النفقة */
+  if (preview) {
+    return {
+      preview: true,
+      article: { id: article.id, title: article.title, slug: article.slug },
+      promptEngine,
+      prompt: artPrompt,
+      coreChars: core.length,
+    };
+  }
+
+  /* الرسم عبر سلسلة المحركات ثم الرفع السحابي والربط */
+  let engine: string;
+  let base64: string;
+  let mimeType: string;
+  try {
+    const art = await generateCoverArt(artPrompt, Date.now() + 50_000);
+    engine = art.engine;
+    base64 = art.base64;
+    mimeType = art.mimeType;
+  } catch (err) {
+    if (err instanceof GeminiError) throw new McpToolError(err.message);
+    throw err;
+  }
+
+  let url: string | null = null;
+  let saved = false;
+  if (cloudinaryConfigured) {
+    try {
+      const buf = Buffer.from(base64, "base64");
+      const ext = mimeType.split("/")[1].replace("jpeg", "jpg");
+      const uploaded = await uploadImage(
+        new Blob([new Uint8Array(buf)], { type: mimeType }),
+        `ai-cover-${Date.now()}.${ext}`,
+        "kalam/covers",
+      );
+      await prisma.article.update({ where: { id: article.id }, data: { coverImage: uploaded.url } });
+      url = uploaded.url;
+      saved = true;
+      const section = await prisma.section.findUnique({
+        where: { id: article.sectionId ?? "" },
+        select: { slug: true },
+      });
+      await revalidatePublicPaths(
+        articleRevalidatePaths({ slug: article.slug, sectionSlug: section?.slug ?? null }),
+        article.slug,
+      );
+    } catch {
+      /* فشل الرفع لا يُفشل التوليد — الغلاف مرئي في الرد كـ dataURL ضخم؟ لا: نعيد المحرك فقط */
+    }
+  }
+
+  await writeAudit({
+    adminId: null,
+    action: "mcp.cover_generated",
+    entity: "Article",
+    entityId: article.id,
+    meta: { via: "gemini-spark-mcp", title: article.title, engine, promptEngine, saved },
+    ip: meta.ip,
+  });
+
+  return {
+    generated: true,
+    article: { id: article.id, title: article.title, slug: article.slug },
+    engine,
+    promptEngine,
+    prompt: artPrompt,
+    coverImage: url,
+    saved,
+    note: saved
+      ? "رُفع الغلاف وارتبط بالمقال وأعيدت ترندرة صفحاته"
+      : "تولّد الغلاف لكن الرفع السحابي فشل — أعد المحاولة أو ارفعه عبر update_article_cover",
+  };
+}
+
+/** الإدارة الكاملة لصوت المقال: حالة لحظية مع الشفاء الذاتي للمهام المعلقة،
+ *  اختيار صوت القارئ، إطلاق التوليد، وحذف الصوت مع تنظيف Cloudinary كاملًا */
+async function manageArticleAudio(args: McpArgs, meta: McpRequestMeta) {
+  const action = str(args, "action") ?? "status";
+  const id = str(args, "id");
+  if (!id) throw new McpToolError("معرف المقال (أو slug) إلزامي");
+
+  const article =
+    (await prisma.article.findUnique({
+      where: { id },
+      select: {
+        id: true, slug: true, title: true,
+        audioStatus: true, audioUrl: true, audioDurationSec: true, audioVoice: true,
+        audioPublicId: true, audioProgress: true, audioTotal: true,
+        audioWords: true, audioError: true, audioJobId: true, audioUpdatedAt: true,
+      },
+    })) ??
+    (await prisma.article.findUnique({
+      where: { slug: id },
+      select: {
+        id: true, slug: true, title: true,
+        audioStatus: true, audioUrl: true, audioDurationSec: true, audioVoice: true,
+        audioPublicId: true, audioProgress: true, audioTotal: true,
+        audioWords: true, audioError: true, audioJobId: true, audioUpdatedAt: true,
+      },
+    }));
+  if (!article) throw new McpToolError(`لا يوجد مقال بمعرف «${id}»`);
+
+  if (action === "status") {
+    const stale =
+      article.audioStatus === "PROCESSING" &&
+      (!article.audioUpdatedAt || Date.now() - article.audioUpdatedAt.getTime() > 4 * 60 * 1000);
+    let selfHealed = false;
+    if (stale && article.audioJobId) {
+      /* الشفاء الذاتي نفسه في مسار GET الرسمي: نبض العامل للمهمة المعلقة */
+      const { after } = await import("next/server");
+      after(() => kickWorker({ articleId: article.id, jobId: article.audioJobId ?? "", adminId: null }));
+      selfHealed = true;
+    }
+    return {
+      action,
+      article: { id: article.id, title: article.title, slug: article.slug },
+      audioStatus: article.audioStatus,
+      hasAudio: Boolean(article.audioUrl),
+      audioUrl: article.audioUrl ?? null,
+      durationSec: article.audioDurationSec ?? null,
+      voice: article.audioVoice ?? TTS_VOICE,
+      progress: article.audioProgress,
+      total: article.audioTotal,
+      done: article.audioProgress,
+      wordsCount: Array.isArray(article.audioWords) ? (article.audioWords as unknown[]).length : null,
+      error: article.audioError ?? null,
+      jobId: article.audioJobId ?? null,
+      stale,
+      selfHealed,
+      note: stale
+        ? "المعالجة معلقة أكثر من 4 دقائق — ضُرب نبض العامل تلقائيًا لإكمالها"
+        : undefined,
+    };
+  }
+
+  if (action === "set_voice") {
+    const voice = str(args, "voice");
+    if (!voice) throw new McpToolError(`voice إلزامي — من قائمة Gemini الرسمية مثل: ${TTS_VOICES.slice(0, 10).join("، ")}…`);
+    if (!(TTS_VOICES as readonly string[]).includes(voice)) {
+      throw new McpToolError(`صوت غير معروف: «${voice}» — المتاح: ${TTS_VOICES.join("، ")}`);
+    }
+    await prisma.article.update({ where: { id: article.id }, data: { audioVoice: voice } });
+    await writeAudit({
+      adminId: null,
+      action: "mcp.audio_voice_set",
+      entity: "Article",
+      entityId: article.id,
+      meta: { via: "gemini-spark-mcp", title: article.title, voice, previous: article.audioVoice ?? TTS_VOICE },
+      ip: meta.ip,
+    });
+    return {
+      set: true,
+      voice,
+      audioStatus: article.audioStatus,
+      note:
+        article.audioStatus === "PROCESSING"
+          ? "المعالجة جارية — الصوت الجديد سيُطبق على المقاطع المتبقية"
+          : "حُفظ الصوت — سيُطبق عند التوليد القادم (action=start أو trigger_audio_generation)",
+    };
+  }
+
+  if (action === "start") {
+    /* نفس منطق trigger_audio_generation — يمرر id وresume وvoice كما هي */
+    return triggerAudioGeneration({ ...args }, meta);
+  }
+
+  if (action === "delete") {
+    /* إيقاف المعالجة وحذف الصوت مع تنظيف أصول Cloudinary (الملف المدمج + كل المقاطع المؤقتة) */
+    const audioChunks = await prisma.article.findUnique({
+      where: { id: article.id },
+      select: { audioChunks: true },
+    });
+    const chunkRows = Array.isArray(audioChunks?.audioChunks)
+      ? (audioChunks!.audioChunks as { publicId?: string }[])
+      : [];
+    const toDestroy = [
+      ...(article.audioPublicId ? [article.audioPublicId] : []),
+      ...chunkRows.map((c) => c.publicId).filter((x): x is string => Boolean(x)),
+    ];
+    await Promise.all(toDestroy.map((pid) => destroyAudio(pid)));
+
+    await prisma.article.update({
+      where: { id: article.id },
+      data: {
+        audioUrl: null,
+        audioDurationSec: null,
+        audioCues: Prisma.DbNull,
+        audioWords: Prisma.DbNull,
+        audioVoice: null,
+        audioPublicId: null,
+        audioGeneratedAt: null,
+        audioStatus: "NONE",
+        audioProgress: 0,
+        audioTotal: 0,
+        audioChunks: Prisma.DbNull,
+        audioError: null,
+        audioJobId: null,
+        audioUpdatedAt: new Date(),
+      },
+    });
+
+    await writeAudit({
+      adminId: null,
+      action: "mcp.audio_deleted",
+      entity: "Article",
+      entityId: article.id,
+      meta: { via: "gemini-spark-mcp", title: article.title, removedAssets: toDestroy.length },
+      ip: meta.ip,
+    });
+    await revalidateArticlePaths(article.slug);
+
+    return {
+      deleted: true,
+      article: { id: article.id, title: article.title, slug: article.slug },
+      removedCloudinaryAssets: toDestroy.length,
+      note: "أُوقف أي معالجة جارية ومُسح الصوت وكل ملفاته المؤقتة من السحابة",
+    };
+  }
+
+  throw new McpToolError("action يقبل status | set_voice | start | delete فقط");
+}
+
+/** قناة البريد الرسمية: حالة المفتاح والمرسل، تحديثهما في SystemSetting بلا
+ *  إعادة نشر، مسح المفتاح، وإرسال بريد تجريبي للمالك — نفس منطق /api/email-channel */
+async function manageEmailChannel(args: McpArgs, meta: McpRequestMeta) {
+  const action = str(args, "action") ?? "get";
+  const DEFAULT_FROM = "كلام له لازمة <onboarding@resend.dev>";
+
+  const state = async () => {
+    const cfg = await resolveEmailConfig();
+    return {
+      active: Boolean(cfg.key),
+      source: process.env.RESEND_API_KEY?.trim() ? "env" : cfg.key ? "db" : "none",
+      maskedKey: cfg.key ? `${cfg.key.slice(0, 5)}${"•".repeat(8)}${cfg.key.slice(-3)}` : null,
+      from: cfg.from,
+      fromIsCustom: cfg.from !== DEFAULT_FROM,
+    };
+  };
+
+  if (action === "get") {
+    return { action, ...(await state()) };
+  }
+
+  if (action === "set") {
+    const apiKey = str(args, "apiKey");
+    const from = str(args, "from");
+    if (!apiKey && !from) throw new McpToolError("مرر apiKey و/أو from — لا يوجد ما يُحفظ");
+    if (apiKey && !apiKey.startsWith("re_")) {
+      throw new McpToolError("مفتاح Resend الصالح يبدأ بـ re_ — تحقق من المفتاح المنسوخ");
+    }
+    let fromValue: string | null = null;
+    if (from) {
+      const named = /^[^<>@]+@[^<>]+\.[^<>]+ <.+>$/.test(from);
+      const bare = /^[^<>@]+@[^<>]+\.[^<>]+$/.test(from);
+      if (named) fromValue = from;
+      else if (bare) fromValue = `كلام له لازمة <${from}>`;
+      else {
+        throw new McpToolError("صيغة المرسل غير صالحة — مثال: كلام له لازمة <no-reply@ziadamr.me> أو بريد مجرد");
+      }
+    }
+    if (apiKey) {
+      await prisma.systemSetting.upsert({
+        where: { key: "RESEND_API_KEY" },
+        create: { key: "RESEND_API_KEY", value: apiKey },
+        update: { value: apiKey },
+      });
+    }
+    if (fromValue) {
+      await prisma.systemSetting.upsert({
+        where: { key: "SECURITY_EMAIL_FROM" },
+        create: { key: "SECURITY_EMAIL_FROM", value: fromValue },
+        update: { value: fromValue },
+      });
+    }
+    await writeAudit({
+      adminId: null,
+      action: "mcp.email_channel_set",
+      entity: "SystemSetting",
+      entityId: "RESEND_API_KEY/SECURITY_EMAIL_FROM",
+      meta: { via: "gemini-spark-mcp", keyUpdated: Boolean(apiKey), fromUpdated: Boolean(fromValue) },
+      ip: meta.ip,
+    });
+    return { saved: true, updated: [apiKey && "RESEND_API_KEY", fromValue && "SECURITY_EMAIL_FROM"].filter(Boolean), ...(await state()) };
+  }
+
+  if (action === "clear") {
+    await prisma.systemSetting.deleteMany({ where: { key: "RESEND_API_KEY" } });
+    await writeAudit({
+      adminId: null,
+      action: "mcp.email_channel_cleared",
+      entity: "SystemSetting",
+      entityId: "RESEND_API_KEY",
+      meta: { via: "gemini-spark-mcp" },
+      ip: meta.ip,
+    });
+    return { cleared: true, ...(await state()) };
+  }
+
+  if (action === "test") {
+    const cfg = await resolveEmailConfig();
+    if (!cfg.key) {
+      throw new McpToolError("لا يوجد مفتاح Resend فعّال (البيئة أو قاعدة البيانات) — اضبطه أولًا عبر action=set");
+    }
+    const ownerId = await getOwnerUserId();
+    if (!ownerId) throw new McpToolError("لا يوجد حساب مالك لإرسال البريد التجريبي إليه");
+    const owner = await prisma.user.findUnique({ where: { id: ownerId }, select: { email: true } });
+    if (!owner?.email) throw new McpToolError("حساب المالك بلا بريد");
+    const res = await fetch("https://api.resend.com/emails", {
+      method: "POST",
+      headers: { Authorization: `Bearer ${cfg.key}`, "Content-Type": "application/json" },
+      body: JSON.stringify({
+        from: cfg.from,
+        to: [owner.email],
+        subject: "بريد تجريبي من قناة البريد — عبر البوابة السيادية",
+        html: notificationEmailHtml(
+          "اختبار قناة البريد",
+          "هذا بريد تجريبي أُرسل الآن للتأكد من أن قناة البريد الرسمية تعمل بشكل سليم (المفتاح وعنوان المرسل).",
+          "/",
+        ),
+      }),
+      cache: "no-store",
+    });
+    const data = (await res.json().catch(() => ({}))) as { id?: string; message?: string };
+    await writeAudit({
+      adminId: null,
+      action: "mcp.email_channel_test",
+      entity: "Email",
+      entityId: data.id ?? null,
+      meta: { via: "gemini-spark-mcp", to: owner.email, httpStatus: res.status },
+      ip: meta.ip,
+    });
+    if (!res.ok) {
+      return { sent: false, to: owner.email, error: data.message ?? `HTTP ${res.status}` };
+    }
+    return { sent: true, to: owner.email, emailId: data.id ?? null, from: cfg.from };
+  }
+
+  throw new McpToolError("action يقبل get | set | clear | test فقط");
+}
+
+/** ذاكرة بحث القراء (SearchHistory — جدول الموقع العام على قاعدة Neon نفسها):
+ *  أكثر الكلمات بحثًا عبر المنصة، سجل قارئ بعينه، ومسح سجل قارئ أو الكل */
+async function manageSearchHistory(args: McpArgs, meta: McpRequestMeta) {
+  const action = str(args, "action") ?? "top";
+  const limit = Math.min(Math.max(num(args, "limit") ?? 20, 1), 100);
+
+  const resolveUser = async () => {
+    const userId = str(args, "userId");
+    const email = str(args, "email");
+    if (!userId && !email) throw new McpToolError("مرر userId أو email لتحديد القارئ");
+    const user = await prisma.user.findUnique({
+      where: userId ? { id: userId } : { email: email! },
+      select: { id: true, email: true, name: true, customName: true },
+    });
+    if (!user) throw new McpToolError(`لا يوجد مستخدم بمعرف «${userId ?? email}»`);
+    return user;
+  };
+
+  if (action === "top") {
+    /* الأكثر بحثًا عبر المنصة كلها — عدد مرات البحث وعدد الباحثين المميزين */
+    const rows = (await prisma.$queryRawUnsafe(
+      `SELECT query,
+              COUNT(*)::int AS searches,
+              COUNT(DISTINCT "userId")::int AS users,
+              MAX("createdAt") AS last_at
+         FROM "SearchHistory"
+        GROUP BY query
+        ORDER BY searches DESC, users DESC
+        LIMIT $1`,
+      limit,
+    )) as { query: string; searches: number; users: number; last_at: Date }[];
+    return {
+      action,
+      count: rows.length,
+      top: rows.map((r) => ({
+        query: r.query,
+        searches: r.searches,
+        users: r.users,
+        lastAt: r.last_at instanceof Date ? r.last_at.toISOString() : null,
+      })),
+      note: "هذه هي كلمات القراء الفعلية — مدخل لاختيار مواضيع المقالات القادمة",
+    };
+  }
+
+  if (action === "user") {
+    const user = await resolveUser();
+    const rows = await prisma.searchHistory.findMany({
+      where: { userId: user.id },
+      orderBy: { createdAt: "desc" },
+      take: limit,
+      select: { query: true, createdAt: true },
+    });
+    return {
+      action,
+      user: { id: user.id, email: user.email, displayName: user.customName ?? user.name },
+      count: rows.length,
+      history: rows.map((r) => ({ query: r.query, at: r.createdAt.toISOString() })),
+    };
+  }
+
+  if (action === "clear") {
+    const user = await resolveUser();
+    const rawQuery = str(args, "query");
+    const q = rawQuery ? rawQuery.replace(/\s+/g, " ").trim().slice(0, 120) : null;
+    const removed = await prisma.searchHistory.deleteMany({
+      where: q ? { userId: user.id, query: q } : { userId: user.id },
+    });
+    await writeAudit({
+      adminId: null,
+      action: "mcp.search_history_cleared",
+      entity: "SearchHistory",
+      entityId: user.id,
+      meta: { via: "gemini-spark-mcp", user: user.email, singleQuery: q, removed: removed.count },
+      ip: meta.ip,
+    });
+    return {
+      cleared: true,
+      user: { id: user.id, email: user.email },
+      removed: removed.count,
+      scope: q ? `الاستعلام «${q}» فقط` : "سجل القارئ كاملًا",
+    };
+  }
+
+  if (action === "clear_all") {
+    if (str(args, "confirm") !== "أؤقر التنفيذ") {
+      throw new McpToolError('مسح سجل بحث كل القراء يستلزم الإقرار النصي: confirm = "أؤقر التنفيذ"');
+    }
+    const removed = await prisma.searchHistory.deleteMany({});
+    await writeAudit({
+      adminId: null,
+      action: "mcp.search_history_cleared_all",
+      entity: "SearchHistory",
+      entityId: "*",
+      meta: { via: "gemini-spark-mcp", removed: removed.count },
+      ip: meta.ip,
+    });
+    return { cleared: true, scope: "كل السجل عبر المنصة", removed: removed.count };
+  }
+
+  throw new McpToolError("action يقبل top | user | clear | clear_all فقط");
+}
+
+/** مركز نشاط الأدمن نفسه (إشعارات ADMIN_* في جدول Notification الموحد):
+ *  جلب وعدادات وتعليم مقروءًا وإخفاء وحذف وتقليم القديم */
+const ADMIN_NOTIF_TYPES = [
+  "ADMIN_NEW_USER",
+  "ADMIN_NEW_COMMENT",
+  "ADMIN_NEW_PROPOSAL",
+  "ADMIN_COMMENT_REPORTED",
+  "ADMIN_SYSTEM_ALERT",
+];
+
+async function manageAdminNotifications(args: McpArgs, meta: McpRequestMeta) {
+  const action = str(args, "action") ?? "list";
+  const adminOnly = bool(args, "adminOnly") ?? true;
+  const unreadOnly = bool(args, "unreadOnly") === true;
+  const limit = Math.min(Math.max(num(args, "limit") ?? 50, 1), 100);
+  const ownerId = await getOwnerUserId();
+  if (!ownerId) throw new McpToolError("لا يوجد حساب مالك مكتشف — لا يمكن تحديد صندوق إشعارات الأدمن");
+  const typeFilter = adminOnly ? { type: { in: ADMIN_NOTIF_TYPES as never[] } } : {};
+
+  if (action === "list") {
+    const [items, unread] = await Promise.all([
+      prisma.notification.findMany({
+        where: { userId: ownerId, dismissedAt: null, ...(unreadOnly ? { isRead: false } : {}), ...typeFilter },
+        orderBy: { createdAt: "desc" },
+        take: limit,
+        select: { id: true, type: true, title: true, message: true, link: true, isRead: true, metadata: true, createdAt: true },
+      }),
+      prisma.notification.count({ where: { userId: ownerId, isRead: false, dismissedAt: null, ...typeFilter } }),
+    ]);
+    return {
+      action,
+      count: items.length,
+      unread,
+      items: items.map((n) => ({
+        id: n.id,
+        type: n.type,
+        title: n.title,
+        message: n.message,
+        link: n.link ?? null,
+        isRead: n.isRead,
+        createdAt: n.createdAt.toISOString(),
+      })),
+    };
+  }
+
+  if (action === "unread_count") {
+    const [unread, urgentRow] = await Promise.all([
+      prisma.notification.count({ where: { userId: ownerId, isRead: false, dismissedAt: null, ...typeFilter } }),
+      prisma.notification.findFirst({
+        where: { userId: ownerId, isRead: false, dismissedAt: null, ...typeFilter },
+        orderBy: { createdAt: "desc" },
+        select: { id: true, type: true, title: true, message: true, link: true },
+      }),
+    ]);
+    return { action, unread, urgent: urgentRow };
+  }
+
+  const id = str(args, "id");
+
+  if (action === "mark_read") {
+    if (!id) throw new McpToolError("id الإشعار إلزامي مع mark_read");
+    const res = await prisma.notification.updateMany({
+      where: { id, userId: ownerId },
+      data: { isRead: true, readAt: new Date() },
+    });
+    if (res.count === 0) throw new McpToolError("الإشعار غير موجود");
+    await writeAudit({
+      adminId: null,
+      action: "mcp.admin_notification_read",
+      entity: "Notification",
+      entityId: id,
+      meta: { via: "gemini-spark-mcp" },
+      ip: meta.ip,
+    });
+    return { marked: true, id };
+  }
+
+  if (action === "mark_all_read") {
+    const res = await prisma.notification.updateMany({
+      where: { userId: ownerId, isRead: false, dismissedAt: null, ...typeFilter },
+      data: { isRead: true, readAt: new Date() },
+    });
+    await writeAudit({
+      adminId: null,
+      action: "mcp.admin_notifications_cleared_badge",
+      entity: "Notification",
+      entityId: ownerId,
+      meta: { via: "gemini-spark-mcp", marked: res.count, adminOnly },
+      ip: meta.ip,
+    });
+    return { markedAll: true, count: res.count };
+  }
+
+  if (action === "dismiss") {
+    if (!id) throw new McpToolError("id الإشعار إلزامي مع dismiss");
+    const res = await prisma.notification.updateMany({
+      where: { id, userId: ownerId },
+      data: { dismissedAt: new Date(), isRead: true, readAt: new Date() },
+    });
+    if (res.count === 0) throw new McpToolError("الإشعار غير موجود");
+    await writeAudit({
+      adminId: null,
+      action: "mcp.admin_notification_dismissed",
+      entity: "Notification",
+      entityId: id,
+      meta: { via: "gemini-spark-mcp" },
+      ip: meta.ip,
+    });
+    return { dismissed: true, id };
+  }
+
+  if (action === "delete") {
+    if (!id) throw new McpToolError("id الإشعار إلزامي مع delete");
+    const res = await prisma.notification.deleteMany({ where: { id, userId: ownerId } });
+    if (res.count === 0) throw new McpToolError("الإشعار غير موجود");
+    await writeAudit({
+      adminId: null,
+      action: "mcp.admin_notification_deleted",
+      entity: "Notification",
+      entityId: id,
+      meta: { via: "gemini-spark-mcp" },
+      ip: meta.ip,
+    });
+    return { deleted: true, id };
+  }
+
+  if (action === "clear_old") {
+    const days = Math.min(Math.max(num(args, "days") ?? 30, 1), 365);
+    const cutoff = new Date(Date.now() - days * 86_400_000);
+    const res = await prisma.notification.deleteMany({
+      where: { userId: ownerId, isRead: true, createdAt: { lt: cutoff }, ...typeFilter },
+    });
+    await writeAudit({
+      adminId: null,
+      action: "mcp.admin_notifications_pruned",
+      entity: "Notification",
+      entityId: ownerId,
+      meta: { via: "gemini-spark-mcp", days, removed: res.count },
+      ip: meta.ip,
+    });
+    return { pruned: true, olderThanDays: days, removed: res.count };
+  }
+
+  throw new McpToolError("action يقبل list | unread_count | mark_read | mark_all_read | dismiss | delete | clear_old فقط");
+}
+
 export async function executeMcpTool(
   name: string,
   args: McpArgs,
@@ -3183,8 +3981,18 @@ export async function executeMcpTool(
       return updateCategory(args, meta);
     case "trigger_audio_generation":
       return triggerAudioGeneration(args, meta);
+    case "manage_article_audio":
+      return manageArticleAudio(args, meta);
+    case "generate_article_cover":
+      return generateArticleCover(args, meta);
     case "update_article_cover":
       return updateArticleCover(args, meta);
+    case "manage_email_channel":
+      return manageEmailChannel(args, meta);
+    case "manage_search_history":
+      return manageSearchHistory(args, meta);
+    case "manage_admin_notifications":
+      return manageAdminNotifications(args, meta);
     case "get_system_analytics":
       return getSystemAnalytics();
     case "list_and_moderate_comments":
@@ -3283,6 +4091,8 @@ export async function executeMcpTool(
     case "gh_list_tree":
     case "gh_get_file":
     case "gh_save_file":
+    case "gh_commit_files":
+    case "gh_manage_pulls":
     case "gh_delete_file":
     case "gh_list_commits":
     case "gh_get_diff":
@@ -3305,6 +4115,8 @@ export async function executeMcpTool(
     case "vercel_domains":
     case "vercel_project_info":
     case "vercel_get_crons":
+    case "vc_runtime_logs":
+    case "inspect_live_page":
       return executeVcTool(name, args, meta);
     case "db_inspect_schema":
     case "db_query":

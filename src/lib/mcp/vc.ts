@@ -337,6 +337,145 @@ async function vcGetCrons(args: McpArgs) {
   };
 }
 
+/* ============================ سجلات التشغيل الحية وفحص الصفحات ============================ */
+
+/**
+ * سجلات تشغيل النشرة الحية (Runtime / Function Logs) — أحداث الخادم بعد جاهزية
+ * النشرة: أخطاء الدوال وcrash الـmiddleware وstdout الخلفي.
+ * المصدر: مجرى أحداث النشرة الرسمي (/v2/deployments/{id}/events) باتجاه
+ * الرجوع، مع فصل أحداث البناء (payload.info.type === "build") عن أحداث
+ * التشغيل — ما تبقى هو سجل الدوال الحي.
+ */
+async function vcRuntimeLogs(args: McpArgs) {
+  const projectKey = (str(args, "project") ?? "public").toLowerCase();
+  const projectId = resolveProject(projectKey);
+  let depId = str(args, "id");
+  if (!depId) {
+    const { data } = await vcApi("GET", `/v6/deployments?projectId=${projectId}&target=production&limit=1`);
+    const deps = (data as { deployments: { uid: string; readyState: string; url: string }[] }).deployments;
+    if (!deps.length) throw new McpToolError("لا توجد نشرة إنتاج لهذا المشروع بعد");
+    depId = deps[0].uid;
+  }
+  const limit = Math.min(Math.max(num(args, "limit") ?? 80, 1), 300);
+  const includeBuild = args.includeBuild === true;
+  const filter = str(args, "filter");
+
+  const { data } = await vcApi(
+    "GET",
+    `/v2/deployments/${encodeURIComponent(depId)}/events?limit=${Math.min(limit * 3, 300)}&direction=backward`,
+  );
+  const events = Array.isArray(data)
+    ? (data as { type: string; created: number; payload?: { text?: string; info?: { type?: string; name?: string; entrypoint?: string } } }[])
+    : [];
+  const mapped = events
+    .map((e) => ({
+      at: new Date(e.created).toISOString(),
+      kind: e.payload?.info?.type ?? "runtime",
+      stream: e.type,
+      text: String(e.payload?.text ?? "").slice(0, 600),
+    }))
+    .filter((e) => e.text.length > 0)
+    .filter((e) => includeBuild || e.kind !== "build")
+    .filter((e) => (filter ? e.text.toLowerCase().includes(filter.toLowerCase()) : true))
+    .slice(0, limit);
+
+  const runtime = mapped.filter((e) => e.kind === "runtime");
+  return {
+    deployment: depId,
+    project: projectKey,
+    runtimeCount: runtime.length,
+    buildCount: mapped.length - runtime.length,
+    includeBuild,
+    events: mapped,
+    note:
+      runtime.length === 0 && !includeBuild
+        ? "لا أحداث تشغيل حديثة في هذه النشرة — مرر includeBuild=true لرؤية أحداث البناء"
+        : "الأحداث من مجرى النشرة الرسمي — kind=runtime أحداث الدوال الحية، kind=build أحداث البناء",
+  };
+}
+
+/**
+ * فحص حي لأي رابط منشور (الموقع العام أو اللوحة أو أي رابط) — كود الاستجابة
+ * وسلسلة التحويلات والترويسات المهمة والعنوان وكل meta/OG tags والروابط
+ * الكانونية وأول العناوين — للتحقق السريع بعد أي نشر.
+ */
+async function inspectLivePage(args: McpArgs): Promise<unknown> {
+  const url = str(args, "url");
+  if (!url || !/^https?:\/\//.test(url)) {
+    throw new McpToolError("url إلزامي بصيغة كاملة https://…");
+  }
+  const hops: { status: number; location: string | null }[] = [];
+  let current = url;
+  let finalRes: Response | null = null;
+
+  for (let i = 0; i < 6; i++) {
+    const res = await fetch(current, {
+      redirect: "manual",
+      cache: "no-store",
+      headers: { "User-Agent": "kalam-mcp-inspector/5.0 (+live-page-check)" },
+      signal: AbortSignal.timeout(20_000),
+    });
+    const loc = res.headers.get("location");
+    hops.push({ status: res.status, location: loc ? loc.slice(0, 300) : null });
+    if (res.status >= 300 && res.status < 400 && loc) {
+      current = new URL(loc, current).toString();
+      continue;
+    }
+    finalRes = res;
+    break;
+  }
+
+  if (!finalRes) {
+    return { url, hops, note: "سلسلة تحويلات طويلة جدًا (أكثر من 6 قفزات) — أوقفها يدويًا" };
+  }
+
+  const headers: Record<string, string> = {};
+  for (const h of ["content-type", "cache-control", "x-vercel-cache", "x-vercel-id", "server"]) {
+    const v = finalRes.headers.get(h);
+    if (v) headers[h] = v.slice(0, 200);
+  }
+
+  const html = await finalRes.text().catch(() => "");
+  const pick = (pattern: RegExp): string | null => {
+    const m = html.match(pattern);
+    return m ? m[1].trim().slice(0, 500) : null;
+  };
+  const metaContent = (key: string, attr: "property" | "name"): string | null =>
+    pick(new RegExp(`<meta[^>]*${attr}=["']${key.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}["'][^>]*content=["']([^"']*)["']`, "i")) ??
+    pick(new RegExp(`<meta[^>]*content=["']([^"']*)["'][^>]*${attr}=["']${key.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}["']`, "i"));
+
+  const title = pick(/<title[^>]*>([\s\S]*?)<\/title>/i);
+  const h1s: string[] = [];
+  const h1Re = /<h1[^>]*>([\s\S]*?)<\/h1>/gi;
+  let hm: RegExpExecArray | null;
+  while ((hm = h1Re.exec(html)) && h1s.length < 3) {
+    h1s.push(hm[1].replace(/<[^>]+>/g, "").replace(/\s+/g, " ").trim().slice(0, 200));
+  }
+
+  return {
+    url,
+    finalUrl: current,
+    status: finalRes.status,
+    ok: finalRes.ok,
+    redirects: hops.length > 1 ? hops : [],
+    headers,
+    title: title ?? null,
+    meta: {
+      description: metaContent("description", "name"),
+      og_title: metaContent("og:title", "property"),
+      og_description: metaContent("og:description", "property"),
+      og_image: metaContent("og:image", "property"),
+      og_url: metaContent("og:url", "property"),
+      og_type: metaContent("og:type", "property"),
+      twitter_card: metaContent("twitter:card", "name"),
+      twitter_image: metaContent("twitter:image", "name"),
+      canonical: pick(/<link[^>]*rel=["']canonical["'][^>]*href=["']([^"']*)["']/i),
+    },
+    h1: h1s,
+    htmlBytes: html.length,
+  };
+}
+
 /* ============================ الموزّع ============================ */
 
 export async function executeVcTool(name: string, args: McpArgs, meta: McpRequestMeta): Promise<unknown> {
@@ -352,6 +491,8 @@ export async function executeVcTool(name: string, args: McpArgs, meta: McpReques
     case "vercel_domains": return vcDomains(args, meta);
     case "vercel_project_info": return vcProjectInfo(args);
     case "vercel_get_crons": return vcGetCrons(args);
+    case "vc_runtime_logs": return vcRuntimeLogs(args);
+    case "inspect_live_page": return inspectLivePage(args);
     default: throw new McpToolError(`أداة Vercel غير معروفة: «${name}»`);
   }
 }

@@ -177,6 +177,7 @@ export async function runAudioJobStep(job: AudioJob): Promise<boolean> {
         slug: true,
         audioStatus: true,
         audioJobId: true,
+        audioVoice: true,
         audioChunks: true,
         content: true,
         contentWithTashkeel: true,
@@ -247,8 +248,9 @@ export async function runAudioJobStep(job: AudioJob): Promise<boolean> {
 
     try {
       /* attempts: 2 — ضغط داخلي مقتصد؛ التراجع الصبور على 429 يعيش فوق
-         سجل المقطع عبر الاستدعاءات (20ث ثم 40ث ثم 60ث) لا داخل هذه الدالة */
-      const { pcm, sampleRate } = await synthesizeChunk(rec.text, { attempts: 2 });
+         سجل المقطع عبر الاستدعاءات (20ث ثم 40ث ثم 60ث) لا داخل هذه الدالة
+         voice: صوت المقال المختار — يفوق الصوت الافتراضي من البيئة */
+      const { pcm, sampleRate } = await synthesizeChunk(rec.text, { attempts: 2, voice: article.audioVoice ?? undefined });
       const duration = Math.round(pcmDurationSec(pcm, sampleRate) * 100) / 100;
       const encoded = encodeNarration(pcm);
       /* توزيع واعٍ بوقفات النطق من PCM الخام — التظليل لا يسبق الصوت عند الوقفات */
@@ -315,7 +317,7 @@ async function finalizeAudioJob(job: AudioJob, chunks: ChunkRec[]): Promise<void
   const { articleId, jobId } = job;
   const article = await prisma.article.findUnique({
     where: { id: articleId },
-    select: { slug: true, audioPublicId: true, audioStatus: true, audioJobId: true },
+    select: { slug: true, audioPublicId: true, audioStatus: true, audioJobId: true, audioVoice: true },
   });
   if (!article || article.audioStatus !== "PROCESSING" || article.audioJobId !== jobId) return;
   if (chunks.length === 0 || chunks.some((c) => !c.url)) {
@@ -376,7 +378,7 @@ async function finalizeAudioJob(job: AudioJob, chunks: ChunkRec[]): Promise<void
     audioPublicId: uploaded.publicId,
     audioDurationSec: Math.round(total * 100) / 100,
     audioWords: words as never,
-    audioVoice: TTS_VOICE,
+    audioVoice: article.audioVoice ?? TTS_VOICE,
     audioGeneratedAt: new Date(),
     audioStatus: "READY",
     audioError: null,

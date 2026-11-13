@@ -4,44 +4,11 @@ import { requireSession, isRejected, writeAudit, getClientIp } from "@/lib/guard
 import { generateCoverArt, geminiChat, geminiConfigured, GeminiError } from "@/lib/gemini-inference";
 import { uploadImage, cloudinaryConfigured } from "@/lib/cloudinary";
 import { articleRevalidatePaths, revalidatePublicPaths } from "@/lib/revalidate";
+import { buildArtPrompt, sanitizeForPrompt } from "@/lib/cover-prompt";
 
 type Params = { params: Promise<{ id: string }> };
 
 export const maxDuration = 60;
-
-/**
- * تنظيف نص المقال من كتل التنسيق الخاصة قبل صياغة البرومت الفني
- * ([[آية|سورة|رقم]] و [[حديث|راوي]] وعلامات الماركداون الخفيف)
- */
-function sanitizeForPrompt(raw: string): string {
-  return raw
-    .replace(/\[\[[^\]]+\]\]/g, " ")
-    .replace(/^#+\s+/gm, "")
-    .replace(/^>\s+/gm, "")
-    .replace(/^-\s+/gm, "")
-    .replace(/\s+/g, " ")
-    .trim();
-}
-
-/**
- * صياغة البرومت الفني الراقي — أسلوب فلسفي هادئ Minimalist/Concept Art
- * بهوية المنصة البصرية (نحاسي دافئ على ورقي كريمي، بلا أي نصوص مكتوبة)
- */
-function buildArtPrompt(title: string, summary: string, core: string): string {
-  return [
-    "Create a single minimalist philosophical concept-art editorial cover image for a thoughtful Arabic intellectual essay.",
-    "Art direction: calm, contemplative, generous negative space, flat elegant shapes with subtle paper-grain texture,",
-    "warm muted palette (deep copper #A16A1F, cream #F8F4EC, soft charcoal accents), soft ambient light.",
-    "Abstract symbolism ONLY — visual metaphors that express the core idea. Absolutely NO text, NO letters, NO words, NO Arabic calligraphy, NO typography of any kind.",
-    "Style reference: premium literary magazine cover, modern minimalism, timeless and dignified.",
-    "",
-    `Essay title: ${title}`,
-    summary ? `Summary: ${summary}` : "",
-    core ? `Core content (for meaning extraction): ${core}` : "",
-  ]
-    .filter(Boolean)
-    .join("\n");
-}
 
 /** توليد غلاف تجريدي ذكي من مضمون المقال / اعتماده ورفعه وربطه بالمقال */
 export async function POST(request: Request, { params }: Params) {

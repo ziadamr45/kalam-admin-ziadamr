@@ -165,10 +165,27 @@ async function resendSend(args: McpArgs, meta: McpRequestMeta): Promise<unknown>
   return { sent: true, email_id: data.id ?? null, from: body.from, to: body.to, subject };
 }
 
-async function resendManage(args: McpArgs): Promise<unknown> {
+async function resendManage(args: McpArgs, meta: McpRequestMeta): Promise<unknown> {
   const { key } = await resolveEmailConfig();
   if (!key) throw new McpToolError("مفتاح Resend غير مضبوط");
   const action = str(args, "action") ?? "list";
+
+  /* مساعد: جلب معرف النطاق من domain_id أو اسم النطاق مباشرة */
+  const resolveDomainId = async (): Promise<{ id: string; name?: string }> => {
+    const id = str(args, "domain_id");
+    if (id) return { id };
+    const name = str(args, "domain");
+    if (!name) throw new McpToolError("مرر domain_id أو domain (اسم النطاق مثل ziadamr.me)");
+    const res = await fetch("https://api.resend.com/domains", {
+      headers: { Authorization: `Bearer ${key}` },
+      cache: "no-store",
+    });
+    const data = (await res.json().catch(() => ({}))) as { data?: { id: string; name: string }[] };
+    const hit = data.data?.find((d) => d.name.toLowerCase() === name.toLowerCase());
+    if (!hit) throw new McpToolError(`لا يوجد نطاق باسم «${name}» في حساب Resend — استخدم action=list للجرد`);
+    return { id: hit.id, name: hit.name };
+  };
+
   if (action === "list") {
     const res = await fetch("https://api.resend.com/domains", {
       headers: { Authorization: `Bearer ${key}` },
@@ -186,9 +203,9 @@ async function resendManage(args: McpArgs): Promise<unknown> {
       domains: data.data ?? [],
     };
   }
+
   if (action === "get") {
-    const id = str(args, "domain_id");
-    if (!id) throw new McpToolError("domain_id إلزامي مع action=get");
+    const { id } = await resolveDomainId();
     const res = await fetch(`https://api.resend.com/domains/${encodeURIComponent(id)}`, {
       headers: { Authorization: `Bearer ${key}` },
       cache: "no-store",
@@ -197,7 +214,80 @@ async function resendManage(args: McpArgs): Promise<unknown> {
     if (!res.ok) throw new McpToolError(`Resend رفض الطلب (${res.status})`, data);
     return data;
   }
-  throw new McpToolError("action يقبل list | get فقط");
+
+  /* التحقق: إطلاق فحص سجلات DNS للنطاق بعد ضبطها لدى مزود النطاق */
+  if (action === "verify") {
+    const { id, name } = await resolveDomainId();
+    const res = await fetch(`https://api.resend.com/domains/${encodeURIComponent(id)}/verify`, {
+      method: "POST",
+      headers: { Authorization: `Bearer ${key}`, "Content-Type": "application/json" },
+      body: "{}",
+      cache: "no-store",
+    });
+    const data = (await res.json().catch(() => ({}))) as Record<string, unknown>;
+    if (!res.ok) {
+      throw new McpToolError(`Resend رفض التحقق (${res.status}): ${JSON.stringify(data).slice(0, 200)}`, data);
+    }
+    await writeAudit({
+      adminId: null,
+      action: "mcp.resend_domain_verify",
+      entity: "ResendDomain",
+      entityId: name ?? id,
+      meta: { via: "gemini-spark-mcp", domainId: id },
+      ip: meta.ip,
+    });
+    return { verifying: true, domain: name ?? null, domainId: id, result: data };
+  }
+
+  /* إضافة نطاق جديد — الرد يشمل سجلات DNS المطلوبة لضبطها عند مزود النطاق */
+  if (action === "create") {
+    const name = str(args, "domain");
+    if (!name) throw new McpToolError("domain (اسم النطاق) إلزامي مع action=create");
+    const region = str(args, "region");
+    const res = await fetch("https://api.resend.com/domains", {
+      method: "POST",
+      headers: { Authorization: `Bearer ${key}`, "Content-Type": "application/json" },
+      body: JSON.stringify({ name, ...(region ? { region } : {}) }),
+      cache: "no-store",
+    });
+    const data = (await res.json().catch(() => ({}))) as Record<string, unknown>;
+    if (!res.ok) {
+      throw new McpToolError(`Resend رفض إنشاء النطاق (${res.status}): ${JSON.stringify(data).slice(0, 200)}`, data);
+    }
+    await writeAudit({
+      adminId: null,
+      action: "mcp.resend_domain_created",
+      entity: "ResendDomain",
+      entityId: name,
+      meta: { via: "gemini-spark-mcp", region: region ?? null },
+      ip: meta.ip,
+    });
+    return { created: true, domain: name, ...(data as Record<string, unknown>) };
+  }
+
+  if (action === "delete") {
+    const { id, name } = await resolveDomainId();
+    const res = await fetch(`https://api.resend.com/domains/${encodeURIComponent(id)}`, {
+      method: "DELETE",
+      headers: { Authorization: `Bearer ${key}` },
+      cache: "no-store",
+    });
+    const data = (await res.json().catch(() => ({}))) as Record<string, unknown>;
+    if (!res.ok) {
+      throw new McpToolError(`Resend رفض حذف النطاق (${res.status}): ${JSON.stringify(data).slice(0, 200)}`, data);
+    }
+    await writeAudit({
+      adminId: null,
+      action: "mcp.resend_domain_deleted",
+      entity: "ResendDomain",
+      entityId: name ?? id,
+      meta: { via: "gemini-spark-mcp", domainId: id },
+      ip: meta.ip,
+    });
+    return { deleted: true, domain: name ?? null, domainId: id };
+  }
+
+  throw new McpToolError("action يقبل list | get | verify | create | delete فقط");
 }
 
 /* ============================ إشعارات الإدارة ============================ */
@@ -228,7 +318,7 @@ export async function executeSvcTool(name: string, args: McpArgs, meta: McpReque
     case "cloudinary_upload_file": return cloudinaryUpload(args, meta);
     case "cloudinary_rename_asset": return cloudinaryRename(args, meta);
     case "resend_send_email": return resendSend(args, meta);
-    case "resend_manage": return resendManage(args);
+    case "resend_manage": return resendManage(args, meta);
     case "kalam_push_admin_custom": return pushAdminCustom(args, meta);
     default: throw new McpToolError(`أداة الخدمات غير معروفة: «${name}»`);
   }

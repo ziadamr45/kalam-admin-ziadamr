@@ -144,8 +144,29 @@ async function ghSaveFile(args: McpArgs, meta: McpRequestMeta) {
   const content = str(args, "content");
   const message = str(args, "message") ?? "تعديل عبر البوابة السيادية MCP";
   const branch = str(args, "branch") ?? "main";
+  const encoding = str(args, "encoding") ?? "utf8";
   if (!path || content === undefined) {
     throw new McpToolError("path وcontent إلزاميان — content هو النص الكامل الجديد للملف");
+  }
+  if (encoding !== "utf8" && encoding !== "base64") {
+    throw new McpToolError("encoding يقبل utf8 (نص) | base64 (صور وأيقونات وملفات ثنائية) فقط");
+  }
+  /* base64: المحتوى الوارد مرمَّز مسبقًا — تحقق من سلامته وقس البايتات الفعلية */
+  let rawBytes: number;
+  if (encoding === "base64") {
+    const decoded = Buffer.from(content, "base64");
+    if (decoded.toString("base64").replace(/=+$/, "") !== content.replace(/=+$/, "")) {
+      throw new McpToolError("محتوى base64 غير صالح — تأكد من الترميز الكامل بلا أسطر جديدة");
+    }
+    rawBytes = decoded.length;
+    if (rawBytes > 3_000_000) {
+      throw new McpToolError(`الملف أكبر من سقف البوابة (${rawBytes} بايت > 3MB) — ارفعه يدويًا أو قسّمه`);
+    }
+  } else {
+    rawBytes = Buffer.byteLength(content, "utf8");
+    if (rawBytes > 3_000_000) {
+      throw new McpToolError(`الملف أكبر من سقف البوابة (${rawBytes} بايت > 3MB)`);
+    }
   }
   /* sha الملف القائم تلقائيًا — وجوده يعني تحديثًا وغيابه إنشاءً */
   let sha: string | undefined = str(args, "sha");
@@ -160,7 +181,7 @@ async function ghSaveFile(args: McpArgs, meta: McpRequestMeta) {
   const { data } = await ghApi("PUT", repo, `contents/${path}`, {
     message,
     branch,
-    content: Buffer.from(content, "utf8").toString("base64"),
+    content: encoding === "base64" ? content : Buffer.from(content, "utf8").toString("base64"),
     ...(sha ? { sha } : {}),
   });
   const r = data as { commit: { sha: string; html_url: string }; content: { html_url: string } };
@@ -169,7 +190,7 @@ async function ghSaveFile(args: McpArgs, meta: McpRequestMeta) {
     action: "mcp.gh_save_file",
     entity: "GitHub",
     entityId: `${repo}:${path}`,
-    meta: { via: "gemini-spark-mcp", branch, created: !sha, commit: r.commit?.sha, bytes: Buffer.byteLength(content) },
+    meta: { via: "gemini-spark-mcp", branch, created: !sha, encoding, commit: r.commit?.sha, bytes: rawBytes },
     ip: meta.ip,
   });
   return {
@@ -178,6 +199,8 @@ async function ghSaveFile(args: McpArgs, meta: McpRequestMeta) {
     repo,
     path,
     branch,
+    encoding,
+    bytes: rawBytes,
     commit: { sha: r.commit?.sha, url: r.commit?.html_url },
   };
 }
@@ -403,6 +426,261 @@ async function ghDeleteBranch(args: McpArgs, meta: McpRequestMeta) {
   return { deleted: true, repo, branch };
 }
 
+/* ============================ الكوميت الذرّي متعدد الملفات ============================ */
+
+/**
+ * كوميت ذرّي واحد لعدة ملفات عبر Git Data API (blobs → tree → commit → ref):
+ * عدة تعديلات مترابطة تهبط دفعة واحدة فلا تُطلق إلا نشرة واحدة على Vercel،
+ * بدل كوميت متتابع لكل ملف يسبق كل منها بناء كامل.
+ */
+async function ghCommitFiles(args: McpArgs, meta: McpRequestMeta) {
+  const repo = resolveRepo(str(args, "repo"));
+  const message = str(args, "message");
+  if (!message) throw new McpToolError("رسالة الكوميت message إلزامية");
+  const branch = str(args, "branch") ?? "main";
+  const rawFiles = Array.isArray(args.files) ? (args.files as Record<string, unknown>[]) : [];
+  if (rawFiles.length === 0) {
+    throw new McpToolError("files إلزامية — مصفوفة [{ path, content, encoding?, op? }] على الأقل ملفًا واحدًا");
+  }
+  if (rawFiles.length > 25) {
+    throw new McpToolError("سقف البوابة 25 ملفًا في الكوميت الواحد — قسّم الدفعة");
+  }
+
+  const files = rawFiles.map((f) => {
+    const path = String(f.path ?? "").trim();
+    const content = f.content === undefined || f.content === null ? null : String(f.content);
+    const encoding = String(f.encoding ?? "utf8");
+    const op = String(f.op ?? (content === null ? "delete" : "upsert"));
+    if (!path) throw new McpToolError("كل ملف يحتاج path صالحًا");
+    if (!["upsert", "delete"].includes(op)) throw new McpToolError(`op غير معروف للملف ${path} — upsert | delete`);
+    if (!["utf8", "base64"].includes(encoding)) throw new McpToolError(`encoding غير معروف للملف ${path} — utf8 | base64`);
+    if (op === "upsert" && content === null) throw new McpToolError(`الملف ${path} بحاجة content مع op=upsert`);
+    if (op === "upsert" && content !== null) {
+      const bytes = encoding === "base64" ? Buffer.from(content, "base64").length : Buffer.byteLength(content, "utf8");
+      if (bytes > 3_000_000) throw new McpToolError(`الملف ${path} يتجاوز سقف 3MB`);
+    }
+    return { path, content, encoding, op };
+  });
+
+  /* 1) قمة الفرع المستهدف */
+  const { data: refData } = await ghApi("GET", repo, `git/ref/heads/${encodeURIComponent(branch)}`);
+  const baseSha = (refData as { object: { sha: string } }).object.sha;
+  /* 2) شجرة الكوميت الحالية — أساس الشجرة الجديدة */
+  const { data: commitData } = await ghApi("GET", repo, `git/commits/${baseSha}`);
+  const baseTreeSha = (commitData as { tree: { sha: string } }).tree.sha;
+
+  /* 3) إنشاء blobs للملفات المضافة/المعدلة */
+  const tree: ({ path: string; mode: string; type: string; sha: string } | { path: string; sha: null })[] = [];
+  const createdBlobs: { path: string; sha: string; bytes: number }[] = [];
+  for (const f of files) {
+    if (f.op === "delete") {
+      tree.push({ path: f.path, sha: null }); // حذف من الشجرة
+      continue;
+    }
+    const encoding = f.encoding === "base64" ? "base64" : "utf-8";
+    const { data: blob } = await ghApi("POST", repo, "git/blobs", { content: f.content, encoding });
+    const blobSha = (blob as { sha: string }).sha;
+    const bytes =
+      f.encoding === "base64" && f.content !== null
+        ? Buffer.from(f.content, "base64").length
+        : Buffer.byteLength(f.content ?? "", "utf8");
+    createdBlobs.push({ path: f.path, sha: blobSha, bytes });
+    tree.push({ path: f.path, mode: "100644", type: "blob", sha: blobSha });
+  }
+
+  /* 4) شجرة جديدة فوق شجرة القمة */
+  const { data: treeData } = await ghApi("POST", repo, "git/trees", {
+    base_tree: baseTreeSha,
+    tree,
+  });
+  const newTreeSha = (treeData as { sha: string }).sha;
+  /* 5) كوميت الذرّة الواحدة */
+  const { data: newCommit } = await ghApi("POST", repo, "git/commits", {
+    message,
+    tree: newTreeSha,
+    parents: [baseSha],
+  });
+  const commitSha = (newCommit as { sha: string; html_url?: string }).sha;
+  /* 6) تحريك الفرع */
+  await ghApi("PATCH", repo, `git/refs/heads/${encodeURIComponent(branch)}`, {
+    sha: commitSha,
+    force: false,
+  });
+
+  await writeAudit({
+    adminId: null,
+    action: "mcp.gh_commit_files",
+    entity: "GitHub",
+    entityId: `${repo}:${branch}`,
+    meta: {
+      via: "gemini-spark-mcp",
+      files: files.map((f) => `${f.op}:${f.path}`),
+      commit: commitSha,
+    },
+    ip: meta.ip,
+  });
+
+  return {
+    committed: true,
+    repo,
+    branch,
+    message,
+    files: files.map((f) => ({ path: f.path, op: f.op, ...(createdBlobs.find((b) => b.path === f.path) ?? {}) })),
+    commit: { sha: commitSha },
+    baseSha: baseSha.slice(0, 10),
+    note: "كوميت ذرّي واحد — سيُطلق نشرة واحدة فقط على Vercel",
+  };
+}
+
+/* ============================ طلبات الدمج Pull Requests ============================ */
+
+async function ghListPulls(args: McpArgs) {
+  const repo = resolveRepo(str(args, "repo"));
+  const state = ["open", "closed", "all"].includes(str(args, "state") ?? "")
+    ? (str(args, "state") as string)
+    : "open";
+  const { data } = await ghApi("GET", repo, `pulls?state=${state}&per_page=30&sort=updated&direction=desc`);
+  const pulls = data as {
+    number: number; title: string; state: string; draft: boolean;
+    user: { login: string }; head: { ref: string; sha: string };
+    base: { ref: string }; html_url: string; created_at: string; updated_at: string;
+    mergeable_state?: string; changed_files?: number; commits?: number;
+  }[];
+  return {
+    count: pulls.length,
+    pulls: pulls.map((p) => ({
+      number: p.number,
+      title: p.title,
+      state: p.state,
+      draft: p.draft,
+      author: p.user?.login,
+      head: `${p.head.ref}@${p.head.sha.slice(0, 10)}`,
+      base: p.base.ref,
+      mergeable_state: p.mergeable_state ?? null,
+      changed_files: p.changed_files ?? null,
+      created: p.created_at,
+      updated: p.updated_at,
+      url: p.html_url,
+    })),
+  };
+}
+
+async function ghManagePulls(args: McpArgs, meta: McpRequestMeta) {
+  const repo = resolveRepo(str(args, "repo"));
+  const action = str(args, "action") ?? "list";
+  const number = num(args, "number");
+
+  if (action === "list") return ghListPulls(args);
+
+  if (action === "get") {
+    if (!number) throw new McpToolError("رقم الطلب number إلزامي مع action=get");
+    const { data } = await ghApi("GET", repo, `pulls/${number}`);
+    const p = data as {
+      number: number; title: string; state: string; merged: boolean; merged_at: string | null;
+      body: string | null; user: { login: string }; head: { ref: string; sha: string };
+      base: { ref: string }; html_url: string; mergeable_state: string | null; changed_files: number;
+      commits: number; additions: number; deletions: number; created_at: string;
+    };
+    const { data: filesData } = await ghApi("GET", repo, `pulls/${number}/files?per_page=50`);
+    const fileRows = filesData as { filename: string; status: string; additions: number; deletions: number; patch?: string }[];
+    return {
+      number: p.number,
+      title: p.title,
+      state: p.state,
+      merged: p.merged,
+      author: p.user?.login,
+      head: `${p.head.ref}@${p.head.sha.slice(0, 10)}`,
+      base: p.base.ref,
+      mergeable_state: p.mergeable_state,
+      stats: { files: p.changed_files, commits: p.commits, additions: p.additions, deletions: p.deletions },
+      body: p.body ?? null,
+      created: p.created_at,
+      url: p.html_url,
+      files: fileRows.slice(0, 30).map((f) => ({
+        file: f.filename,
+        status: f.status,
+        additions: f.additions,
+        deletions: f.deletions,
+        patch: f.patch ? f.patch.slice(0, 3000) : undefined,
+      })),
+    };
+  }
+
+  if (action === "create") {
+    const title = str(args, "title");
+    const head = str(args, "head");
+    const base = str(args, "base") ?? "main";
+    if (!title || !head) throw new McpToolError("title وhead (الفرع المصدر) إلزاميان مع action=create");
+    const body = str(args, "body") ?? "";
+    const { data } = await ghApi("POST", repo, "pulls", { title, head, base, body });
+    const p = data as { number: number; html_url: string; state: string };
+    await writeAudit({
+      adminId: null,
+      action: "mcp.gh_pull_created",
+      entity: "GitHub",
+      entityId: `${repo}:pr-${p.number}`,
+      meta: { via: "gemini-spark-mcp", head, base, title },
+      ip: meta.ip,
+    });
+    return { created: true, number: p.number, state: p.state, url: p.html_url };
+  }
+
+  if (action === "comment") {
+    if (!number) throw new McpToolError("رقم الطلب number إلزامي مع action=comment");
+    const comment = str(args, "comment");
+    if (!comment) throw new McpToolError("نص المراجعة comment إلزامي");
+    const { data } = await ghApi("POST", repo, `issues/${number}/comments`, { body: comment });
+    const c = data as { id: number; html_url: string };
+    await writeAudit({
+      adminId: null,
+      action: "mcp.gh_pull_comment",
+      entity: "GitHub",
+      entityId: `${repo}:pr-${number}`,
+      meta: { via: "gemini-spark-mcp", chars: comment.length },
+      ip: meta.ip,
+    });
+    return { commented: true, number, comment_id: c.id, url: c.html_url };
+  }
+
+  if (action === "merge") {
+    if (!number) throw new McpToolError("رقم الطلب number إلزامي مع action=merge");
+    const mergeMethod = ["merge", "squash", "rebase"].includes(str(args, "merge_method") ?? "")
+      ? (str(args, "merge_method") as string)
+      : "merge";
+    const commitTitle = str(args, "commit_title") ?? undefined;
+    const { data } = await ghApi("PUT", repo, `pulls/${number}/merge`, {
+      merge_method: mergeMethod,
+      ...(commitTitle ? { commit_title: commitTitle } : {}),
+    });
+    const r = data as { merged: boolean; sha: string; message: string };
+    await writeAudit({
+      adminId: null,
+      action: "mcp.gh_pull_merged",
+      entity: "GitHub",
+      entityId: `${repo}:pr-${number}`,
+      meta: { via: "gemini-spark-mcp", method: mergeMethod, sha: r.sha?.slice(0, 10) },
+      ip: meta.ip,
+    });
+    return { merged: r.merged, number, sha: r.sha?.slice(0, 10), method: mergeMethod, message: r.message };
+  }
+
+  if (action === "close") {
+    if (!number) throw new McpToolError("رقم الطلب number إلزامي مع action=close");
+    await ghApi("PATCH", repo, `pulls/${number}`, { state: "closed" });
+    await writeAudit({
+      adminId: null,
+      action: "mcp.gh_pull_closed",
+      entity: "GitHub",
+      entityId: `${repo}:pr-${number}`,
+      meta: { via: "gemini-spark-mcp" },
+      ip: meta.ip,
+    });
+    return { closed: true, number };
+  }
+
+  throw new McpToolError("action يقبل list | get | create | comment | merge | close فقط");
+}
+
 /* ============================ الموزّع ============================ */
 
 export async function executeGhTool(name: string, args: McpArgs, meta: McpRequestMeta): Promise<unknown> {
@@ -411,6 +689,8 @@ export async function executeGhTool(name: string, args: McpArgs, meta: McpReques
     case "gh_list_tree": return ghListTree(args);
     case "gh_get_file": return ghGetFile(args);
     case "gh_save_file": return ghSaveFile(args, meta);
+    case "gh_commit_files": return ghCommitFiles(args, meta);
+    case "gh_manage_pulls": return ghManagePulls(args, meta);
     case "gh_delete_file": return ghDeleteFile(args, meta);
     case "gh_list_commits": return ghListCommits(args);
     case "gh_get_diff": return ghGetDiff(args);

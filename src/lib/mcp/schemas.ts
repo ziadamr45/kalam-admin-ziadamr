@@ -16,7 +16,7 @@ export type McpToolSchema = {
 
 export const MCP_PROTOCOL_VERSION = "2025-03-26";
 export const MCP_SERVER_NAME = "كلام له لازمة - Kalam Laho Lazma";
-export const MCP_SERVER_VERSION = "4.0.0";
+export const MCP_SERVER_VERSION = "5.0.0";
 
 export const MCP_TOOLS: McpToolSchema[] = [
   /* ==================== أ) أدوات المقالات ==================== */
@@ -187,7 +187,7 @@ export const MCP_TOOLS: McpToolSchema[] = [
   {
     name: "trigger_audio_generation",
     description:
-      "إطلاق مهمة التوليد الصوتي الخلفية لمقال محدد: تحجز المهمة في قاعدة البيانات (audioStatus = PROCESSING) وتشعل سلسلة معالجة ذاتية التغذية تولّد المقاطع الصوتية خلفيًا عبر Gemini TTS وترفع الملف المدمج إلى Cloudinary ثم تصبح READY — دون الحاجة لبقاء أي عميل متصل.",
+      "إطلاق مهمة التوليد الصوتي الخلفية لمقال محدد: تحجز المهمة في قاعدة البيانات (audioStatus = PROCESSING) وتشعل سلسلة معالجة ذاتية التغذية تولّد المقاطع الصوتية خلفيًا عبر Gemini TTS وترفع الملف المدمج إلى Cloudinary ثم تصبح READY — دون الحاجة لبقاء أي عميل متصل، مع خيار اختيار صوت القارئ لهذه المهمة.",
     inputSchema: {
       type: "object",
       properties: {
@@ -195,6 +195,52 @@ export const MCP_TOOLS: McpToolSchema[] = [
         resume: {
           type: "boolean",
           description: "استئناف مهمة معلقة بدل رفضها — استخدمه إذا بدت المعالجة متوقفة",
+        },
+        voice: {
+          type: "string",
+          description: "صوت القارئ من قائمة Gemini الرسمية (مثل Charon أو Sulafat أو Orus أو Kore) — يُحفظ على المقال ويُستخدم في كل المقاطع؛ افتراضيًا صوت البيئة Kore",
+        },
+      },
+      required: ["id"],
+    },
+  },
+  {
+    name: "manage_article_audio",
+    description:
+      "الإدارة الكاملة لصوت المقال: status للحالة اللحظية (التقدم done/total والصوت المختار والمدة والخطأ واكتشاف المهمة المعلقة stale مع شفائها الذاتي بضرب العامل)، set_voice لاختيار صوت القارئ (من قائمة Gemini الرسمية) يُطبق على التوليد القادم، start لإطلاق التوليد (مثل trigger_audio_generation مع دعم voice)، delete لإيقاف أي معالجة جارية وحذف الصوت من المقال وتنظيف ملفاته من Cloudinary كاملةً.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        id: { type: "string", description: "معرف المقال أو slug — إلزامي" },
+        action: {
+          type: "string",
+          enum: ["status", "set_voice", "start", "delete"],
+          description: "status الحالة اللحظية (افتراضي) | set_voice اختيار الصوت | start إطلاق التوليد | delete حذف الصوت وتنظيفه",
+        },
+        voice: {
+          type: "string",
+          description: "مع set_voice (واختياري مع start): صوت Gemini مثل Charon أو Sulafat أو Orus أو Kore",
+        },
+        resume: { type: "boolean", description: "مع start: استئناف مهمة معلقة بدل رفضها" },
+      },
+      required: ["id"],
+    },
+  },
+  {
+    name: "generate_article_cover",
+    description:
+      "توليد غلاف المقال بالذكاء الاصطناعي كاملًا: يقرأ جوهر المقال ويصيغ برومبتًا فنيًا إنجليزيًا عبر Gemini (أو تعتمد برومبتًا مخصصًا تمرره)، ثم يرسم عبر سلسلة المحركات (Imagen → Gemini Image → Pollinations) ويرفع الناتج إلى Cloudinary ويربطه بالمقال مع إعادة ترندرة صفحاته — ووضع preview=true يعيد البرومبت الصيغ دون رسم لفحصه وتعديله قبل النفقة.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        id: { type: "string", description: "معرف المقال أو slug — إلزامي" },
+        prompt: {
+          type: "string",
+          description: "برومبت فني مخصص بالإنجليزية يُعتمد كما هو بدل الصياغة الآلية — اتركه فارغًا ليصوغ Gemini البرومبت من جوهر المقال",
+        },
+        preview: {
+          type: "boolean",
+          description: "true = إعادة البرومبت الصيغ فقط دون توليد الصورة (فحص الجودة والصياغة) — افتراضي false",
         },
       },
       required: ["id"],
@@ -291,11 +337,12 @@ export const MCP_TOOLS: McpToolSchema[] = [
   {
     name: "manage_user",
     description:
-      "السيادة الكاملة على حساب قارئ: حظره نهائيًا بسبب موثق أو فك حظره، أو منح/خصم رصيد أثر (من ±1 إلى ±5000 بسبب يُوثَّق في سجل الأثر وتُعاد حساب رتبته الفكرية آليًا)، أو تصفير هويته المخصصة (الاسم والصورة والنبذة) عائدًا إياه لحالة Google الأصلية عند الانتهاك.",
+      "السيادة الكاملة على حساب قارئ (بمعرف userId أو بريد email): حظره نهائيًا بسبب موثق أو فك حظره، منح/خصم رصيد أثر، تصفير هويته المخصصة عائدًا إياه لحالة Google الأصلية، تعديل بطاقته الفكرية كاملةً (الاسم المعروض والصورة والنبذة والنبذة الموسعة وروابط التواصل الموثقة)، فحص أجهزته المسجلة وإبطال جهاز بعينه، وفحص دخولات Google وجلساته وإبطالها.",
     inputSchema: {
       type: "object",
       properties: {
-        userId: { type: "string", description: "معرف المستخدم — إلزامي" },
+        userId: { type: "string", description: "معرف المستخدم — أو مرر email بدلًا منه" },
+        email: { type: "string", description: "بريد المستخدم — بديل عن userId" },
         action: {
           type: "string",
           enum: [
@@ -303,11 +350,14 @@ export const MCP_TOOLS: McpToolSchema[] = [
             "unban",
             "adjust_impact",
             "reset_identity",
+            "update_identity",
+            "list_devices",
+            "revoke_device",
             "list_logins",
             "revoke_logins",
           ],
           description:
-            "ban حظر | unban فك الحظر | adjust_impact منح/خصم أثر | reset_identity تصفير الهوية المخصصة | list_logins فحص دخولات Google وجلساته على المنصة العامة | revoke_logins إبطال جلساته وإجباره على إعادة الدخول",
+            "ban حظر | unban فك الحظر | adjust_impact منح/خصم أثر | reset_identity تصفير الهوية المخصصة | update_identity تعديل البطاقة الفكرية (الاسم/الصورة/النبذة/الموسعة/الروابط) | list_devices جرد أجهزة القارئ | revoke_device إبطال جهاز بعينه | list_logins فحص دخولات Google وجلساته | revoke_logins إبطال جلساته وإجباره على إعادة الدخول",
         },
         reason: {
           type: "string",
@@ -317,8 +367,30 @@ export const MCP_TOOLS: McpToolSchema[] = [
           type: "number",
           description: "عدد النقاط مع adjust_impact — موجبة للمنح وسالبة للخصم (±1 إلى ±5000)",
         },
+        customName: {
+          type: ["string", "null"],
+          description: "مع update_identity: الاسم المعروض الجديد — null لمسحه واسترجاع اسم Google",
+        },
+        customImage: {
+          type: ["string", "null"],
+          description: "مع update_identity: رابط صورة https أو data:image — null لمسحها",
+        },
+        bio: {
+          type: ["string", "null"],
+          description: "مع update_identity: النبذة القصيرة — null لمسحها (حتى 5000 حرف)",
+        },
+        extendedBio: {
+          type: ["string", "null"],
+          description: "مع update_identity: النبذة الموسعة للبطاقة الفكرية للموثقين والنخبة — null لمسحها",
+        },
+        verifiedSocialLinks: {
+          type: ["object", "null"],
+          description: "مع update_identity: روابط التواصل في البطاقة الفكرية — كائن مثل {\"website\":\"https://…\",\"x\":\"https://…\",\"telegram\":\"https://…\"} أو null لمسحها (القيم https فقط)",
+        },
+        deviceId: { type: "string", description: "معرف الجهاز مع revoke_device — من list_devices" },
+        limit: { type: "number", description: "عدد الأجهزة مع list_devices (افتراضي 20، أقصى 50)" },
       },
-      required: ["userId", "action"],
+      required: ["action"],
     },
   },
 
@@ -472,6 +544,29 @@ export const MCP_TOOLS: McpToolSchema[] = [
       },
     },
   },
+  {
+    name: "manage_email_channel",
+    description:
+      "قناة البريد الرسمية — نفس منطق /api/email-channel: get قراءة حالة القناة (المفتاح مصدره البيئة أم قاعدة البيانات، المرسل الحالي)، set تحديث مفتاح RESEND_API_KEY و/أو عنوان المرسل SECURITY_EMAIL_FROM في SystemSetting مباشرةً بلا إعادة نشر (Zero-Deploy)، clear مسح المفتاح المحفوظ، test إرسال بريد تجريبي رسمي للمالك للتحقق أن القناة حية.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        action: {
+          type: "string",
+          enum: ["get", "set", "clear", "test"],
+          description: "get الحالة (افتراضي) | set حفظ المفتاح و/أو المرسل | clear مسح المفتاح المحفوظ | test بريد تجريبي للمالك",
+        },
+        apiKey: {
+          type: "string",
+          description: "مع set: مفتاح Resend الصالح (يبدأ بـ re_) — يُحفظ في SystemSetting",
+        },
+        from: {
+          type: "string",
+          description: "مع set: عنوان المرسل مثل كلام له لازمة <no-reply@ziadamr.me> أو بريد مجرد يُغلَّف تلقائيًا",
+        },
+      },
+    },
+  },
 
   /* ==================== ي) الأمن والنبض الحي ==================== */
   {
@@ -570,6 +665,26 @@ export const MCP_TOOLS: McpToolSchema[] = [
     },
   },
   {
+    name: "manage_search_history",
+    description:
+      "ذاكرة بحث القراء (SearchHistory — يكتبه الموقع العام على قاعدة Neon نفسها): top لعرض أكثر الكلمات بحثًا عبر المنصة (عدد البحثات وعدد الباحثين المميزين — مدخل ذكي لاختيار مواضيع المقالات)، user لسجل بحث قارئ بعينه، clear لمسح سجل قارئ أو استعلام محدد، وclear_all لمسح السجل كله (بإقرار confirm='أؤقر التنفيذ').",
+    inputSchema: {
+      type: "object",
+      properties: {
+        action: {
+          type: "string",
+          enum: ["top", "user", "clear", "clear_all"],
+          description: "top الأكثر بحثًا (افتراضي) | user سجل قارئ | clear مسح سجل قارئ | clear_all مسح السجل كله",
+        },
+        limit: { type: "number", description: "عدد النتائج (افتراضي 20، أقصى 100)" },
+        userId: { type: "string", description: "معرف القارئ مع user وclear — أو email بدلًا منه" },
+        email: { type: "string", description: "بريد القارئ — بديل عن userId" },
+        query: { type: "string", description: "مع clear: مسح استعلام بعينه من سجل القارئ بدل مسح سجله كله" },
+        confirm: { type: "string", description: "الإقرار النصي 'أؤقر التنفيذ' — إلزامي مع clear_all" },
+      },
+    },
+  },
+  {
     name: "manage_social_graph",
     description:
       "ذرات التفاعل الاجتماعي الخام: إعجابات/عدم إعجابات (التصويتات) ومشاركات الاقتباس على منصاتها ومكتبة المحفوظات لكل قارئ — جلبها لمقال أو مستخدم، وإزالة أي سجل بعينه (تصويت مزعج، مشاركة وهمية، محفوظة).",
@@ -634,6 +749,29 @@ export const MCP_TOOLS: McpToolSchema[] = [
         userId: { type: "string", description: "فلترة قائمة الجلب بمستخدم" },
         unreadOnly: { type: "boolean", description: "غير المقروءة فقط" },
         limit: { type: "number", description: "عدد النتائج (افتراضي 40، أقصى 100)" },
+      },
+    },
+  },
+  {
+    name: "manage_admin_notifications",
+    description:
+      "مركز نشاط الأدمن نفسه — إشعارات وتنبيهات الطوارئ الواردة لحساب صاحب المنصة (أنواع ADMIN_* في جدول Notification الموحد): list آخر الإشعارات بعداد غير المقروء، unread_count العداد وأهم إشعار عاجل، mark_read تعليم إشعار مقروءًا، mark_all_read تصفير الجرس، dismiss إخفاء إشعار من المركز، delete حذفه نهائيًا، clear_old تقليم المقروء القديم (بالأيام).",
+    inputSchema: {
+      type: "object",
+      properties: {
+        action: {
+          type: "string",
+          enum: ["list", "unread_count", "mark_read", "mark_all_read", "dismiss", "delete", "clear_old"],
+          description: "list جلب (افتراضي) | unread_count العداد والعاجل | mark_read مقروء | mark_all_read تصفير الجرس | dismiss إخفاء | delete حذف | clear_old تقليم القديم",
+        },
+        id: { type: "string", description: "معرف الإشعار — إلزامي مع mark_read وdismiss وdelete" },
+        adminOnly: {
+          type: "boolean",
+          description: "قصر القائمة والتصفير على أنواع الأدمن ADMIN_* — افتراضي true (false = كل الإشعارات الشخصية للمالك)",
+        },
+        unreadOnly: { type: "boolean", description: "غير المقروءة فقط مع list" },
+        days: { type: "number", description: "مع clear_old: تقليم المقروء الأقدم من كم يوم (افتراضي 30، مدى 1-365)" },
+        limit: { type: "number", description: "عدد النتائج مع list (افتراضي 50، أقصى 100)" },
       },
     },
   },
@@ -753,14 +891,18 @@ export const MCP_TOOLS: McpToolSchema[] = [
   {
     name: "run_maintenance",
     description:
-      "تشغيل مهام التشغيل يدويًا فورًا دون انتظار الكرون: فعل publish_scheduled ينفذ نفس منطق مهمة Vercel المجدولة (3:30 فجرًا) الآن — يقلب كل مقال مجدول حان وقته إلى منشور فعليًا ويضبط وقت النشر ويعيد تنشيط كاش الصفحة الرئيسية وصفحات المقالات والأقسام المعنية، ثم يعيد قائمة بما نُشر. استدعِها إذا رصد الفحص الذاتي مقالات مجدولة متأخرة، أو إذا أراد الزعيم نشرًا لحظيًا في تمام الوقت الذي يختاره.",
+      "تشغيل مهام التشغيل يدويًا فورًا دون انتظار الكرون: فعل publish_scheduled ينفذ نفس منطق مهمة Vercel المجدولة (3:30 فجرًا) الآن — يقلب كل مقال مجدول حان وقته إلى منشور فعليًا ويضبط وقت النشر ويعيد تنشيط الكاش ويعد بقائمة بما نُشر؛ وفعل prune_logs يقلم سجلات المراقبة القديمة (RequestLog وServerErrorLog) حفاظًا على مساحة قاعدة Neon — استدعِ publish_scheduled إذا رصد الفحص الذاتي مقالات متأخرة أو أراد الزعيم نشرًا لحظيًا، وprune_logs دوريًا كل أسبوعين",
     inputSchema: {
       type: "object",
       properties: {
         action: {
           type: "string",
-          enum: ["publish_scheduled"],
-          description: "publish_scheduled نشر كل المجدول المستحق الآن (الفعل الوحيد المتاح حاليًا)",
+          enum: ["publish_scheduled", "prune_logs"],
+          description: "publish_scheduled نشر كل المجدول المستحق الآن | prune_logs تقليم سجلات المراقبة القديمة",
+        },
+        keepDays: {
+          type: "number",
+          description: "مع prune_logs: الاحتفاظ بآخر كم يوم من السجلات (افتراضي 14، مدى 3-90)",
         },
       },
     },
@@ -1148,18 +1290,76 @@ export const MCP_TOOLS: McpToolSchema[] = [
   {
     name: "gh_save_file",
     description:
-      "إنشاء أو تعديل أي ملف في المستودع بكوميت مباشر: مرر المسار والمحتوى الكامل الجديد ورسالة الكوميت — يعرف تلقائيًا أن الملف قائم (تحديث) أم جديد (إنشاء). يُوثق في سجل التدقيق.",
+      "إنشاء أو تعديل أي ملف في المستودع بكوميت مباشر: مرر المسار والمحتوى الكامل الجديد ورسالة الكوميت — يعرف تلقائيًا أن الملف قائم (تحديث) أم جديد (إنشاء). النصوص والكود بترميز utf8 (الافتراضي)، والصور والأيقونات والخطوط والملفات الثنائية بترميز base64 (مثل og-default.png وأيقونات PWA) حتى 3MB. يُوثق في سجل التدقيق.",
     inputSchema: {
       type: "object",
       properties: {
         repo: { type: "string", enum: ["public", "admin"], description: "المستودع — افتراضي public" },
         path: { type: "string", description: "مسار الملف — إلزامي" },
-        content: { type: "string", description: "النص الكامل الجديد للملف — إلزامي" },
+        content: { type: "string", description: "المحتوى الكامل الجديد — نص UTF-8 مع utf8 أو بيانات base64 خام مع base64 — إلزامي" },
+        encoding: {
+          type: "string",
+          enum: ["utf8", "base64"],
+          description: "utf8 نص (افتراضي) | base64 لرفع واستبدال الصور والأيقونات والملفات الثنائية مباشرة",
+        },
         message: { type: "string", description: "رسالة الكوميت" },
         branch: { type: "string", description: "الفرع — افتراضي main" },
         sha: { type: "string", description: "SHA الملف إن كنت تملكه — يُجلب تلقائيًا إن غاب" },
       },
       required: ["path", "content"],
+    },
+  },
+  {
+    name: "gh_commit_files",
+    description:
+      "كوميت ذرّي واحد لعدة ملفات معًا عبر Git Trees API — للتعديلات المترابطة (مثل تحديث package.json مع كود المكتبة أو عدة صفحات معًا) فلا تُطلق إلا نشرة واحدة على Vercel بدل نشرة لكل ملف: كل ملف { path, content, encoding?, op? } حيث encoding utf8|base64 وop upsert|delete (حذف يستغني عن content). حتى 25 ملفًا و3MB للملف.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        repo: { type: "string", enum: ["public", "admin"], description: "المستودع — افتراضي public" },
+        message: { type: "string", description: "رسالة الكوميت — إلزامية" },
+        branch: { type: "string", description: "الفرع — افتراضي main" },
+        files: {
+          type: "array",
+          description: "الملفات — إلزامية، مثال: [{\"path\":\"src/app/x.tsx\",\"content\":\"...\"},{\"path\":\"package.json\",\"content\":\"...\",\"encoding\":\"utf8\"}]",
+          items: {
+            type: "object",
+            properties: {
+              path: { type: "string", description: "مسار الملف" },
+              content: { type: "string", description: "المحتوى (النص أو base64) — لا يلزم مع op=delete" },
+              encoding: { type: "string", enum: ["utf8", "base64"], description: "utf8 (افتراضي) | base64 للثنائيات" },
+              op: { type: "string", enum: ["upsert", "delete"], description: "upsert إنشاء/تعديل (افتراضي) | delete حذف الملف" },
+            },
+            required: ["path"],
+          },
+        },
+      },
+      required: ["message", "files"],
+    },
+  },
+  {
+    name: "gh_manage_pulls",
+    description:
+      "إدارة طلبات الدمج Pull Requests بين الفروع في مستودعي المنصة: list جلب الطلبات المفتوحة، get مراجعة طلب كامل بملفاته وpatchها وإحصاءاته، create فتح طلب من فرع إلى main، comment تدوين مراجعة، merge دمجه (merge | squash | rebase)، close إغلاقه دون دمج — مراجعة التعديلات الكبيرة قبل هبوطها في main. يُوثق في سجل التدقيق.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        repo: { type: "string", enum: ["public", "admin"], description: "المستودع — افتراضي public" },
+        action: {
+          type: "string",
+          enum: ["list", "get", "create", "comment", "merge", "close"],
+          description: "list جلب (افتراضي) | get مراجعة | create فتح | comment مراجعة نصية | merge دمج | close إغلاق",
+        },
+        number: { type: "string", description: "رقم الطلب — إلزامي مع get/comment/merge/close" },
+        state: { type: "string", enum: ["open", "closed", "all"], description: "فلتر القائمة — افتراضي open" },
+        title: { type: "string", description: "عنوان الطلب مع create" },
+        head: { type: "string", description: "الفرع المصدر مع create" },
+        base: { type: "string", description: "الفرع المستقبل مع create — افتراضي main" },
+        body: { type: "string", description: "وصف الطلب مع create" },
+        comment: { type: "string", description: "نص المراجعة مع comment" },
+        merge_method: { type: "string", enum: ["merge", "squash", "rebase"], description: "طريقة الدمج — افتراضي merge" },
+        commit_title: { type: "string", description: "عنوان كوميت الدمج المخصص مع merge" },
+      },
     },
   },
   {
@@ -1418,6 +1618,33 @@ export const MCP_TOOLS: McpToolSchema[] = [
       properties: { project: { type: "string", enum: ["public", "admin"], description: "المشروع — افتراضي public" } },
     },
   },
+  {
+    name: "vc_runtime_logs",
+    description:
+      "سجلات تشغيل النشرة الحية (Runtime / Function Logs) من Vercel — أحداث دوال الخادم بعد الجاهزية: أخطاء الدوال وتعطل الـMiddleware وstdout الخلفي — لتشخيص العطل قبل وصوله لكود التطبيق: جرّبه عند 500 فجائي أو خطأ MIDDLEWARE_INVOCATION_FAILED. يجلب مجرى أحداث النشرة الرسمي ويفصل أحداث التشغيل عن البناء (includeBuild=true لعرض البناء أيضًا) — الافتراضي أحدث نشرة إنتاج للمشروع.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        project: { type: "string", enum: ["public", "admin"], description: "المشروع — افتراضي public" },
+        id: { type: "string", description: "معرف نشرة محددة (uid أو رابطها) — افتراضيًا أحدث نشرة إنتاج" },
+        limit: { type: "number", description: "أقصى أحداث معروضة (افتراضي 80، أقصى 300)" },
+        includeBuild: { type: "boolean", description: "إدراج أحداث البناء كذلك — افتراضي false (تشغيل فقط)" },
+        filter: { type: "string", description: "فلترة نصية داخل سطر السجل — مثل Error أو اسم الدالة" },
+      },
+    },
+  },
+  {
+    name: "inspect_live_page",
+    description:
+      "فحص حي لأي رابط منشور (الموقع العام أو اللوحة أو أي رابط) بعد أي نشر: كود الاستجابة وسلسلة التحويلات والترويسات المهمة والعنوان <title> ووصف الميتا وكل وسوم OG وTwitter والرابط الكانوني وأول عناوين H1 وحجم HTML — تأكيد فوري أن الإنتاج يخدم ما هو متوقع (meta og:image الجديدة مثلًا).",
+    inputSchema: {
+      type: "object",
+      properties: {
+        url: { type: "string", description: "الرابط الكامل https://… — إلزامي" },
+      },
+      required: ["url"],
+    },
+  },
 
   /* ==================== ط) قاعدة البيانات Neon (v4.0.0) ==================== */
   {
@@ -1432,13 +1659,13 @@ export const MCP_TOOLS: McpToolSchema[] = [
   {
     name: "db_query",
     description:
-      "الاستعلام التنفيذي المؤمن على Neon — CRUD كامل: وضع select للقراءة (SELECT/WITH/SHOW/EXPLAIN بسقف صفوف) ووضع execute للكتابة (INSERT/UPDATE/DELETE) بإقرار نصي إلزامي confirm='أؤقر التنفيذ'. عبارة واحدة، وعبارات تدمير القاعدة محجوبة نهائيًا، وكل نداء يُوثق في السجل.",
+      "الاستعلام التنفيذي المؤمن على Neon — CRUD كامل وأوامر الهيكلة المقننة: وضع select للقراءة (SELECT/WITH/SHOW/EXPLAIN بسقف صفوف)، ووضع execute للكتابة (INSERT/UPDATE/DELETE) وأيضًا DDL المقيّد (ALTER TABLE وCREATE TABLE وCREATE INDEX وDROP INDEX) لتطبيق تعديل prisma/schema.prisma على قاعدة Neon فورًا — بإقرار نصي إلزامي confirm='أؤقر التنفيذ'. عبارة واحدة، وعبارات تدمير القاعدة كلها محجوبة نهائيًا، وكل نداء يُوثق في السجل؛ بعد DDL تحقق عبر db_inspect_schema.",
     inputSchema: {
       type: "object",
       properties: {
-        sql: { type: "string", description: "العبارة — مثال: SELECT count(*) FROM \"Article\" — عبارة واحدة بلا ;" },
+        sql: { type: "string", description: "العبارة — مثال: SELECT count(*) FROM \"Article\" أو ALTER TABLE \"Article\" ADD COLUMN \"newField\" TEXT — عبارة واحدة بلا ;" },
         mode: { type: "string", enum: ["select", "execute"], description: "يُستنتج تلقائيًا إن غاب" },
-        confirm: { type: "string", description: "الإقرار النصي 'أؤقر التنفيذ' — إلزامي في وضع execute" },
+        confirm: { type: "string", description: "الإقرار النصي 'أؤقر التنفيذ' — إلزامي في وضع execute (كتابة وDDL)" },
         limit: { type: "number", description: "سقف صفوف العرض في select (افتراضي 100، أقصى 200)" },
       },
       required: ["sql"],
@@ -1514,12 +1741,19 @@ export const MCP_TOOLS: McpToolSchema[] = [
   },
   {
     name: "resend_manage",
-    description: "إدارة نطاقات Resend: list عرض النطاقات وحالة تحققها | get تفاصيل نطاق وسجلات DNS المطلوبة.",
+    description:
+      "إدارة نطاقات البريد في Resend بالكامل: list عرض النطاقات وحالة تحققها | get تفاصيل نطاق وسجلات DNS المطلوبة | verify إطلاق التحقق من سجلات DNS لنطاق (مثل ziadamr.me بعد ضبط DNS) | create إضافة نطاق جديد (يرجع سجلات DNS اللازمة) | delete حذف نطاق — يُحدد النطاق بـ domain_id أو باسمه domain مباشرة. التعديلات تُوثق في سجل التدقيق.",
     inputSchema: {
       type: "object",
       properties: {
-        action: { type: "string", enum: ["list", "get"], description: "الفعل — افتراضي list" },
-        domain_id: { type: "string", description: "معرف النطاق مع action=get" },
+        action: {
+          type: "string",
+          enum: ["list", "get", "verify", "create", "delete"],
+          description: "الفعل — افتراضي list",
+        },
+        domain_id: { type: "string", description: "معرف النطاق من action=list — بديل عن domain" },
+        domain: { type: "string", description: "اسم النطاق مثل ziadamr.me — إلزامي مع create ويسبتدل domain_id في get/verify/delete" },
+        region: { type: "string", description: "منطقة الإرسال مع create (اختياري — مثل eu-west-1 أو us-east-1)" },
       },
     },
   },

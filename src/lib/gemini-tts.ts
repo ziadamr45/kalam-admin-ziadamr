@@ -61,7 +61,7 @@ type GeminiAudioResponse = {
   error?: { code?: number; message?: string; status?: string };
 };
 
-async function callOnce(model: string, text: string): Promise<{ pcm: Buffer; sampleRate: number }> {
+async function callOnce(model: string, text: string, voice?: string): Promise<{ pcm: Buffer; sampleRate: number }> {
   const res = await fetch(`${API_ROOT}/${model}:generateContent`, {
     method: "POST",
     headers: {
@@ -73,7 +73,7 @@ async function callOnce(model: string, text: string): Promise<{ pcm: Buffer; sam
       generationConfig: {
         responseModalities: ["AUDIO"],
         speechConfig: {
-          voiceConfig: { prebuiltVoiceConfig: { voiceName: TTS_VOICE } },
+          voiceConfig: { prebuiltVoiceConfig: { voiceName: voice ?? TTS_VOICE } },
         },
       },
     }),
@@ -102,12 +102,23 @@ async function callOnce(model: string, text: string): Promise<{ pcm: Buffer; sam
   return { pcm: Buffer.from(b64, "base64"), sampleRate };
 }
 
+/** أصوات Gemini TTS المسبقة التعريف — القائمة الرسمية القابلة للتمرير في
+ *  prebuiltVoiceConfig.voiceName؛ تُستخدم للتحقق قبل حفظ صوت مقال معين */
+export const TTS_VOICES = [
+  "Zephyr", "Puck", "Charon", "Kore", "Fenrir", "Leda", "Orus", "Aoede",
+  "Callirrhoe", "Autonoe", "Enceladus", "Iapetus", "Umbriel", "Algieba",
+  "Despina", "Erinome", "Algenib", "Rasalgethi", "Laomedeia", "Achernar",
+  "Alnilam", "Schedar", "Gacrux", "Pulcherrima", "Achird", "Zubenelgenubi",
+  "Vindemiatrix", "Sadachbia", "Sadaltager", "Sulafat",
+] as const;
+
 /** توليد صوت مقطع واحد مع إعادة المحاولة وبدائل الموديلات
  *  opts.attempts: سقف المحاولات لكل موديل (الافتراضي 4 — العامل الخلفي يمرر 2
- *  لأن التراجع الصبور على 429 يعيش في طبقة المهمة الخلفية لا هنا) */
+ *  لأن التراجع الصبور على 429 يعيش في طبقة المهمة الخلفية لا هنا)
+ *  opts.voice: صوت المقال المختار من TTS_VOICES — يفوق قيمة البيئة الافتراضية */
 export async function synthesizeChunk(
   text: string,
-  opts?: { attempts?: number },
+  opts?: { attempts?: number; voice?: string },
 ): Promise<{ pcm: Buffer; sampleRate: number; model: string }> {
   if (!process.env.GEMINI_API_KEY || process.env.GEMINI_API_KEY.startsWith("PLACEHOLDER")) {
     throw new TtsError("خدمة التوليد الصوتي غير مهيأة — أضف GEMINI_API_KEY إلى متغيرات البيئة", 503);
@@ -120,7 +131,7 @@ export async function synthesizeChunk(
   for (const model of models) {
     for (let attempt = 1; attempt <= maxAttempts; attempt++) {
       try {
-        const out = await callOnce(model, text);
+        const out = await callOnce(model, text, opts?.voice);
         workingModel = model; // تثبيت الموديل العامل لهذه العملية
         return { ...out, model };
       } catch (err) {

@@ -77,13 +77,22 @@ async function dbQuery(args: McpArgs, meta: McpRequestMeta): Promise<unknown> {
   }
   const started = Date.now();
   const affected = await prisma.$executeRawUnsafe(sql);
+  /* أوامر DDL المقننة (CREATE/ALTER TABLE/INDEX…) تعمل هنا بقيد confirm نفسه:
+     عدد الصفوف المتأثرة فيها 0 دائمًا — التحقق يكون عبر db_inspect_schema */
+  const isDdl = /^(create|alter|drop|comment)\b/i.test(sql);
   await writeAudit({
     adminId: null,
-    action: "mcp.db_query_execute",
-    meta: { via: "gemini-spark-mcp", sql: sql.slice(0, 400), affected, ms: Date.now() - started },
+    action: isDdl ? "mcp.db_query_ddl" : "mcp.db_query_execute",
+    meta: { via: "gemini-spark-mcp", sql: sql.slice(0, 400), affected, ddl: isDdl, ms: Date.now() - started },
     ip: meta.ip,
   });
-  return { mode: "execute", affected, ms: Date.now() - started };
+  return {
+    mode: "execute",
+    kind: isDdl ? "ddl" : "dml",
+    affected,
+    ms: Date.now() - started,
+    ...(isDdl ? { note: "أمر هيكلة نُفّذ — الصفوف المتأثرة 0 دائمًا؛ تحقق بالنتيجة عبر db_inspect_schema أو وضع select" } : {}),
+  };
 }
 
 async function dbInspectSchema(args: McpArgs): Promise<unknown> {

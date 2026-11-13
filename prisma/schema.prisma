@@ -169,6 +169,7 @@ model User {
   readingProgress   ReadingProgress[]
   notificationFeed  Notification[]
   devices           UserDevice[]
+  searchHistories   SearchHistory[]
 }
 
 /* حصة نقاش الذكاء الاصطناعي الدائمة — سجل استهلاك صارم لكل قارئ مسجل
@@ -833,4 +834,20 @@ model UserDevice {
 
   @@unique([userId, deviceHash])
   @@index([userId])
+}
+
+/* سجل البحث — جدول يملكه الموقع العام ويشترك فيه على قاعدة Neon نفسها:
+   ذاكرة استعلامات القارئ المسجل فقط (سقف 20 لكل قارئ يُقلَّم من الموقع).
+   يُعرَّف هنا مطابقًا لمخطط الموقع العام حرفيًا ليتسنى للـMCP قراءة
+   الإحصائيات وسجل القارئ وتنظيفه — لا يكتب إليه أي كود آخر في اللوحة */
+model SearchHistory {
+  id        String   @id @default(cuid())
+  userId    String
+  query     String
+  createdAt DateTime @default(now())
+
+  user    User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, query])
+  @@index([userId, createdAt(sort: Desc)])
 }
