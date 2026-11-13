@@ -3655,7 +3655,8 @@ async function tashkeelAndValidateArticle(args: McpArgs, meta: McpRequestMeta) {
     generatedRaw = await geminiChat({
       system: buildTashkeelSystemPrompt(),
       turns: [{ role: "user", text: `شكّل المتن التالي حرفيًا وفق القواعد:\n\n${body}` }],
-      candidates: [process.env.GEMINI_TASHKEEL_MODEL].filter(Boolean) as string[],
+      /* بلا متغير بيئة مخصص → السلسلة الافتراضية المجربة (المصفوفة الفارغة تُبطل الموديلات كلها!) */
+      candidates: process.env.GEMINI_TASHKEEL_MODEL ? [process.env.GEMINI_TASHKEEL_MODEL] : undefined,
       memoKind: "tashkeel",
       /* سقف 8192 آمن لكل موديلات فلاش — أعلى منه يرفض Gemini بـ400 قاتل */
       maxOutputTokens: 8192,
