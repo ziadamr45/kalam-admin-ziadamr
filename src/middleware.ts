@@ -179,5 +179,8 @@ export async function middleware(request: NextRequest) {
 }
 
 export const config = {
-  matcher: ["/((?!_next/static|_next/image|favicon.ico).*)"],
+  /* خارج الحماية: أصول Next الثابتة + أصول الهوية العامة (favicon.ico / icon.png /
+     icons/*) — علامة تبويب المتصفح تطلبها بلا جلسة، وأي تحويل 307 للدخول يجعل
+     الشعار لا يظهر أبدًا في التبويب. لا سر فيها: شعارات عامة بطبيعتها */
+  matcher: ["/((?!_next/static|_next/image|favicon.ico|icon.png|icons/).*)"],
 };
