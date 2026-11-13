@@ -436,9 +436,13 @@ export async function translateCoverPromptToEnglish(text: string): Promise<strin
         },
       ],
     });
-    const cleaned = translated.replace(/["'`]+/g, "").replace(/\s+/g, " ").trim();
-    /* تقبل الصياغة فقط إن كانت إنجليزية فعلًا — أي عربي باقٍ يعني فشلًا */
-    if (cleaned.length >= 20 && /[a-zA-Z]/.test(cleaned) && !/[\u0600-\u06FF]/.test(cleaned)) {
+    const cleaned = translated
+      .replace(/["'`]+/g, "")
+      /* أي بقايا عربية تُنظَّف بدل رفض الصياغة كلها — حفظ نية الوصف أهم من التشدد */
+      .replace(/[\u0600-\u06FF\u0750-\u077F\uFB50-\uFDFF\uFE70-\uFEFF]+/g, " ")
+      .replace(/\s+/g, " ")
+      .trim();
+    if (cleaned.length >= 20 && /[a-zA-Z]{3,}/.test(cleaned)) {
       return cleaned;
     }
     return null;
