@@ -424,9 +424,9 @@ export async function translateCoverPromptToEnglish(
   if (!geminiConfigured()) return { ok: false, prompt: null, reason: "gemini-not-configured" };
   try {
     const translated = await geminiChat({
-      candidates: ["gemini-2.5-flash", "gemini-2.5-flash-lite", "gemini-2.0-flash"],
-      memoKind: "cover-prompt",
-      timeoutMs: 12_000,
+      /* سلسلة النقاش العاملة نفسها (env أولًا) — قوائم الموديلات القديمة ترد 404 على المفتاح الحالي */
+      memoKind: "cover-translate",
+      timeoutMs: 15_000,
       temperature: 0.4,
       maxOutputTokens: 220,
       system:

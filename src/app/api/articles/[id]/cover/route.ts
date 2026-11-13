@@ -101,9 +101,8 @@ export async function POST(request: Request, { params }: Params) {
       if (geminiConfigured()) {
         try {
           const synthesized = await geminiChat({
-            candidates: ["gemini-2.5-flash", "gemini-2.5-flash-lite", "gemini-2.0-flash"],
             memoKind: "cover-prompt",
-            timeoutMs: 12_000,
+            timeoutMs: 15_000,
             temperature: 0.85,
             maxOutputTokens: 300,
             system:
