@@ -1444,12 +1444,13 @@ export const MCP_TOOLS: McpToolSchema[] = [
   "name": "kalam_get_audit_summary",
   "title": "[الأمن والرقابة] الملخص الرقابي السيادي",
   "annotations": {"title": "[الأمن والرقابة] الملخص الرقابي السيادي", readOnlyHint: true, destructiveHint: false, idempotentHint: true},
-  "description": "قراءة السجل السيادي غير القابل للتلاعب (AuditTrail) — أرقام الملخص التنفيذي (محو حسابات، حظر، تمييز تعليقات، توثيق ورُتب، تعديلات إعدادات) مع آخر القيود الرقابية بالفاعل والمستهدف والسبب والدليل، لترشيح زمني (أيام) وبالتصنيف (USER_SELF_ACTION | ADMIN_MODERATION | ADMIN_VIP_CHANGE | SYSTEM_CONFIG_CHANGE) — لتجاوب أسئلة مثل: ماذا فعل المشرفون خلال الأسبوع المنصرم؟",
+  "description": "قراءة السجل السيادي الموحد غير القابل للتلاعب (AuditTrail) — أرقام الملخص التنفيذي (محو حسابات، حظر، تمييز تعليقات، توثيق ورُتب، تعديلات إعدادات، تغييرات محتوى، تغييرات بنية تحتية، أفعال MCP) مع آخر القيود الرقابية بالفاعل والمصدر (لوحة التحكم / بوابة MCP مع اسم العميل / التيرمينال السيادي / الموقع العام) والأداة/الأمر المنفذ والوصف العربي والمستهدف والسبب والدليل، لترشيح زمني (أيام) وبالتصنيف وبالمصدر — لتجاوب أسئلة مثل: ماذا فعل المشرفون خلال الأسبوع المنصرم؟ وماذا نفّذ Gemini عبر البوابة؟",
   "inputSchema": {
     "type": "object",
     "properties": {
       "days": { "type": "number", "description": "عدد الأيام الماضية للتحليل (افتراضي 7، أقصى 365)" },
-      "category": { "type": "string", "enum": ["USER_SELF_ACTION", "ADMIN_MODERATION", "ADMIN_VIP_CHANGE", "SYSTEM_CONFIG_CHANGE"], "description": "ترشيح بالتصنيف — يُترك فارغًا لكل التصنيفات" },
+      "category": { "type": "string", "enum": ["USER_SELF_ACTION", "ADMIN_MODERATION", "ADMIN_VIP_CHANGE", "SYSTEM_CONFIG_CHANGE", "CONTENT_CHANGE", "INFRASTRUCTURE_CHANGE", "MCP_ACTION"], "description": "ترشيح بالتصنيف — يُترك فارغًا لكل التصنيفات" },
+      "source": { "type": "string", "enum": ["WEB", "MCP", "CLI", "PUBLIC"], "description": "ترشيح بمصدر التنفيذ: WEB لوحة التحكم | MCP بوابة الذكاء الاصطناعي | CLI التيرمينال السيادي | PUBLIC الموقع العام — يُترك فارغًا لكل القنوات" },
       "limit": { "type": "number", "description": "عدد القيود الأخيرة المفصلة في الاستجابة (افتراضي 20، أقصى 100)" }
     }
   }

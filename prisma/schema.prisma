@@ -725,6 +725,17 @@ enum AuditActionCategory {
   ADMIN_MODERATION // حظر، رفع حظر، حذف حساب، تمييز/إلغاء تمييز تعليق
   ADMIN_VIP_CHANGE // منح توثيق، ترقية رتبة، تعديل صلاحيات
   SYSTEM_CONFIG_CHANGE // تعديل إعدادات المنصة، أوزان النقاط
+  CONTENT_CHANGE // إنشاء/تعديل/نشر/حذف مقال أو قسم أو وسائط أو غلاف أو صوت
+  INFRASTRUCTURE_CHANGE // تعديل كود (GitHub)، نشر/تراجع/متغيرات (Vercel)، استعلامات تنفيذية على القاعدة
+  MCP_ACTION // أي استدعاء مغيّر عبر بوابة MCP (يُوثق مع اسم العميل المتصل)
+}
+
+/* مصدر تنفيذ القيد الرقابي — القناة التي صدر منها الفعل فعليًا */
+enum TrailSource {
+  WEB // لوحة التحكم السيادية
+  MCP // بوابة MCP (مع اسم العميل/الأداة في channelLabel)
+  CLI // التيرمينال السيادي
+  PUBLIC // الموقع العام (إجراءات المستخدم الذاتية)
 }
 
 /* سجل التدقيق السيادي غير القابل للتلاعب — يوثق أدق تفاصيل تحركات
@@ -739,6 +750,10 @@ model AuditTrail {
   actorRole      String               // OWNER, ADMIN, MODERATOR, USER, SYSTEM
   actionCategory AuditActionCategory
   actionType     String               // مثل: USER_HARD_DELETE, ACCOUNT_BANNED, COMMENT_FEATURED
+  source         TrailSource          @default(WEB) // قناة التنفيذ: WEB | MCP | CLI | PUBLIC
+  channelLabel   String?              // اسم العميل/الأداة المتصلة (MCP: Gemini/Bearer) أو اسم الأدمن
+  description    String?              // وصف عربي مقروء لما حدث بالضبط
+  tool           String?              // اسم الأداة (MCP) أو الأمر (CLI) الذي نفّذ الفعل
   targetId       String?              // المعرف الخاص بالعنصر المستهدف
   targetEmail    String?              // بريد المستخدم المستهدف
   reason         String?              // سبب الإجراء الإلزامي
@@ -749,6 +764,7 @@ model AuditTrail {
   @@index([createdAt])
   @@index([actorId])
   @@index([actionCategory])
+  @@index([source])
 }
 
 // ============ منظومة الإشعارات السيادية الموحدة (Unified Sovereign Notification Engine) ============

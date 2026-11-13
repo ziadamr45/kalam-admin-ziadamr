@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { requireSession, isRejected } from "@/lib/guard";
-import { loadLedger, resolveLedgerRange, makeReportNo, type TrailCategoryFilter } from "@/lib/audit-ledger";
+import { loadLedger, resolveLedgerRange, makeReportNo, type TrailCategoryFilter, type TrailSourceFilter } from "@/lib/audit-ledger";
 import { renderAuditReportPdf } from "@/lib/audit-pdf";
 import { buildAuditShareUrl } from "@/lib/audit-share";
 import { recordServerError } from "@/lib/error-alert";
@@ -24,10 +24,11 @@ export async function GET(request: Request) {
     const from = url.searchParams.get("from");
     const to = url.searchParams.get("to");
     const category = (url.searchParams.get("category") ?? "ALL") as TrailCategoryFilter;
+    const source = (url.searchParams.get("source") ?? "ALL") as TrailSourceFilter;
     const doUpload = url.searchParams.get("upload") === "1";
 
     const range = resolveLedgerRange(rangeParam, from, to);
-    const { entries, summary } = await loadLedger({ range, category, take: 500 });
+    const { entries, summary } = await loadLedger({ range, category, source, take: 500 });
 
     const buffer = await renderAuditReportPdf({
       entries,

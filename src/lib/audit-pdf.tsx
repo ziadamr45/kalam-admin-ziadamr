@@ -50,6 +50,9 @@ export const CATEGORY_LABELS: Record<string, string> = {
   ADMIN_MODERATION: "إشراف ورقابة",
   ADMIN_VIP_CHANGE: "توثيق ورُتب",
   SYSTEM_CONFIG_CHANGE: "إعدادات المنصة",
+  CONTENT_CHANGE: "تغيير محتوى",
+  INFRASTRUCTURE_CHANGE: "بنية تحتية",
+  MCP_ACTION: "بوابة MCP",
 };
 
 export const CATEGORY_COLORS: Record<string, string> = {
@@ -57,6 +60,9 @@ export const CATEGORY_COLORS: Record<string, string> = {
   ADMIN_MODERATION: "#B91C1C",
   ADMIN_VIP_CHANGE: "#B45309",
   SYSTEM_CONFIG_CHANGE: "#4D7C0F",
+  CONTENT_CHANGE: "#6D28D9",
+  INFRASTRUCTURE_CHANGE: "#0F766E",
+  MCP_ACTION: "#9333EA",
 };
 
 const ACTION_LABELS: Record<string, string> = {
@@ -106,13 +112,20 @@ export function arabicDate(d: Date, withTime = false): string {
 
 export type PdfTrailEntry = {
   id: string;
+  actorId?: string;
   actorEmail: string;
   actorRole: string;
   actionCategory: string;
   actionType: string;
+  source?: string; // قناة التنفيذ: WEB | MCP | CLI | PUBLIC
+  channelLabel?: string | null; // اسم العميل المتصل (MCP) أو الأدمن (CLI)
+  description?: string | null; // وصف عربي مقروء
+  tool?: string | null; // اسم الأداة/الأمر
+  targetId?: string | null;
   targetEmail: string | null;
   reason: string | null;
   evidenceUrl: string | null;
+  metadata?: unknown;
   createdAt: Date;
 };
 
@@ -122,6 +135,9 @@ export type PdfReportSummary = {
   featured: number;
   vipChanges: number;
   configChanges: number;
+  contentChanges: number;
+  infraChanges: number;
+  mcpActions: number;
   total: number;
 };
 
@@ -276,6 +292,14 @@ const styles = StyleSheet.create({
 /* عرض أعمدة الجدول (مجموعها 100) */
 const COL = { date: 15, actor: 17, action: 15, target: 14, reason: 26, evidence: 13 };
 
+/* تسميات عربية لقنوات التنفيذ — محلية هنا لتجنب دورة الاستيراد مع audit-ledger */
+const SOURCE_LABELS_AR: Record<string, string> = {
+  WEB: "لوحة التحكم",
+  MCP: "بوابة MCP",
+  CLI: "التيرمينال السيادي",
+  PUBLIC: "الموقع العام",
+};
+
 function MetaItem({ label, value }: { label: string; value: string }) {
   return (
     <View style={styles.metaItem}>
@@ -340,6 +364,9 @@ export function AuditReportPDF({
           <StatBox n={summary.featured} label="تمييز تعليقات" />
           <StatBox n={summary.vipChanges} label="توثيق ورُتب" />
           <StatBox n={summary.configChanges} label="تعديلات إعدادات" />
+          <StatBox n={summary.contentChanges} label="تغييرات محتوى" />
+          <StatBox n={summary.infraChanges} label="تغييرات بنية" />
+          <StatBox n={summary.mcpActions} label="أفعال MCP" />
         </View>
 
         {/* الجدول التفصيلي */}
@@ -367,6 +394,10 @@ export function AuditReportPDF({
             <View style={{ width: `${COL.actor}%` }}>
               <Text style={styles.cell}>{e.actorEmail}</Text>
               <Text style={styles.cellDim}>{e.actorRole}</Text>
+              <Text style={styles.cellDim}>
+                {SOURCE_LABELS_AR[e.source ?? "WEB"] ?? "لوحة التحكم"}
+                {e.channelLabel ? ` — ${e.channelLabel}` : ""}
+              </Text>
             </View>
             <View style={{ width: `${COL.action}%` }}>
               <View
@@ -382,6 +413,9 @@ export function AuditReportPDF({
               <Text style={[styles.cell, { marginTop: 3, fontWeight: 700 }]}>
                 {actionLabel(e.actionType)}
               </Text>
+              {e.description && (
+                <Text style={styles.cellDim}>{e.description.slice(0, 90)}</Text>
+              )}
             </View>
             <View style={{ width: `${COL.target}%` }}>
               <Text style={styles.cell}>{e.targetEmail ?? "—"}</Text>

@@ -1,6 +1,8 @@
 import "server-only";
 import { prisma } from "@/lib/prisma";
 import { writeAudit, raiseAlert } from "@/lib/guard";
+import { runWithChannel } from "@/lib/audit-channel";
+import { writeTrail, sanitizeAuditMeta } from "@/lib/audit-trail";
 import { revalidatePath } from "next/cache";
 import { rankForScore } from "@/lib/ranks";
 import { revalidatePublicPaths } from "@/lib/revalidate";
@@ -943,7 +945,69 @@ async function cmdSparkExec(query: string, ctx: CliContext): Promise<CliLine[]> 
 
 /* ==================== المحلل الرئيسي ==================== */
 
+/* ==================== القيد الرقابي الموحد للتيرمينال ====================
+
+   كل أمر مغيّر يُنفَّذ من التيرمينال السيادي — من نافذة اللوحة أو من
+   أداة admin_cli في بوابة MCP — يودع قيدًا في «السجل السيادي» بالمصدر
+   CLI واسم الأدمن والأمر كاملًا (مطبّهًا من الأسرار). الأوامر القرائية
+   (help/sys/db/traffic/errors/security/audit list..) لا تلوث السجل. */
+
+/** أوامر قرائية خالصة (رأس، فرعي) — لا قيدًا لها في السجل السيادي */
+const CLI_READ_COMMANDS: Array<[string, string | null]> = [
+  ["help", null], ["?", null],
+  ["sys", null], // info | ping | env كلها قراءة
+  ["config", "list"], ["config", "get"],
+  ["db", null], // stats | slow-queries
+  ["traffic", null], ["errors", null], ["security", null],
+  ["audit", "list"], ["audit", "inspect"],
+  ["user", "inspect"], ["article", "status"],
+];
+
+function isReadCommand(cmd: string, sub: string): boolean {
+  return CLI_READ_COMMANDS.some(([h, s]) => h === cmd && (s === null || s === sub));
+}
+
+/** تصنيف الأمر المغيّر — التصنيف الرقابي المناسب لكل عائلة أوامر */
+function classifyCliCommand(cmd: string, sub: string): { category: "USER_SELF_ACTION" | "ADMIN_MODERATION" | "ADMIN_VIP_CHANGE" | "SYSTEM_CONFIG_CHANGE" | "CONTENT_CHANGE" | "INFRASTRUCTURE_CHANGE" | "MCP_ACTION"; verb: string } {
+  if (cmd === "audit") return { category: "INFRASTRUCTURE_CHANGE", verb: "توليد ورفع تقرير رقابي" };
+  if (cmd === "user" && ["grant-vip", "make-vip", "vip-grant", "revoke-vip", "un-vip", "vip-revoke", "verify", "unverify"].includes(sub))
+    return { category: "ADMIN_VIP_CHANGE", verb: "تعديل توثيق ورُتب" };
+  if (cmd === "user" || cmd === "proposal" || cmd === "comment") return { category: "ADMIN_MODERATION", verb: "إجراء رقابي على مستخدم" };
+  if (cmd === "article" || cmd === "toggle-comments") return { category: "CONTENT_CHANGE", verb: "تغيير محتوى" };
+  if (cmd === "mcp") return { category: "SYSTEM_CONFIG_CHANGE", verb: "أمر طوارئ بوابة MCP" };
+  return { category: "SYSTEM_CONFIG_CHANGE", verb: "تنفيذ أمر سيادي" };
+}
+
+/** المحرك العلني — يختم سياق القناة ثم يودع قيد الأوامر المغيّرة */
 export async function runCliCommand(raw: string, ctx: CliContext): Promise<CliLine[]> {
+  return runWithChannel({ channel: "cli", label: ctx.adminUsername }, async () => {
+    const lines = await runCliCommandInner(raw, ctx);
+
+    const input = raw.trim().replace(/\s+/g, " ");
+    const [head = "", sub = ""] = input.toLowerCase().split(" ");
+    const hadError = lines.some((l) => l.type === "error");
+    if (head && !isReadCommand(head, sub) && !hadError) {
+      const cls = classifyCliCommand(head, sub);
+      void writeTrail({
+        actorId: ctx.adminId,
+        actorEmail: `${ctx.adminUsername}@sovereign.admin`,
+        actorRole: "OWNER",
+        actionCategory: cls.category,
+        actionType: `${head}${sub ? ` ${sub}` : ""}`.toUpperCase(),
+        description: `${cls.verb}: «${input.slice(0, 120)}» عبر التيرمينال السيادي بواسطة ${ctx.adminUsername}`,
+        tool: `${head}${sub ? ` ${sub}` : ""}`,
+        metadata: sanitizeAuditMeta({
+          ip: ctx.ip,
+          channel: ctx.source,
+          command: input.slice(0, 300),
+        }),
+      });
+    }
+    return lines;
+  });
+}
+
+async function runCliCommandInner(raw: string, ctx: CliContext): Promise<CliLine[]> {
   const input = raw.trim().replace(/\s+/g, " ");
   if (!input) return [{ type: "muted", text: "اكتب أمرًا — جرّب help لعرض القائمة" }];
 

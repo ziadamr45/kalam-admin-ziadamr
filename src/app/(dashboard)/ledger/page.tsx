@@ -19,6 +19,10 @@ type TrailEntry = {
   actorRole: string;
   actionCategory: string;
   actionType: string;
+  source: string;
+  channelLabel: string | null;
+  description: string | null;
+  tool: string | null;
   targetEmail: string | null;
   reason: string | null;
   evidenceUrl: string | null;
@@ -31,6 +35,9 @@ type Summary = {
   featured: number;
   vipChanges: number;
   configChanges: number;
+  contentChanges: number;
+  infraChanges: number;
+  mcpActions: number;
   total: number;
 };
 
@@ -39,6 +46,17 @@ const CATEGORY_META: Record<string, { label: string; bg: string; text: string }>
   ADMIN_MODERATION: { label: "إشراف ورقابة", bg: "bg-red-100", text: "text-red-700" },
   ADMIN_VIP_CHANGE: { label: "توثيق ورُتب", bg: "bg-amber-100", text: "text-amber-700" },
   SYSTEM_CONFIG_CHANGE: { label: "إعدادات المنصة", bg: "bg-lime-100", text: "text-lime-700" },
+  CONTENT_CHANGE: { label: "تغيير محتوى", bg: "bg-purple-100", text: "text-purple-700" },
+  INFRASTRUCTURE_CHANGE: { label: "بنية تحتية", bg: "bg-teal-100", text: "text-teal-700" },
+  MCP_ACTION: { label: "بوابة MCP", bg: "bg-fuchsia-100", text: "text-fuchsia-700" },
+};
+
+/* شارة مصدر التنفيذ — من أين صدر الفعل فعليًا */
+const SOURCE_META: Record<string, { label: string; icon: string; bg: string; text: string }> = {
+  WEB: { label: "لوحة التحكم", icon: "🖥", bg: "bg-steel-100", text: "text-steel-700" },
+  MCP: { label: "بوابة MCP", icon: "🔌", bg: "bg-fuchsia-100", text: "text-fuchsia-700" },
+  CLI: { label: "التيرمينال السيادي", icon: "⌨", bg: "bg-cyan-100", text: "text-cyan-700" },
+  PUBLIC: { label: "الموقع العام", icon: "🌐", bg: "bg-sky-100", text: "text-sky-700" },
 };
 
 const ACTION_LABELS: Record<string, string> = {
@@ -58,6 +76,17 @@ const CATEGORY_OPTIONS = [
   { value: "ADMIN_MODERATION", label: "إشراف ورقابة" },
   { value: "ADMIN_VIP_CHANGE", label: "توثيق ورُتب" },
   { value: "SYSTEM_CONFIG_CHANGE", label: "إعدادات المنصة" },
+  { value: "CONTENT_CHANGE", label: "تغيير محتوى" },
+  { value: "INFRASTRUCTURE_CHANGE", label: "بنية تحتية" },
+  { value: "MCP_ACTION", label: "بوابة MCP" },
+];
+
+const SOURCE_OPTIONS = [
+  { value: "ALL", label: "كل القنوات" },
+  { value: "WEB", label: "🖥 لوحة التحكم" },
+  { value: "MCP", label: "🔌 بوابة MCP" },
+  { value: "CLI", label: "⌨ التيرمينال السيادي" },
+  { value: "PUBLIC", label: "🌐 الموقع العام" },
 ];
 
 const DATE_PRESETS = [
@@ -90,6 +119,7 @@ export default function LedgerPage() {
   const [customFrom, setCustomFrom] = useState("");
   const [customTo, setCustomTo] = useState("");
   const [category, setCategory] = useState("ALL");
+  const [source, setSource] = useState("ALL");
   const [entries, setEntries] = useState<TrailEntry[]>([]);
   const [summary, setSummary] = useState<Summary | null>(null);
   const [rangeLabel, setRangeLabel] = useState("");
@@ -99,7 +129,7 @@ export default function LedgerPage() {
   const [exporting, setExporting] = useState(false);
 
   const query = useMemo(() => {
-    const p = new URLSearchParams({ category });
+    const p = new URLSearchParams({ category, source });
     if (days === "custom") {
       if (customFrom) p.set("from", customFrom);
       if (customTo) p.set("to", customTo);
@@ -107,7 +137,7 @@ export default function LedgerPage() {
       p.set("days", days);
     }
     return p.toString();
-  }, [days, customFrom, customTo, category]);
+  }, [days, customFrom, customTo, category, source]);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -136,7 +166,7 @@ export default function LedgerPage() {
   const exportPdf = (range: "weekly" | "monthly" | "custom") => {
     setExporting(true);
     try {
-      const p = new URLSearchParams({ range, category });
+      const p = new URLSearchParams({ range, category, source });
       if (range === "custom") {
         if (customFrom) p.set("from", customFrom);
         if (customTo) p.set("to", customTo);
@@ -154,6 +184,9 @@ export default function LedgerPage() {
         { n: summary.featured, label: "تمييز تعليقات", tone: "text-copper-700" },
         { n: summary.vipChanges, label: "توثيق ورُتب", tone: "text-amber-600" },
         { n: summary.configChanges, label: "تعديلات إعدادات", tone: "text-lime-600" },
+        { n: summary.contentChanges, label: "تغييرات محتوى", tone: "text-purple-600" },
+        { n: summary.infraChanges, label: "تغييرات بنية", tone: "text-teal-600" },
+        { n: summary.mcpActions, label: "أفعال MCP", tone: "text-fuchsia-600" },
       ]
     : [];
 
@@ -236,11 +269,24 @@ export default function LedgerPage() {
           <select
             value={category}
             onChange={(e) => setCategory(e.target.value)}
-            className="field w-48 text-xs"
+            className="field w-44 text-xs"
             dir="rtl"
+            aria-label="تصفية بالتصنيف"
           >
             {CATEGORY_OPTIONS.map((c) => (
               <option key={c.value} value={c.value}>{c.label}</option>
+            ))}
+          </select>
+
+          <select
+            value={source}
+            onChange={(e) => setSource(e.target.value)}
+            className="field w-44 text-xs"
+            dir="rtl"
+            aria-label="تصفية بمصدر التنفيذ"
+          >
+            {SOURCE_OPTIONS.map((s) => (
+              <option key={s.value} value={s.value}>{s.label}</option>
             ))}
           </select>
 
@@ -255,7 +301,7 @@ export default function LedgerPage() {
 
       {/* الملخص التنفيذي */}
       {summary && (
-        <div className="grid grid-cols-3 gap-3 md:grid-cols-6">
+        <div className="grid grid-cols-3 gap-3 md:grid-cols-5">
           {stats.map((s) => (
             <div key={s.label} className="rounded-xl border border-steel-100 bg-white p-4 text-center">
               <p className={`text-2xl font-bold tabular-nums ${s.tone}`}>{eastern(s.n)}</p>
@@ -292,17 +338,33 @@ export default function LedgerPage() {
           <ul className="max-h-[62vh] space-y-2.5 overflow-y-auto pe-1">
             {entries.map((e) => {
               const meta = CATEGORY_META[e.actionCategory] ?? { label: e.actionCategory, bg: "bg-steel-100", text: "text-steel-600" };
+              const src = SOURCE_META[e.source] ?? { label: e.source ?? "لوحة التحكم", icon: "🖥", bg: "bg-steel-100", text: "text-steel-600" };
               return (
                 <li key={e.id} className="rounded-xl border border-steel-100 p-4 transition-colors hover:bg-steel-50/60">
                   <div className="flex flex-wrap items-center gap-2">
                     <span className={`rounded-md px-2 py-1 text-[10px] font-bold ${meta.bg} ${meta.text}`}>
                       {meta.label}
                     </span>
+                    {/* شارة مصدر التنفيذ — القناة التي صدر منها الفعل */}
+                    <span className={`rounded-md px-2 py-1 text-[10px] font-bold ${src.bg} ${src.text}`}>
+                      {src.icon} {src.label}{e.channelLabel ? ` — ${e.channelLabel}` : ""}
+                    </span>
                     <span className="text-xs font-bold text-steel-900">
                       {ACTION_LABELS[e.actionType] ?? e.actionType}
                     </span>
                     <span className="ms-auto text-[10px] text-steel-400">{fmtTime(e.createdAt)}</span>
                   </div>
+
+                  {(e.description || e.tool) && (
+                    <p className="mt-1.5 text-[11.5px] leading-6 text-steel-700">
+                      {e.description}
+                      {e.tool && (
+                        <span className="ms-2 rounded-sm bg-steel-100 px-1.5 py-0.5 font-mono text-[9.5px] text-steel-600" dir="ltr">
+                          {e.tool}
+                        </span>
+                      )}
+                    </p>
+                  )}
 
                   <div className="mt-2.5 grid gap-x-6 gap-y-1.5 text-[11px] leading-6 sm:grid-cols-2">
                     <p className="text-steel-500">

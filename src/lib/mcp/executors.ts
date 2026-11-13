@@ -5708,28 +5708,36 @@ import { loadLedger, resolveLedgerRange } from "@/lib/audit-ledger";
 import { buildAuditShareUrl } from "@/lib/audit-share";
 import { hardDeleteUser, isHardDeleteReason, hardDeleteReasonLabel } from "@/lib/hard-delete";
 
-/** kalam_get_audit_summary — قراءة السجل السيادي: أرقام تنفيذية + آخر القيود */
+/** kalam_get_audit_summary — قراءة السجل السيادي الموحد: أرقام تنفيذية + آخر القيود
+    بفلترة كاملة: نطاق زمني + تصنيف + مصدر التنفيذ (لوحة/بوابة MCP/تيرمينال/موقع عام) */
 async function getAuditSummaryTool(args: McpArgs) {
   const days = num(args, "days") ?? 7;
   if (days < 1 || days > 365) throw new McpToolError("days يجب أن يكون بين ١ و ٣٦٥");
   const limit = Math.min(Math.max(num(args, "limit") ?? 20, 1), 100);
   const categoryRaw = str(args, "category")?.toUpperCase();
+  const sourceRaw = str(args, "source")?.toUpperCase();
 
   const range = resolveLedgerRange(String(days));
   const { entries, summary } = await loadLedger({
     range,
     category: (categoryRaw ?? "ALL") as never,
+    source: (sourceRaw ?? "ALL") as never,
     take: Math.max(limit, 200),
   });
 
   return {
     range: { days, label: range.label },
+    filters: { category: categoryRaw ?? "ALL", source: sourceRaw ?? "ALL" },
     summary,
     recentEntries: entries.slice(0, limit).map((e) => ({
       id: e.id,
       at: e.createdAt.toISOString(),
       category: e.actionCategory,
       action: e.actionType,
+      source: e.source,
+      channel: e.channelLabel,
+      description: e.description,
+      tool: e.tool,
       actor: `${e.actorEmail} (${e.actorRole})`,
       target: e.targetEmail,
       reason: e.reason,

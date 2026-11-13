@@ -1,10 +1,11 @@
 import { NextResponse } from "next/server";
 import { requireSession, isRejected } from "@/lib/guard";
-import { loadLedger, resolveLedgerRange, type TrailCategoryFilter } from "@/lib/audit-ledger";
+import { loadLedger, resolveLedgerRange, type TrailCategoryFilter, type TrailSourceFilter } from "@/lib/audit-ledger";
 import { recordServerError } from "@/lib/error-alert";
 
 /**
- * واجهة «السجل السيادي» — قيود التدقيق المصنفة بترشيح زمني وبالتصنيف.
+ * واجهة «السجل السيادي» — قيود التدقيق المصنفة بترشيح زمني وبالتصنيف
+ * وبمصدر التنفيذ (لوحة التحكم / بوابة MCP / التيرمينال السيادي / الموقع العام).
  * تخدم شاشة /ledger: المرشحات (اليوم/آخر ٧ أيام/آخر شهر/تخصيص) + بطاقات
  * الإجراءات + أرقام الملخص التنفيذي.
  */
@@ -18,12 +19,13 @@ export async function GET(request: Request) {
     const from = url.searchParams.get("from");
     const to = url.searchParams.get("to");
     const category = (url.searchParams.get("category") ?? "ALL") as TrailCategoryFilter;
+    const source = (url.searchParams.get("source") ?? "ALL") as TrailSourceFilter;
 
     const range =
       days && /^\d+$/.test(days)
         ? resolveLedgerRange(days)
         : resolveLedgerRange("custom", from, to);
-    const { entries, summary } = await loadLedger({ range, category, take: 150 });
+    const { entries, summary } = await loadLedger({ range, category, source, take: 150 });
 
     return NextResponse.json({ entries, summary, range: { label: range.label } });
   } catch (err) {

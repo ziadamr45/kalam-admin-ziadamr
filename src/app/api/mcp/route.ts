@@ -7,7 +7,9 @@ import {
 } from "@/lib/mcp/schemas";
 import { executeMcpTool, McpToolError, type McpArgs } from "@/lib/mcp/executors";
 import { getClientIp } from "@/lib/guard";
-import { getOrigin, getMcpTokenVersion, verifyOAuthToken } from "@/lib/mcp/oauth";
+import { getOrigin, getMcpTokenVersion, verifyOAuthToken, verifyClientId } from "@/lib/mcp/oauth";
+import { runWithChannel } from "@/lib/audit-channel";
+import { writeTrail, sanitizeAuditMeta } from "@/lib/audit-trail";
 
 /**
  * ============================================================
@@ -49,17 +51,23 @@ const CORS_HEADERS = {
 
 /* ============================ الأمان ============================ */
 
-async function authorized(request: Request): Promise<boolean> {
+/** نتيجة المصادقة — تحمل هوية العميل المتصل لتوثيقها في السجل السيادي */
+type AuthResult =
+  | { ok: true; clientName: string; viaStatic: boolean }
+  | { ok: false };
+
+async function authorized(request: Request): Promise<AuthResult> {
   const header = request.headers.get("authorization") ?? "";
-  if (!header.startsWith("Bearer ")) return false;
+  if (!header.startsWith("Bearer ")) return { ok: false };
   const token = header.slice(7).trim();
-  if (!token) return false;
+  if (!token) return { ok: false };
 
   /* الممر 1: السرّ الساكن — مقارنة زمنية ثابتة */
   const secret = process.env.GEMINI_SPARK_MCP_SECRET;
   if (secret && secret.length >= 16 && token.length === secret.length) {
     try {
-      if (timingSafeEqual(Buffer.from(token, "utf8"), Buffer.from(secret, "utf8"))) return true;
+      if (timingSafeEqual(Buffer.from(token, "utf8"), Buffer.from(secret, "utf8")))
+        return { ok: true, clientName: "اتصال Bearer مباشر (سرّ المنصة)", viaStatic: true };
     } catch {
       /* تُواصل فحص رمز OAuth */
     }
@@ -70,9 +78,12 @@ async function authorized(request: Request): Promise<boolean> {
      أي زيادة (mcp revoke-tokens في التيرمينال السيادي) تنهي فورًا كل الرموز
      المفتوحة السابقة: وصول وتحديث، دون مساس بالرموز الصادرة بعده */
   const payload = await verifyOAuthToken(token, "at");
-  if (!payload) return false;
+  if (!payload) return { ok: false };
   const tv = Number(payload.tv ?? 0) || 0;
-  return tv === (await getMcpTokenVersion());
+  if (tv !== (await getMcpTokenVersion())) return { ok: false };
+  /* اسم العميل المتصل من client_id الموقّع — يظهر في السجل السيادي */
+  const clientName = verifyClientId(String(payload.client_id ?? ""))?.name ?? "عميل MCP";
+  return { ok: true, clientName, viaStatic: false };
 }
 
 /* ============================ أدوات JSON-RPC ============================ */
@@ -104,6 +115,7 @@ async function handleMessage(
   msg: Record<string, unknown>,
   clientIp: string,
   origin: string,
+  clientName: string,
 ): Promise<Response | null> {
   const id = msg.id ?? null;
   const method = typeof msg.method === "string" ? msg.method : "";
@@ -156,7 +168,34 @@ async function handleMessage(
       }
 
       try {
-        const payload = await executeMcpTool(name, args, { ip: clientIp });
+        /* سياق القناة — كل قيد تكتبه الأدوات داخل هذه النداء يُختم
+           تلقائيًا بمصدر MCP واسم العميل المتصل (Gemini أو غيره) */
+        const payload = await runWithChannel(
+          { channel: "mcp", label: clientName },
+          () => executeMcpTool(name, args, { ip: clientIp }),
+        );
+
+        /* القيد الموحد للبوابة — كل أداة مغيّرة ناجحة بقيد رقابي في السجل
+           السيادي باسمها واسم العميل ومدخلاتها المطبّهة من الأسرار */
+        const tool = MCP_TOOLS.find((t) => t.name === name);
+        if (tool && tool.annotations?.readOnlyHint !== true) {
+          void writeTrail({
+            actorId: "mcp",
+            actorEmail: `mcp:${clientName}`,
+            actorRole: "SYSTEM",
+            actionCategory: "MCP_ACTION",
+            actionType: name,
+            description: `تنفيذ أداة «${tool.annotations?.title ?? name}» عبر بوابة MCP بواسطة ${clientName}`,
+            tool: name,
+            reason: typeof args.reason === "string" ? (args.reason as string) : null,
+            metadata: sanitizeAuditMeta({
+              ip: clientIp,
+              client: clientName,
+              arguments: args as Record<string, unknown>,
+            }),
+          });
+        }
+
         return toolResult(id, payload);
       } catch (err) {
         console.error("[MCP] tool error:", name, err);
@@ -197,7 +236,8 @@ export async function POST(request: Request) {
   /* بوابة الأمان أولًا — لا استثناء لأي طلب
      ترويسة WWW-Authenticate مع resource_metadata هي التي تشعل رقصة
      الاكتشاف القياسية عند Gemini: 401 ← اكتشاف ← تسجيل ← تفويض ← توكن */
-  if (!(await authorized(request))) {
+  const auth = await authorized(request);
+  if (!auth.ok) {
     const origin = getOrigin(request);
     return new Response(
       JSON.stringify({
@@ -234,7 +274,9 @@ export async function POST(request: Request) {
     ) as Record<string, unknown>[];
     if (messages.length === 0) return new Response(null, { status: 202, headers: CORS_HEADERS });
     const payload = await Promise.all(
-      messages.map((m) => handleMessage(m, getClientIp(request), getOrigin(request)).then((r) => r!.json())),
+      messages.map((m) =>
+        handleMessage(m, getClientIp(request), getOrigin(request), auth.clientName).then((r) => r!.json()),
+      ),
     );
     return new Response(JSON.stringify(payload), {
       status: 200,
@@ -247,7 +289,11 @@ export async function POST(request: Request) {
   }
 
   return (
-    (await handleMessage(body as Record<string, unknown>, getClientIp(request), getOrigin(request))) ??
-    new Response(null, { status: 202 })
+    (await handleMessage(
+      body as Record<string, unknown>,
+      getClientIp(request),
+      getOrigin(request),
+      auth.clientName,
+    )) ?? new Response(null, { status: 202 })
   );
 }
