@@ -5099,6 +5099,7 @@ export async function executeMcpTool(
 
     /* ==================== البنية التحتية السيادية — v4.0.0 ==================== */
     case "gh_get_repo":
+    case "gh_search_code":
     case "gh_list_tree":
     case "gh_get_file":
     case "gh_save_file":
@@ -5128,6 +5129,7 @@ export async function executeMcpTool(
     case "vercel_get_crons":
     case "vc_runtime_logs":
     case "inspect_live_page":
+    case "test_api_endpoint":
       return executeVcTool(name, args, meta);
     case "db_inspect_schema":
     case "db_query":
