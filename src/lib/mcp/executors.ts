@@ -3650,15 +3650,25 @@ async function tashkeelAndValidateArticle(args: McpArgs, meta: McpRequestMeta) {
     );
   }
   const started = Date.now();
-  const generatedRaw = await geminiChat({
-    system: buildTashkeelSystemPrompt(),
-    turns: [{ role: "user", text: `شكّل المتن التالي حرفيًا وفق القواعد:\n\n${body}` }],
-    candidates: [process.env.GEMINI_TASHKEEL_MODEL, "gemini-2.5-flash", "gemini-2.0-flash"].filter(Boolean) as string[],
-    memoKind: "tashkeel",
-    maxOutputTokens: 32_768,
-    temperature: 0.15,
-    timeoutMs: 52_000,
-  });
+  let generatedRaw: string;
+  try {
+    generatedRaw = await geminiChat({
+      system: buildTashkeelSystemPrompt(),
+      turns: [{ role: "user", text: `شكّل المتن التالي حرفيًا وفق القواعد:\n\n${body}` }],
+      candidates: [process.env.GEMINI_TASHKEEL_MODEL].filter(Boolean) as string[],
+      memoKind: "tashkeel",
+      /* سقف 8192 آمن لكل موديلات فلاش — أعلى منه يرفض Gemini بـ400 قاتل */
+      maxOutputTokens: 8192,
+      temperature: 0.15,
+      timeoutMs: 25_000,
+    });
+  } catch (err) {
+    /* رسالة Gemini الحقيقية تصل صاحب القرار بدل الخطأ الداخلي العام */
+    if (err instanceof GeminiError) {
+      throw new McpToolError(`محرك التشكيل رفض المهمة: ${err.message}`, { status: err.status });
+    }
+    throw err;
+  }
   /* تنظيف أحتال التسليم الشائعة: أسوار كود أو مقدمة */
   const generated = fixNunation(
     generatedRaw
