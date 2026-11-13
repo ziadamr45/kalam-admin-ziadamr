@@ -8,16 +8,22 @@ import {
   validRedirectUri,
   verifyClientId,
 } from "@/lib/mcp/oauth";
+import { MCP_SERVER_VERSION, MCP_TOOLS } from "@/lib/mcp/schemas";
 
 /**
  * ============================================================
- * نقطة التفويض (RFC 6749 §3.1) — واجهة عربية بصرية لصاحب المنصة
+ * نقطة التفويض (RFC 6749 §3.1) — واجهة عربية سيادية بصرية لصاحب المنصة
  * ============================================================
- * يفتح Gemini هذه الصفحة في نافذة عند ربط الخادم أول مرة:
+ * تُفتح هذه الصفحة في نافذة عند ربط أي أداة ذكاء اصطناعي أو نظام خارجي
+ * أو شخص مفوّض بالخادم أول مرة:
  *   1. تتحقق من client_id الموقّع و redirect_uri المسجلة
  *   2. تطلب كلمة مرور التفويض (سرّ حصري لصاحب المنصة)
  *   3. عند النجاح: ترجع رمز تفويض قصير العمر (10 دقائق) إلى redirect_uri
- *      مع state و iss — ثم يبادله Gemini (مع PKCE) برمز وصول عند /token
+ *      مع state و iss — ثم يبادله العميل (مع PKCE) برمز وصول عند /token
+ *
+ * الهوية البصرية موحّدة مع صفحة دخول اللوحة السيادية (/login):
+ * خط Readex Pro، خلفية الكحلي الفولاذي المتدرج، شعار الريشة الرسمي،
+ * وزر النحاسي الفخم.
  */
 
 export const runtime = "nodejs";
@@ -85,6 +91,30 @@ function validate(params: AuthorizeParams):
   return { ok: true, client };
 }
 
+/* الهوية السيادية المشتركة بين صفحتي التفويض والخطأ — موحّدة مع لوحة التحكم */
+const IDENTITY_HEAD = `<link rel="preconnect" href="https://fonts.googleapis.com"/>
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin/>
+<link href="https://fonts.googleapis.com/css2?family=Readex+Pro:wght@300;400;600;700&display=swap" rel="stylesheet"/>`;
+
+const IDENTITY_CSS = `
+  :root { color-scheme: dark; }
+  * { margin:0; padding:0; box-sizing:border-box; }
+  body { min-height:100vh; display:flex; align-items:center; justify-content:center; padding:24px;
+    background:radial-gradient(1100px 720px at 50% -8%, #111c30 0%, #0d1626 48%, #070e19 100%);
+    font-family:"Readex Pro","Segoe UI",Tahoma,sans-serif; color:#f4f6f9; }
+  .card { width:100%; max-width:470px; background:#111c30; border:1px solid #1f3050; border-top:3px solid #b87333;
+    border-radius:20px; padding:34px 30px; box-shadow:0 24px 60px rgba(7,14,25,.55), 0 0 0 1px rgba(184,115,51,.07); }
+  .logo { display:block; width:64px; height:64px; border-radius:16px; margin:0 auto 16px;
+    box-shadow:0 10px 26px rgba(7,14,25,.6), 0 0 0 1px rgba(184,115,51,.25); }
+  .badge { display:block; width:max-content; margin:0 auto 14px; background:rgba(184,115,51,.12);
+    border:1px solid rgba(184,115,51,.4); color:#e8c87e; font-size:10.5px; font-weight:700;
+    border-radius:999px; padding:4px 12px; letter-spacing:.4px; }
+  h1 { font-size:18.5px; text-align:center; line-height:1.8; margin-bottom:10px; color:#f5ebd3; }
+  p { font-size:13px; color:#9daec8; line-height:2; }
+  .code { margin-top:16px; display:inline-block; background:#3d0d0d; border:1px solid #b91c1c; color:#fecaca;
+    font-size:12px; border-radius:10px; padding:8px 14px; }
+`;
+
 function errorHtml(title: string, detail: string): Response {
   const html = `<!DOCTYPE html>
 <html lang="ar" dir="rtl">
@@ -92,22 +122,17 @@ function errorHtml(title: string, detail: string): Response {
 <meta charset="utf-8"/>
 <meta name="viewport" content="width=device-width, initial-scale=1"/>
 <title>${escapeHtml(title)} — كلام له لازمة</title>
-<style>
-  :root { color-scheme: dark; }
-  * { margin:0; padding:0; box-sizing:border-box; }
-  body { min-height:100vh; display:flex; align-items:center; justify-content:center; background:#09090b; font-family:system-ui,"Segoe UI",Tahoma,sans-serif; color:#fafafa; padding:24px; }
-  .card { width:100%; max-width:420px; background:#18181b; border:1px solid #27272a; border-radius:20px; padding:32px 28px; text-align:center; }
-  .logo { width:56px; height:56px; border-radius:16px; background:linear-gradient(135deg,#b9832f,#f5c46a); display:flex; align-items:center; justify-content:center; font-size:26px; font-weight:800; color:#18181b; margin:0 auto 18px; }
-  h1 { font-size:18px; margin-bottom:10px; }
-  p { font-size:13px; color:#a1a1aa; line-height:1.9; }
-  .code { margin-top:14px; display:inline-block; background:#450a0a; border:1px solid #b91c1c; color:#fecaca; font-size:12px; border-radius:10px; padding:8px 14px; }
+${IDENTITY_HEAD}
+<style>${IDENTITY_CSS}
+  h1 { margin-bottom:8px; }
 </style>
 </head>
 <body>
   <div class="card">
-    <div class="logo">ك</div>
+    <img class="logo" src="/icons/icon-192.png" alt="شعار كلام له لازمة"/>
+    <span class="badge">خادم MCP السيادي — كلام له لازمة</span>
     <h1>${escapeHtml(title)}</h1>
-    <p>${escapeHtml(detail)}</p>
+    <p style="text-align:center">${escapeHtml(detail)}</p>
     <span class="code">خادم MCP — كلام له لازمة</span>
   </div>
 </body>
@@ -136,41 +161,47 @@ function consentHtml(
 <head>
 <meta charset="utf-8"/>
 <meta name="viewport" content="width=device-width, initial-scale=1"/>
-<title>تفويض الاتصال — كلام له لازمة</title>
-<style>
-  :root { color-scheme: dark; }
-  * { margin:0; padding:0; box-sizing:border-box; }
-  body { min-height:100vh; display:flex; align-items:center; justify-content:center; background:#09090b; font-family:system-ui,"Segoe UI",Tahoma,sans-serif; color:#fafafa; padding:24px; }
-  .card { width:100%; max-width:430px; background:#18181b; border:1px solid #27272a; border-radius:20px; padding:32px 28px; }
-  .logo { width:56px; height:56px; border-radius:16px; background:linear-gradient(135deg,#b9832f,#f5c46a); display:flex; align-items:center; justify-content:center; font-size:26px; font-weight:800; color:#18181b; margin:0 auto 18px; }
-  h1 { font-size:18px; text-align:center; margin-bottom:8px; line-height:1.7; }
-  .sub { font-size:12.5px; color:#a1a1aa; text-align:center; line-height:1.9; margin-bottom:18px; }
-  .client { font-weight:800; color:#f5c46a; }
-  ul { list-style:none; margin:0 0 20px; display:grid; gap:8px; }
-  li { background:#09090b; border:1px solid #27272a; border-radius:12px; padding:9px 13px; font-size:12px; color:#d4d4d8; line-height:1.8; }
-  li b { color:#f5c46a; }
-  label { display:block; font-size:12px; color:#a1a1aa; margin-bottom:7px; font-weight:700; }
-  input[type=password] { width:100%; background:#09090b; border:1px solid #3f3f46; border-radius:12px; padding:12px 14px; font-size:14px; color:#fafafa; outline:none; }
-  input[type=password]:focus { border-color:#b9832f; }
-  .err { background:#450a0a; border:1px solid #b91c1c; color:#fecaca; font-size:12px; border-radius:10px; padding:9px 12px; margin-bottom:14px; text-align:center; }
-  button { width:100%; margin-top:14px; background:linear-gradient(135deg,#b9832f,#d9a343); border:0; border-radius:12px; padding:13px; font-size:14.5px; font-weight:800; color:#18181b; cursor:pointer; }
-  button:hover { filter:brightness(1.1); }
-  a.cancel { display:block; text-align:center; margin-top:12px; color:#71717a; font-size:12.5px; text-decoration:none; }
-  a.cancel:hover { color:#a1a1aa; }
-  .foot { margin-top:20px; padding-top:14px; border-top:1px solid #27272a; font-size:11px; color:#52525b; text-align:center; line-height:1.9; }
+<title>تفويض الاتصال بالبوابة السيادية — كلام له لازمة</title>
+${IDENTITY_HEAD}
+<style>${IDENTITY_CSS}
+  .sub { font-size:12.5px; text-align:center; margin-bottom:20px; }
+  .client { font-weight:800; color:#e8c87e; }
+  ul { list-style:none; margin:0 0 6px; display:grid; gap:9px; }
+  li { background:rgba(13,22,38,.72); border:1px solid #1f3050; border-right:3px solid #b87333;
+    border-radius:12px; padding:11px 14px; font-size:11.8px; color:#cbd4e2; line-height:1.95; }
+  li b { color:#e8c87e; font-size:12.5px; display:block; margin-bottom:3px; }
+  .hint { font-size:11px; color:#66809f; text-align:center; margin-bottom:18px; }
+  label { display:block; font-size:12px; color:#9daec8; margin-bottom:7px; font-weight:700; }
+  input[type=password] { width:100%; background:rgba(13,22,38,.72); border:1px solid #1f3050; border-radius:12px;
+    padding:13px 15px; font-size:14px; font-family:inherit; color:#f4f6f9; outline:none; transition:border-color .2s; }
+  input[type=password]:focus { border-color:#b87333; box-shadow:0 0 0 3px rgba(184,115,51,.15); }
+  .err { background:#3d0d0d; border:1px solid #b91c1c; color:#fecaca; font-size:12px; border-radius:10px;
+    padding:9px 12px; margin-bottom:14px; text-align:center; }
+  button { width:100%; margin-top:16px; background:linear-gradient(135deg,#b87333,#a16a1f); border:0; border-radius:14px;
+    padding:14px; font-size:15px; font-weight:700; font-family:inherit; color:#ffffff; cursor:pointer;
+    box-shadow:0 10px 24px rgba(161,106,31,.28); transition:filter .2s, transform .2s; }
+  button:hover { filter:brightness(1.08); }
+  button:active { transform:translateY(1px); }
+  a.cancel { display:block; text-align:center; margin-top:13px; color:#66809f; font-size:12.5px; text-decoration:none; }
+  a.cancel:hover { color:#9daec8; }
+  .foot { margin-top:20px; padding-top:14px; border-top:1px solid #1f3050; font-size:10.8px; color:#66809f;
+    text-align:center; line-height:2; }
+  .foot b { color:#9daec8; }
 </style>
 </head>
 <body>
   <div class="card">
-    <div class="logo">ك</div>
-    <h1>ربط مساعد Gemini بمنصة «كلام له لازمة»</h1>
-    <p class="sub">التطبيق <span class="client">${escapeHtml(clientName)}</span> يطلب اتصالًا سياديًا بخادم الإدارة عبر بروتوكول OAuth 2.0 — لا تمنح التفويض إلا إذا أنت من طلب الربط</p>
+    <img class="logo" src="/icons/icon-192.png" alt="شعار كلام له لازمة"/>
+    <span class="badge">بوابة MCP السيادية — الإصدار ${MCP_SERVER_VERSION}</span>
+    <h1>تفويض الاتصال بالبوابة السيادية — كلام له لازمة</h1>
+    <p class="sub">الجهة <span class="client">${escapeHtml(clientName)}</span> يطلب اتصالًا سياديًا كاملًا ببوابة الإدارة والمنصة (MCP v${MCP_SERVER_VERSION}) — لا تمنح التفويض إلا لجهة أو أداة تثق بها تمامًا</p>
     <ul>
-      <li><b>إدارة المقالات:</b> إنشاء وتعديل ونشر وأرشفة بكل الحقول</li>
-      <li><b>الأقسام والوسائط:</b> إنشاء الأقسام، إطلاق التوليد الصوتي، تحديث الأغلفة</li>
-      <li><b>الرقابة والتحليلات:</b> قراءة الإحصاءات ومراقبة التعليقات واتخاذ قراراتها</li>
-      <li><b>البنية التحتية:</b> إعادة توليد كاش الموقع العام فورًا</li>
+      <li><b>المحتوى والذكاء الاصطناعي</b>إدارة كاملة للمقالات والأقسام، توليد الأغلفة بالذكاء الاصطناعي، التوليد الصوتي المتعدد الأصوات، ومحاور المقالات الذكي</li>
+      <li><b>المجتمع والهوية والرقابة</b>إدارة القراء، التوثيق الرسمي والعضويات المميزة (VIP)، رصيد الأثر، التعليقات، البث الجماهيري والإشعارات</li>
+      <li><b>السيادة والأمن والتكوين</b>تعديل إعدادات وهوية المنصة لحظيًا (Zero-Deploy)، مركز الأمن، التيرمينال السيادي، التقارير الرقابية (PDF) والمحو الشامل</li>
+      <li><b>البنية التحتية الكاملة</b>قراءة وتعديل الكود والفروع (GitHub)، إدارة النشر ومتغيرات البيئة والنطاقات (Vercel)، قاعدة البيانات التنفيذية (Neon)، وخدمات البريد والوسائط (Resend &amp; Cloudinary)</li>
     </ul>
+    <p class="hint">${MCP_TOOLS.length} أداة سيادية تغطي كل ذرة في المنصة — كل عملية تُوثَّق في سجل التدقيق</p>
     ${errBlock}
     <form method="post" action="${escapeHtml(actionUrl)}">
       <input type="hidden" name="client_id" value="${escapeHtml(params.clientId)}"/>
@@ -185,7 +216,7 @@ function consentHtml(
       <button type="submit">تفويض الاتصال الآمن</button>
     </form>
     <a class="cancel" href="${escapeHtml(cancelUrl)}">إلغاء ورفض الاتصال</a>
-    <p class="foot">كل عملية تُنفَّذ عبر هذا الاتصال تُوثَّق في سجل التدقيق — النطاق الممنوح: ${escapeHtml(params.scope)}</p>
+    <p class="foot">النطاق الممنوح: <b>${escapeHtml(params.scope)}</b> — التفويض يُمنح مرة واحدة ويُدار من اللوحة السيادية</p>
   </div>
 </body>
 </html>`;
