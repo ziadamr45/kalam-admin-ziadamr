@@ -287,7 +287,44 @@ async function resendManage(args: McpArgs, meta: McpRequestMeta): Promise<unknow
     return { deleted: true, domain: name ?? null, domainId: id };
   }
 
-  throw new McpToolError("action يقبل list | get | verify | create | delete فقط");
+  /* حالة تسليم بريد بعينه: وصل delivered أم ارتد bounced أم لسه معلق —
+     بمعرف الرسالة الذي يعيده resend_send_email (GET /emails/{id} الرسمي) */
+  if (action === "email_status") {
+    const emailId = str(args, "email_id");
+    if (!emailId) throw new McpToolError("email_id إلزامي — معرف الرسالة من استجابة resend_send_email");
+    const res = await fetch(`https://api.resend.com/emails/${encodeURIComponent(emailId)}`, {
+      headers: { Authorization: `Bearer ${key}` },
+      cache: "no-store",
+    });
+    const data = (await res.json().catch(() => ({}))) as Record<string, unknown>;
+    if (!res.ok) {
+      throw new McpToolError(
+        `Resend رفض فحص حالة الرسالة (${res.status}): ${String(data.message ?? "غير معروف")}${res.status === 404 ? " — تأكد من معرف الرسالة email_id" : ""}`,
+        data,
+      );
+    }
+    const lastEvent = String(data.last_event ?? data.status ?? "unknown");
+    const human: Record<string, string> = {
+      queued: "معلقة في الطابور — لم تُرسل بعد",
+      sent: "سُلمت لمزود البريد — لم يُؤكد الوصول للصندوق بعد",
+      delivered: "وصلت صندوق المستلم بنجاح",
+      bounced: "ارتدت — العنوان غير موجود أو رفض المستلم التسليم",
+      complained: "علّمها المستلم رسالة مزعجة",
+    };
+    return {
+      emailId,
+      status: lastEvent,
+      delivered: lastEvent === "delivered",
+      bounced: lastEvent === "bounced",
+      pending: lastEvent === "queued" || lastEvent === "sent",
+      meaning: human[lastEvent] ?? "حالة غير معروفة — راجع القيمة الخام",
+      to: data.to ?? null,
+      subject: data.subject ?? null,
+      createdAt: data.created_at ?? null,
+    };
+  }
+
+  throw new McpToolError("action يقبل list | get | verify | create | delete | email_status فقط");
 }
 
 /* ============================ إشعارات الإدارة ============================ */

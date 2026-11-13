@@ -7,6 +7,21 @@
 export type McpToolSchema = {
   name: string;
   description: string;
+  /** العنوان العربي المعروض في واجهات العملاء — يبدأ باسم القسم للترتيب البصري */
+  title?: string;
+  /**
+   * حقل بروتوكول MCP الرسمي الذي يصنّف الأداة لواجهات العملاء:
+   * readOnlyHint=true تظهر في قسم «قراءة»، والكتابة الآمنة في «كتابة»،
+   * وdestructiveHint=true (حذف نهائي أو عملية خطرة) في «كتابة / حذف».
+   * بلا هذا الحقل يعامل العملاء الأداة افتراضيًا ككتابة/حذف!
+   */
+  annotations?: {
+    title?: string;
+    readOnlyHint?: boolean;
+    destructiveHint?: boolean;
+    idempotentHint?: boolean;
+    openWorldHint?: boolean;
+  };
   inputSchema: {
     type: "object";
     properties: Record<string, unknown>;
@@ -15,13 +30,16 @@ export type McpToolSchema = {
 };
 
 export const MCP_PROTOCOL_VERSION = "2025-03-26";
-export const MCP_SERVER_NAME = "كلام له لازمة - Kalam Laho Lazma";
-export const MCP_SERVER_VERSION = "5.1.0";
+/* الاسم القصير — نفسه عنوان المنشن في واجهات العملاء (Gemini يستخدمه في @mention) */
+export const MCP_SERVER_NAME = "كلام له لازمة";
+export const MCP_SERVER_VERSION = "5.2.0";
 
 export const MCP_TOOLS: McpToolSchema[] = [
   /* ==================== أ) أدوات المقالات ==================== */
   {
     name: "list_articles",
+    title: "[المقالات] استعراض قائمة المقالات",
+    annotations: {title: "[المقالات] استعراض قائمة المقالات", readOnlyHint: true, destructiveHint: false, idempotentHint: true},
     description:
       "جلب قائمة المقالات مع فلترة حسب الحالة (DRAFT مسودة | SCHEDULED مجدول | PUBLISHED منشور | ARCHIVED مؤرشف) وترتيب حسب الأحدث أو الأكثر قراءة، مع إحصاءات المشاهدات لكل مقال.",
     inputSchema: {
@@ -46,6 +64,8 @@ export const MCP_TOOLS: McpToolSchema[] = [
   },
   {
     name: "get_article_details",
+    title: "[المقالات] تفاصيل مقال كامل",
+    annotations: {title: "[المقالات] تفاصيل مقال كامل", readOnlyHint: true, destructiveHint: false, idempotentHint: true},
     description:
       "جلب تفاصيل مقال كامل بمتنه الكامل (Markdown) وملخصه وقسمه وغلافه وحالة صوته وإحصاءات تعليقاته وتفاعلاته ومشاهداته — عبر المعرف id أو الـ slug.",
     inputSchema: {
@@ -58,6 +78,8 @@ export const MCP_TOOLS: McpToolSchema[] = [
   },
   {
     name: "create_article",
+    title: "[المقالات] إنشاء مقال جديد",
+    annotations: {title: "[المقالات] إنشاء مقال جديد", readOnlyHint: false, destructiveHint: false},
     description:
       "إنشاء مقال جديد مباشرة: العنوان والمحتوى بتنسيق Markdown والملخص (يُشتق آليًا إن غاب) والقسم والحالة ومعرف slug اختياري. التصنيف في المنصة يتم عبر الأقسام (section) — لا يوجد جدول وسوم منفصل. النشر المباشر قد يتطلب تأكيد قائمة الفحص الأخلاقي حسب إعدادات المنصة.",
     inputSchema: {
@@ -91,6 +113,8 @@ export const MCP_TOOLS: McpToolSchema[] = [
   },
   {
     name: "update_article",
+    title: "[المقالات] تعديل مقال قائم",
+    annotations: {title: "[المقالات] تعديل مقال قائم", readOnlyHint: false, destructiveHint: false},
     description:
       "تعديل أي حقل لمقال قائم: النص أو العنوان أو الملخص أو القسم أو حالة النشر أو الغلاف أو التشكيل — يُعاد حساب وقت القراءة آليًا وتُعاد ترندرة صفحات المنصة فورًا عند تغير النشر.",
     inputSchema: {
@@ -126,6 +150,8 @@ export const MCP_TOOLS: McpToolSchema[] = [
   },
   {
     name: "delete_or_archive_article",
+    title: "[المقالات] أرشفة أو حذف نهائي لمقال",
+    annotations: {title: "[المقالات] أرشفة أو حذف نهائي لمقال", readOnlyHint: false, destructiveHint: true},
     description:
       "أرشفة المقال (يبقى محفوظًا ويختفي من المنصة العامة) أو نقله للحذف النهائي مع تنظيف أصوله الصوتية السحابية. الوضع الافتراضي الأرشفة الآمنة.",
     inputSchema: {
@@ -145,12 +171,16 @@ export const MCP_TOOLS: McpToolSchema[] = [
   /* ==================== ب) أدوات الأقسام ==================== */
   {
     name: "list_categories",
+    title: "[الأقسام] استعراض أقسام المنصة",
+    annotations: {title: "[الأقسام] استعراض أقسام المنصة", readOnlyHint: true, destructiveHint: false, idempotentHint: true},
     description:
       "جلب جميع أقسام المنصة مع وصفها وألوانها وأيقوناتها وعدد مقالات كل قسم وحالتها.",
     inputSchema: { type: "object", properties: {} },
   },
   {
     name: "create_category",
+    title: "[الأقسام] إنشاء قسم جديد",
+    annotations: {title: "[الأقسام] إنشاء قسم جديد", readOnlyHint: false, destructiveHint: false},
     description: "إضافة قسم (تصنيف) جديد يظهر مباشرة في قائمة الأقسام العامة للمنصة.",
     inputSchema: {
       type: "object",
@@ -167,6 +197,8 @@ export const MCP_TOOLS: McpToolSchema[] = [
   },
   {
     name: "update_category",
+    title: "[الأقسام] تعديل قسم قائم",
+    annotations: {title: "[الأقسام] تعديل قسم قائم", readOnlyHint: false, destructiveHint: false},
     description: "تعديل بيانات قسم قائم: الاسم أو الوصف أو اللون أو الأيقونة أو الترتيب أو الإيقاف/التفعيل.",
     inputSchema: {
       type: "object",
@@ -186,6 +218,8 @@ export const MCP_TOOLS: McpToolSchema[] = [
   /* ==================== جـ) أدوات الوسائط والصوت ==================== */
   {
     name: "trigger_audio_generation",
+    title: "[الصوت والوسائط] إطلاق التوليد الصوتي لمقال",
+    annotations: {title: "[الصوت والوسائط] إطلاق التوليد الصوتي لمقال", readOnlyHint: false, destructiveHint: false},
     description:
       "إطلاق مهمة التوليد الصوتي الخلفية لمقال محدد: تحجز المهمة في قاعدة البيانات (audioStatus = PROCESSING) وتشعل سلسلة معالجة ذاتية التغذية تولّد المقاطع الصوتية خلفيًا عبر Gemini TTS وترفع الملف المدمج إلى Cloudinary ثم تصبح READY — دون الحاجة لبقاء أي عميل متصل، مع خيار اختيار صوت القارئ لهذه المهمة.",
     inputSchema: {
@@ -206,6 +240,8 @@ export const MCP_TOOLS: McpToolSchema[] = [
   },
   {
     name: "manage_article_audio",
+    title: "[الصوت والوسائط] إدارة صوت المقال والعينات الصوتية",
+    annotations: {title: "[الصوت والوسائط] إدارة صوت المقال والعينات الصوتية", readOnlyHint: false, destructiveHint: true},
     description:
       "الإدارة الكاملة لصوت المقال: status للحالة اللحظية (التقدم done/total والصوت المختار والمدة والخطأ واكتشاف المهمة المعلقة stale مع شفائها الذاتي بضرب العامل)، set_voice لاختيار صوت القارئ (من قائمة Gemini الرسمية) يُطبق على التوليد القادم، start لإطلاق التوليد (مثل trigger_audio_generation مع دعم voice)، delete لإيقاف أي معالجة جارية وحذف الصوت من المقال وتنظيف ملفاته من Cloudinary كاملةً، وsample لعينة صوتية سريعة بأي صوت من الأصوات الثلاثين تُسمع فورًا قبل اعتماده (بلا مقال).",
     inputSchema: {
@@ -228,7 +264,29 @@ export const MCP_TOOLS: McpToolSchema[] = [
     },
   },
   {
+    name: "tashkeel_and_validate_article",
+    title: "[الصوت والوسائط] التشكيل الآلي وفحص تطابق الكتل",
+    annotations: {title: "[الصوت والوسائط] التشكيل الآلي وفحص تطابق الكتل", readOnlyHint: false, destructiveHint: false},
+    description:
+      "محرك التشكيل الآلي الذكي وفحص تطابق الكتل: يولّد النسخة المشكولة كاملة من متن المقال عبر Gemini مع الحفاظ الحرفي على كتل المحتوى ([[آية|السورة|رقم الآية]]…[[/آية]] و[[حديث|…]]…[[/حديث]] وكتل :::quran و:::hadith و:::note و:::question و:::name) ووسوم ماركداون والروابط، مع تطبيق قاعدة التنوين الحتمية (التنوين فوق الحرف قبل ألف التنوين — عالمًا لا عالماً)، ثم يفحص تطابق عدد الكلمات وتسلسل الكتل بين النسختين لضمان عدم انزياح تظليل الكاريوكي الصوتي. action=validate يفحص النسخة المشكولة المحفوظة حاليًا دون تعديل، generate يولّد ويعيد النتيجة للمراجعة دون حفظ، save يولّد ويفحص ويحفظ على المقال مباشرة.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        id: { type: "string", description: "معرف المقال أو slug — إلزامي" },
+        action: {
+          type: "string",
+          enum: ["validate", "generate", "save"],
+          description:
+            "validate فحص تطابق النسخة المشكولة المحفوظة (افتراضي) | generate توليد نسخة مشكولة جديدة للمراجعة دون حفظ | save توليد وفحص وحفظ على المقال فورًا",
+        },
+      },
+      required: ["id"],
+    },
+  },
+  {
     name: "generate_article_cover",
+    title: "[الصوت والوسائط] توليد غلاف مقال بالذكاء الاصطناعي",
+    annotations: {title: "[الصوت والوسائط] توليد غلاف مقال بالذكاء الاصطناعي", readOnlyHint: false, destructiveHint: false},
     description:
       "توليد غلاف المقال بالذكاء الاصطناعي كاملًا: يقرأ جوهر المقال ويصيغ برومبتًا فنيًا إنجليزيًا عبر Gemini (أو تعتمد برومبتًا مخصصًا تمرره)، ثم يرسم عبر سلسلة المحركات (Imagen → Gemini Image → Pollinations) ويرفع الناتج إلى Cloudinary ويربطه بالمقال مع إعادة ترندرة صفحاته — ووضع preview=true يعيد البرومبت الصيغ دون رسم لفحصه وتعديله قبل النفقة.",
     inputSchema: {
@@ -249,6 +307,8 @@ export const MCP_TOOLS: McpToolSchema[] = [
   },
   {
     name: "update_article_cover",
+    title: "[الصوت والوسائط] تحديث رابط غلاف المقال",
+    annotations: {title: "[الصوت والوسائط] تحديث رابط غلاف المقال", readOnlyHint: false, destructiveHint: false},
     description: "تحديث رابط صورة غلاف المقال بعد توليده أو رفعه (تُعاد ترندرة صفحة المقال فورًا).",
     inputSchema: {
       type: "object",
@@ -263,15 +323,49 @@ export const MCP_TOOLS: McpToolSchema[] = [
     },
   },
 
+  {
+    name: "generate_quote_card",
+    title: "[الصوت والوسائط] توليد بطاقة اقتباس مصورة",
+    annotations: {title: "[الصوت والوسائط] توليد بطاقة اقتباس مصورة", readOnlyHint: false, destructiveHint: false},
+    description:
+      "توليد بطاقة اقتباس مصورة رسمية بهوية «كلام له لازمة» (نفس روح مولّد الاقتباسات في الموقع العام): نص الاقتباس بخط أميري المشكّل على خلفية داكنة بإطار ذهبي أو خلفية ورق فاتح، مع المصدر وشعار المنصة — تُرسم على الخادم بجودة كاملة وتُرفع إلى Cloudinary ويعاد الرابط الجاهز للنشر المباشر على فيسبوك أو حالات واتساب أو أي منصة.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        quote: { type: "string", description: "نص الاقتباس — إلزامي (حتى 600 حرف)" },
+        attribution: {
+          type: "string",
+          description: "سطر المصدر أسفل الاقتباس — مثل «صاحب المنصة» أو اسم الكتاب (افتراضي: كلام له لازمة)",
+        },
+        format: {
+          type: "string",
+          enum: ["square", "portrait", "story"],
+          description:
+            "square مربع 1080×1080 للمنشورات (افتراضي) | portrait عمودي 1080×1350 | story ستوري 1080×1920 لحالات واتساب والستوريات",
+        },
+        theme: {
+          type: "string",
+          enum: ["dark", "paper"],
+          description: "dark الخلفية الداكنة الذهبية بهوية البطاقات الرسمية (افتراضي) | paper خلفية الورق الفاتح بهوية الموقع",
+        },
+      },
+      required: ["quote"],
+    },
+  },
+
   /* ==================== د) التحليلات والرقابة ==================== */
   {
     name: "get_system_analytics",
+    title: "[التحليلات والرقابة] الملخص التحليلي الشامل",
+    annotations: {title: "[التحليلات والرقابة] الملخص التحليلي الشامل", readOnlyHint: true, destructiveHint: false, idempotentHint: true},
     description:
       "ملخص فوري شامل: إجمالي المقالات بحالاتها ومشاهداتها وقراءاتها المكتملة، الزيارات، حالة التعليقات، عدد المستخدمين، واستهلاك حصص نقاش الذكاء الاصطناعي (AiDiscussionUsage) وأكثر المقالات قراءة.",
     inputSchema: { type: "object", properties: {} },
   },
   {
     name: "list_and_moderate_comments",
+    title: "[التحليلات والرقابة] رقابة التعليقات واتخاذ القرار",
+    annotations: {title: "[التحليلات والرقابة] رقابة التعليقات واتخاذ القرار", readOnlyHint: false, destructiveHint: true},
     description:
       "جلب التعليقات المعلقة أو المخالِفة (مع بيانات كاتبها ومقالها) واتخاذ قرار رقابي: اعتماد التعليق أو رفضه أو حذفه نهائيًا حفاظًا على القيم الإسلامية وفلسفة المنصة — تُحدّث صفحة المقال فورًا بعد القرار.",
     inputSchema: {
@@ -301,6 +395,8 @@ export const MCP_TOOLS: McpToolSchema[] = [
   },
   {
     name: "post_official_comment",
+    title: "[التحليلات والرقابة] نشر تعليق رسمي باسم صاحب المنصة",
+    annotations: {title: "[التحليلات والرقابة] نشر تعليق رسمي باسم صاحب المنصة", readOnlyHint: false, destructiveHint: false},
     description:
       "نشر تعليق رسمي فوري باسم صاحب المنصة الموثق (OWNER) على أي مقال منشور — يُعتمد APPROVED لحظته وتُعاد ترندرة صفحة المقال، مع خيار تثبيته ذاتيًا (selfPin — يفك تثبيت تعليق المالك السابق في المقال) أو تمييزه فكريًا ملهمًا (inspire — +نقاط أثر وثبوت أعلى المقال)، وإرسال إشعار COMMENT_REPLY للمشاركين في نقاش المقال.",
     inputSchema: {
@@ -322,6 +418,8 @@ export const MCP_TOOLS: McpToolSchema[] = [
   },
   {
     name: "test_article_ai_discuss",
+    title: "[التحليلات والرقابة] اختبار المحاور الذكي على مقال",
+    annotations: {title: "[التحليلات والرقابة] اختبار المحاور الذكي على مقال", readOnlyHint: true, destructiveHint: false, idempotentHint: true},
     description:
       "اختبار المحاور الذكي على أي مقال حتى وهو مسودة (DRAFT) — محاكاة دقيقة لمسار /api/ai/discuss على الموقع العام: نفس برومبت النظام الحاكم ونفس حقن التغذية الفكرية السرية (authorIntent) التي لا تُعاد في أي استجابة، مع سجل حوار اختياري — لقياس جودة ردود المحاور قبل النشر دون انتظار ودون حساب على حصص أي قارئ.",
     inputSchema: {
@@ -352,6 +450,8 @@ export const MCP_TOOLS: McpToolSchema[] = [
   /* ==================== هـ) إدارة الكاش ==================== */
   {
     name: "purge_site_cache",
+    title: "[الكاش والنشر] إعادة تحقق فوري لمسارات المنصة",
+    annotations: {title: "[الكاش والنشر] إعادة تحقق فوري لمسارات المنصة", readOnlyHint: false, destructiveHint: false},
     description:
       "إطلاق إعادة التحقق الفوري (revalidatePath) لأي مسارات في المنصة العامة لضمان ظهور التعديلات للمستخدمين لحظة صدور الأمر — استخدم ['/'] لإعادة توليد الرئيسية، أو مسار مقال محدد /article/<slug>، أو مرّر layout=true لتحديث القوائم الجانبية في كل الصفحات.",
     inputSchema: {
@@ -372,6 +472,8 @@ export const MCP_TOOLS: McpToolSchema[] = [
   /* ==================== و) المستخدمون والقراء ==================== */
   {
     name: "list_users",
+    title: "[القراء] استعراض القراء المسجلين",
+    annotations: {title: "[القراء] استعراض القراء المسجلين", readOnlyHint: true, destructiveHint: false, idempotentHint: true},
     description:
       "جلب القراء المسجلين مرتبين برصيد الأثر: الاسم المعروض والاسم الأصلي والبريد والرتبة الفكرية ورصيد الأثر وحالة الحظر وسببها وعدد تعليقاتهم وجلسات نقاشهم — مع بحث نصي وفلترة المحظورين.",
     inputSchema: {
@@ -386,6 +488,8 @@ export const MCP_TOOLS: McpToolSchema[] = [
   },
   {
     name: "manage_user",
+    title: "[القراء] السيادة الكاملة على حساب قارئ",
+    annotations: {title: "[القراء] السيادة الكاملة على حساب قارئ", readOnlyHint: false, destructiveHint: true},
     description:
       "السيادة الكاملة على حساب قارئ (بمعرف userId أو بريد email): حظره نهائيًا بسبب موثق أو فك حظره، منح/خصم رصيد أثر، تصفير هويته المخصصة عائدًا إياه لحالة Google الأصلية، تعديل بطاقته الفكرية كاملةً (الاسم المعروض والصورة والنبذة والنبذة الموسعة وروابط التواصل الموثقة)، فحص أجهزته المسجلة وإبطال جهاز بعينه، وفحص دخولات Google وجلساته وإبطالها، وتصفير تجربة التهيئة لمعاينة شرائح الترحيب المعدلة، وعرض/تعديل تفضيلات إشعاراته، وجرد مواضع قراءته وضبطها أو تصفيرها.",
     inputSchema: {
@@ -464,6 +568,8 @@ export const MCP_TOOLS: McpToolSchema[] = [
   /* ==================== ز) القنوات الخاصة والحوكمة ==================== */
   {
     name: "list_and_handle_proposals",
+    title: "[القنوات الخاصة والحوكمة] قناة أهل الكلمة",
+    annotations: {title: "[القنوات الخاصة والحوكمة] قناة أهل الكلمة", readOnlyHint: false, destructiveHint: false},
     description:
       "قناة «أهل الكلمة» الخاصة: جلب المقترحات الفكرية الواردة مباشرة من أصحاب أعلى رتبة فكرية (مع بيانات كاتبها ورتبته ورصيده) وتعليم المقترح مُعالَجًا أو إعادة فتحه.",
     inputSchema: {
@@ -481,6 +587,8 @@ export const MCP_TOOLS: McpToolSchema[] = [
   },
   {
     name: "manage_contact_messages",
+    title: "[القنوات الخاصة والحوكمة] صندوق اتصل بنا",
+    annotations: {title: "[القنوات الخاصة والحوكمة] صندوق اتصل بنا", readOnlyHint: false, destructiveHint: true},
     description:
       "صندوق «اتصل بنا»: جلب رسائل الزوار (غير المقروءة أولًا) ببيانات مرسليها، وتعليمها مقروءة أو غير مقروءة، أو أرشفتها واسترجاعها، أو حذفها نهائيًا.",
     inputSchema: {
@@ -502,6 +610,8 @@ export const MCP_TOOLS: McpToolSchema[] = [
   },
   {
     name: "manage_legal_pages",
+    title: "[القنوات الخاصة والحوكمة] تحرير الصفحات القانونية",
+    annotations: {title: "[القنوات الخاصة والحوكمة] تحرير الصفحات القانونية", readOnlyHint: false, destructiveHint: false},
     description:
       "تحرير الصفحات القانونية الثلاث للمنصة — سياسة الخصوصية وشروط الاستخدام وأخلاقيات الحوار: قراءة نصوصها الحالية أو حفظ نص جديد يظهر على المنصة العامة فورًا.",
     inputSchema: {
@@ -524,6 +634,8 @@ export const MCP_TOOLS: McpToolSchema[] = [
   },
   {
     name: "manage_comment_features",
+    title: "[القنوات الخاصة والحوكمة] صلاحيات التعليق المتقدمة",
+    annotations: {title: "[القنوات الخاصة والحوكمة] صلاحيات التعليق المتقدمة", readOnlyHint: false, destructiveHint: true},
     description:
       "صلاحيات التعليق المتقدمة: تمييز تعليق «فكريًا ملهمًا» (معاملة ذرّية تثبّته أعلى حوار المقال وتبث لصاحبه +10 رصيد أثر مع إشعارات مزدوجة) أو إلغاء التمييز (-10 عكسية موثقة) — السبب إلزامي في الاتجاهين — أو تحرير نص التعليق بعلامة التحرير الإداري، أو حظر كاتب التعليق نهائيًا مع رفض كل تعليقاته المعلقة.",
     inputSchema: {
@@ -551,6 +663,8 @@ export const MCP_TOOLS: McpToolSchema[] = [
   /* ==================== ح) البث والإشعارات وتحديثات المنصة ==================== */
   {
     name: "broadcast_notification",
+    title: "[البث والإشعارات] مركز البث الجماهيري وسجل التحديثات",
+    annotations: {title: "[البث والإشعارات] مركز البث الجماهيري وسجل التحديثات", readOnlyHint: false, destructiveHint: true},
     description:
       "مركز الإشعارات الجماهيري: بث إشعار لكل القراء غير المحظورين (أو إشعار مخصص لمستخدم بعينه) عبر جرس المنصة الداخلي وإشعار الويب الفوري لهواتفهم معًا، مع خيار توثيق البث في سجل تحديثات المنصة الظاهر للقراء — وجلب آخر التحديثات الموثقة أو تعديل سجل منها (عنوانه أو نصه أو نوعه) أو حذفه.",
     inputSchema: {
@@ -586,6 +700,8 @@ export const MCP_TOOLS: McpToolSchema[] = [
   },
   {
     name: "export_content_backup",
+    title: "[النسخ الاحتياطي] لقطة المحتوى الكاملة",
+    annotations: {title: "[النسخ الاحتياطي] لقطة المحتوى الكاملة", readOnlyHint: true, destructiveHint: false, idempotentHint: true},
     description:
       "نسخة احتياطية فورية كاملة للمحتوى في لقطة JSON واحدة منظمة: كل المقالات بحالاتها (بالمتن العادي والمشكول والتغذية الفكرية السرية authorIntent والأغلفة وبيانات الصوت وروابطه السحابية) والأقسام كلها والصفحات القانونية الثلاث والتكوين السيادي SiteConfig كله — خذها واحفظها في أي وقت؛ مقاطع الصوت الخام وكلماتها المتزامنة تُستبعد تخفيفًا للحجم وتكفي روابط الملفات للاسترجاع.",
     inputSchema: { type: "object", properties: {} },
@@ -594,6 +710,8 @@ export const MCP_TOOLS: McpToolSchema[] = [
   /* ==================== ط) الإعدادات السيادية ==================== */
   {
     name: "manage_system_settings",
+    title: "[الإعدادات السيادية] مفاتيح الحوكمة وقائمة الفحص",
+    annotations: {title: "[الإعدادات السيادية] مفاتيح الحوكمة وقائمة الفحص", readOnlyHint: false, destructiveHint: false},
     description:
       "إعدادات المنصة السيادية: قراءة مفاتيح الحوكمة الحالية (AUTO_APPROVE_COMMENTS اعتماد التعليقات آليًا دون مراجعة، REQUIRE_CHECKLIST فرض قائمة الفحص الأخلاقي قبل النشر) وتغييرها، وقراءة بنود قائمة الفحص الأخلاقي أو استبدالها كلها.",
     inputSchema: {
@@ -619,6 +737,8 @@ export const MCP_TOOLS: McpToolSchema[] = [
   },
   {
     name: "manage_email_channel",
+    title: "[الإعدادات السيادية] قناة البريد الرسمية",
+    annotations: {title: "[الإعدادات السيادية] قناة البريد الرسمية", readOnlyHint: false, destructiveHint: false},
     description:
       "قناة البريد الرسمية — نفس منطق /api/email-channel: get قراءة حالة القناة (المفتاح مصدره البيئة أم قاعدة البيانات، المرسل الحالي)، set تحديث مفتاح RESEND_API_KEY و/أو عنوان المرسل SECURITY_EMAIL_FROM في SystemSetting مباشرةً بلا إعادة نشر (Zero-Deploy)، clear مسح المفتاح المحفوظ، test إرسال بريد تجريبي رسمي للمالك للتحقق أن القناة حية.",
     inputSchema: {
@@ -644,6 +764,8 @@ export const MCP_TOOLS: McpToolSchema[] = [
   /* ==================== ي) الأمن والنبض الحي ==================== */
   {
     name: "manage_security",
+    title: "[الأمن والرقابة] مركز أمن المنصة وقواعد IP",
+    annotations: {title: "[الأمن والرقابة] مركز أمن المنصة وقواعد IP", readOnlyHint: false, destructiveHint: true},
     description:
       "مركز أمن المنصة: نظرة شاملة على آخر التنبيهات الأمنية ومحاولات الدخول الفاشلة وقواعد IP وسجل تدقيق اللوحة، مع حلّ التنبيهات، وإضافة قاعدة سماح ALLOW أو حجب DENY لأي عنوان IP أو إزالة قاعدة قائمة، وفحص رموز التحقق المؤقتة VerificationToken وسحبها كاملة.",
     inputSchema: {
@@ -669,6 +791,8 @@ export const MCP_TOOLS: McpToolSchema[] = [
   },
   {
     name: "get_live_activity",
+    title: "[الأمن والرقابة] النبض الحي للأحداث",
+    annotations: {title: "[الأمن والرقابة] النبض الحي للأحداث", readOnlyHint: true, destructiveHint: false, idempotentHint: true},
     description:
       "النبض الحي للمنصة: آخر أحداث الشفافية المسجلة لحظيًا (دخول قارئ بنجاح أو حجب محاولة، تعليق مُرسل، تصويت، حفظ مقال، مشاركة اقتباس، رسالة تواصل) بفاعلها ومسارها وتفاصيلها — لمراقبة حركة المنصة لحظة بلحظة.",
     inputSchema: {
@@ -687,6 +811,8 @@ export const MCP_TOOLS: McpToolSchema[] = [
   /* ==================== ك) أتمتة التغطية الكاملة — كل ذرة في المنصة ==================== */
   {
     name: "delete_category",
+    title: "[الأقسام] حذف قسم نهائيًا",
+    annotations: {title: "[الأقسام] حذف قسم نهائيًا", readOnlyHint: false, destructiveHint: true},
     description:
       "حذف قسم نهائيًا من المنصة. مقالاته تبقى موجودة لكنها تنفصل عن الأقسام، أو مرر reassignToSlug لنقلها كلها إلى قسم آخر قبل الحذف. تُعاد ترندرة صفحات المنصة فورًا.",
     inputSchema: {
@@ -703,6 +829,8 @@ export const MCP_TOOLS: McpToolSchema[] = [
   },
   {
     name: "manage_platform_errors",
+    title: "[الأمن والرقابة] أخطاء المنصة المبلّغ عنها",
+    annotations: {title: "[الأمن والرقابة] أخطاء المنصة المبلّغ عنها", readOnlyHint: false, destructiveHint: true},
     description:
       "عين العطل في المنصة: جلب أخطاء برمجية المتصفح المبلّغ عنها مجمعة بالبصمة (الرسالة، المكدس، المسار، العدد، آخر ظهور)، وحذف سجل خطأ بعينه أو مسح السجل كله بعد معالجته.",
     inputSchema: {
@@ -721,6 +849,8 @@ export const MCP_TOOLS: McpToolSchema[] = [
   },
   {
     name: "list_impact_ledger",
+    title: "[التحليلات والرقابة] دفتر أثر القراء الموثق",
+    annotations: {title: "[التحليلات والرقابة] دفتر أثر القراء الموثق", readOnlyHint: true, destructiveHint: false, idempotentHint: true},
     description:
       "دفتر أثر القراء الموثق نقطة بنقطة: كل منح وخصم وقراءة مكتملة وتعليق معتمد وتمييز ملهم ومشاركة اقتباس، بفاعله وسببه ومقاله ومفتاح منع التكرار — فلترة بمستخدم أو نوع فعل.",
     inputSchema: {
@@ -739,6 +869,8 @@ export const MCP_TOOLS: McpToolSchema[] = [
   },
   {
     name: "manage_search_history",
+    title: "[التفاعل الخام] ذاكرة بحث القراء",
+    annotations: {title: "[التفاعل الخام] ذاكرة بحث القراء", readOnlyHint: false, destructiveHint: true},
     description:
       "ذاكرة بحث القراء (SearchHistory — يكتبه الموقع العام على قاعدة Neon نفسها): top لعرض أكثر الكلمات بحثًا عبر المنصة (عدد البحثات وعدد الباحثين المميزين — مدخل ذكي لاختيار مواضيع المقالات)، user لسجل بحث قارئ بعينه، clear لمسح سجل قارئ أو استعلام محدد، وclear_all لمسح السجل كله (بإقرار confirm='أؤقر التنفيذ').",
     inputSchema: {
@@ -759,6 +891,8 @@ export const MCP_TOOLS: McpToolSchema[] = [
   },
   {
     name: "manage_social_graph",
+    title: "[التفاعل الخام] تصويتات ومشاركات ومحفوظات",
+    annotations: {title: "[التفاعل الخام] تصويتات ومشاركات ومحفوظات", readOnlyHint: false, destructiveHint: true},
     description:
       "ذرات التفاعل الاجتماعي الخام: إعجابات/عدم إعجابات (التصويتات) ومشاركات الاقتباس على منصاتها ومكتبة المحفوظات لكل قارئ — جلبها لمقال أو مستخدم، وإزالة أي سجل بعينه (تصويت مزعج، مشاركة وهمية، محفوظة).",
     inputSchema: {
@@ -783,6 +917,8 @@ export const MCP_TOOLS: McpToolSchema[] = [
   },
   {
     name: "manage_reading_data",
+    title: "[التفاعل الخام] بيانات القراءة الخام وحق النسيان",
+    annotations: {title: "[التفاعل الخام] بيانات القراءة الخام وحق النسيان", readOnlyHint: false, destructiveHint: true},
     description:
       "بيانات القراءة الخام سجلًا سجلًا: كل زيارة بمسارها وجهازها ومصدرها ومدة قراءتها واكتمالها — مع إمكانية حذف أي سجل، أو محو كل آثار زائر عبر بصمته (حق النسيان)، أو تفريغ بيانات مقال.",
     inputSchema: {
@@ -808,6 +944,8 @@ export const MCP_TOOLS: McpToolSchema[] = [
   },
   {
     name: "manage_notifications_inbox",
+    title: "[البث والإشعارات] جرس إشعارات القراء",
+    annotations: {title: "[البث والإشعارات] جرس إشعارات القراء", readOnlyHint: false, destructiveHint: true},
     description:
       "جرس إشعارات القراء الداخلي من حيث لا يتوقع: جلب إشعارات كل المستخدمين أو مستخدم بعينه (غير المقروء أولًا)، وتعليم أي إشعار مقروءًا أو إرجاعه، أو حذفه من الجرس نهائيًا.",
     inputSchema: {
@@ -827,6 +965,8 @@ export const MCP_TOOLS: McpToolSchema[] = [
   },
   {
     name: "manage_admin_notifications",
+    title: "[البث والإشعارات] مركز نشاط الأدمن",
+    annotations: {title: "[البث والإشعارات] مركز نشاط الأدمن", readOnlyHint: false, destructiveHint: true},
     description:
       "مركز نشاط الأدمن نفسه — إشعارات وتنبيهات الطوارئ الواردة لحساب صاحب المنصة (أنواع ADMIN_* في جدول Notification الموحد): list آخر الإشعارات بعداد غير المقروء، unread_count العداد وأهم إشعار عاجل، mark_read تعليم إشعار مقروءًا، mark_all_read تصفير الجرس، dismiss إخفاء إشعار من المركز، delete حذفه نهائيًا، clear_old تقليم المقروء القديم (بالأيام).",
     inputSchema: {
@@ -850,6 +990,8 @@ export const MCP_TOOLS: McpToolSchema[] = [
   },
   {
     name: "manage_push_subscriptions",
+    title: "[البث والإشعارات] سجل اشتراكات الإشعارات الفورية",
+    annotations: {title: "[البث والإشعارات] سجل اشتراكات الإشعارات الفورية", readOnlyHint: false, destructiveHint: true},
     description:
       "سجل أجهزة الإشعارات الفورية: اشتراكات القراء المشتركة بهواتفها واشتراكات الأدمن، بنقاط نهايتها وأجهزتها وآخر ظهور — مع إزالة أي اشتراك منتهٍ أو مزعج.",
     inputSchema: {
@@ -873,16 +1015,27 @@ export const MCP_TOOLS: McpToolSchema[] = [
   },
   {
     name: "manage_admin_account",
+    title: "[حساب الإدارة] ذرات حسابات الإدارة والمشرفين",
+    annotations: {title: "[حساب الإدارة] ذرات حسابات الإدارة والمشرفين", readOnlyHint: false, destructiveHint: true},
     description:
-      "ذرات حساب الإدارة نفسه: نظرة شاملة على حسابات الأدمن وجلسات اللوحة الحية بأجهزتها وعناوينها والأجهزة الموثوقة وحالة التحقق الثنائي، مع إبطال أي جلسة، وإزالة جهاز موثوق، وتغيير كلمة المرور (يتطلب كلمة المرور الحالية للتحقق)، وطوارئ تعطيل التحقق الثنائي عند فقدان الهاتف (بكلمة المرور الحالية، ويوثَّق كتنبيه أمني CRITICAL).",
+      "ذرات حسابات الإدارة كاملة: نظرة شاملة على حسابات الأدمن والجلسات الحية والأجهزة الموثوقة وحالة التحقق الثنائي، مع إبطال أي جلسة، وإزالة جهاز موثوق، وتغيير كلمة المرور (بالتحقق الحالي)، وطوارئ تعطيل التحقق الثنائي عند فقدان الهاتف (بكلمة المرور الحالية وتنبيه أمني CRITICAL)، وإدارة فريق المشرفين كله: إنشاء حساب مشرف جديد في جدول AdminUser بكلمة مرور قوية، أو حذف حساب مشرف (حماية صارمة لأقدم حساب المالك وآخر حساب في المنصة)، أو تصفير التحقق الثنائي لأي حساب مشرف آخر عند الطوارئ.",
     inputSchema: {
       type: "object",
       properties: {
         action: {
           type: "string",
-          enum: ["overview", "revoke_session", "remove_device", "change_password", "disable_2fa"],
+          enum: [
+            "overview",
+            "revoke_session",
+            "remove_device",
+            "change_password",
+            "disable_2fa",
+            "create_admin",
+            "delete_admin",
+            "reset_admin_2fa",
+          ],
           description:
-            "overview نظرة شاملة (افتراضي) | revoke_session إبطال جلسة | remove_device إزالة جهاز موثوق | change_password تغيير كلمة المرور | disable_2fa طوارئ تعطيل التحقق الثنائي",
+            "overview نظرة شاملة (افتراضي) | revoke_session إبطال جلسة | remove_device إزالة جهاز موثوق | change_password تغيير كلمة المرور | disable_2fa طوارئ تعطيل التحقق الثنائي لحساب المالك | create_admin إنشاء حساب مشرف جديد | delete_admin حذف حساب مشرف | reset_admin_2fa تصفير التحقق الثنائي لحساب مشرف آخر",
         },
         sessionId: { type: "string", description: "معرف الجلسة — إلزامي مع revoke_session" },
         deviceId: { type: "string", description: "معرف الجهاز — إلزامي مع remove_device" },
@@ -890,12 +1043,18 @@ export const MCP_TOOLS: McpToolSchema[] = [
           type: "string",
           description: "كلمة المرور الحالية — إلزامية مع change_password وdisable_2fa للتحقق",
         },
-        newPassword: { type: "string", description: "كلمة المرور الجديدة — إلزامية مع change_password" },
+        newPassword: { type: "string", description: "كلمة المرور الجديدة — إلزامية مع change_password وcreate_admin" },
+        username: {
+          type: "string",
+          description: "اسم حساب المشرف — إلزامي مع create_admin وdelete_admin وreset_admin_2fa",
+        },
       },
     },
   },
   {
     name: "manage_discussion_quota",
+    title: "[التفاعل الخام] حصص نقاش الذكاء الاصطناعي",
+    annotations: {title: "[التفاعل الخام] حصص نقاش الذكاء الاصطناعي", readOnlyHint: false, destructiveHint: true},
     description:
       "حصص نقاش الذكاء الاصطناعي سجلًا سجلًا: من ناقش أي مقال وكم رسالة أرسل ومتى — مع تصفير حصة قارئ في مقال بعينه (حذف السجل يفتح له نقاشًا جديدًا).",
     inputSchema: {
@@ -915,6 +1074,8 @@ export const MCP_TOOLS: McpToolSchema[] = [
   },
   {
     name: "manage_media",
+    title: "[الخزنة السحابية] استهلاك وجرد وحذف أصول الميديا",
+    annotations: {title: "[الخزنة السحابية] استهلاك وجرد وحذف أصول الميديا", readOnlyHint: false, destructiveHint: true},
     description:
       "خزنة الميديا السحابية Cloudinary خارج قاعدة البيانات — كل أغلفة المقالات والصوتيات وأفاتارات القراء: استهلاك الحساب الكامل (المساحة والباندويث والخطة وعدد الأصول)، وجرد الأصول بمجلد أو بادئة (صور image أو صوت video)، وحذف أي أصل يتيم أو مكرر بمعرفه public_id. هكذا تكتمل السيادة على المنظومة كلها حتى خارج جداول قاعدة البيانات.",
     inputSchema: {
@@ -939,6 +1100,8 @@ export const MCP_TOOLS: McpToolSchema[] = [
   },
   {
     name: "view_as_reader",
+    title: "[التحليلات والرقابة] عين القارئ — الشاشة من ناحيته",
+    annotations: {title: "[التحليلات والرقابة] عين القارئ — الشاشة من ناحيته", readOnlyHint: true, destructiveHint: false, idempotentHint: true},
     description:
       "عين القارئ — الشاشة نفسها التي يراها القارئ من ناحيته لا من ناحية الإدارة: هويته المعروضة (الاسم المختار والصورة والنبذة) ورتبته الفكرية ورصيد أثره ومسافته للرتبة التالية وأهليته لعضوية «أهل الكلمة»، مكتبته المحفوظة، تصويتاته على المقالات، تعليقاته مفصولة ما يظهر منه للعامة وما يخفى عنها (معلق/مرفوض/مبلَّغ عنه)، جرس إشعاراته وعدد غير المقروء، مقترحاته وحالتها، حصص نقاش الذكاء الاصطناعي لكل مقال بالمتبقي كما يحسبه الموقع تمامًا من رتبته، أجهزة إشعاراته الفورية، مزودات دخوله وجلساته، وآخر دفتر أثره (قراءات مكتملة ومشاركات ومنح وخصوم). وبتعليم visitor ترى ما يراه الزائر الغريب غير المسجل: حالات الحوكمة المؤثرة عليه والأقسام والمقالات المنشورة والصفحات القانونية. وبتعليم article مع articleId أو slug ترى صفحة مقال بعينه بعيون الجمهور (حالته وظهوره الفعلي وتصويتاته وتعليقاته المعتمدة والمعلقة وصوتياته ومقالات قسمه المجاورة) وما يخصّ قارئًا معينًا فيها إن مررت userId أو email: تصويته هو، وهل في مكتبته، وحصته المتبقية من نقاش الذكاء الاصطناعي على هذا المقال تحديدًا، وتعليقاته عليه ظاهرةً ومخفية.",
     inputSchema: {
@@ -960,12 +1123,16 @@ export const MCP_TOOLS: McpToolSchema[] = [
   /* ==================== ح) الفحص الذاتي والتشغيل اليدوي ==================== */
   {
     name: "get_site_health",
+    title: "[التشغيل والصيانة] الفحص الذاتي الشامل",
+    annotations: {title: "[التشغيل والصيانة] الفحص الذاتي الشامل", readOnlyHint: true, destructiveHint: false, idempotentHint: true},
     description:
       "الفحص الذاتي الشامل للمنصة في استدعاء واحد — كشف الاستدلالات المقلقة قبل أن تتحول إلى مشاكل: مقالات مجدولة حان وقتها ولم تُنشر بعد (تأخر مهمة الكرون)، مقاطع صوتية عالقة في المعالجة أو فشلت، مسودات مهجورة، تعليقات معلقة قديمة أو مبلَّغ عنها، رسائل تواصل ومقترحات غير معالجة، تنبيهات أمنية غير محسومة ودرجاتها، محاولات دخول فاشلة آخر 24 ساعة وقواعد IP النشطة، تقارير أعطال المستخدمين وعدد تكرارها وآخرها، قارئون محظورون، اشتراكات إشعارات ميتة، وزمن استجابة قاعدة البيانات مقاسًا فعليًا. تُعاد مع حكم نهائي: سليمة أم تحتاج نظر، وقائمة رموز للمشاكل.",
     inputSchema: { type: "object", properties: {} },
   },
   {
     name: "run_maintenance",
+    title: "[التشغيل والصيانة] نشر المجدول وتقليم السجلات",
+    annotations: {title: "[التشغيل والصيانة] نشر المجدول وتقليم السجلات", readOnlyHint: false, destructiveHint: true},
     description:
       "تشغيل مهام التشغيل يدويًا فورًا دون انتظار الكرون: فعل publish_scheduled ينفذ نفس منطق مهمة Vercel المجدولة (3:30 فجرًا) الآن — يقلب كل مقال مجدول حان وقته إلى منشور فعليًا ويضبط وقت النشر ويعيد تنشيط الكاش ويعد بقائمة بما نُشر؛ وفعل prune_logs يقلم سجلات المراقبة القديمة (RequestLog وServerErrorLog) حفاظًا على مساحة قاعدة Neon — استدعِ publish_scheduled إذا رصد الفحص الذاتي مقالات متأخرة أو أراد الزعيم نشرًا لحظيًا، وprune_logs دوريًا كل أسبوعين",
     inputSchema: {
@@ -985,6 +1152,8 @@ export const MCP_TOOLS: McpToolSchema[] = [
   },
   {
     name: "manage_comment_votes",
+    title: "[التفاعل الخام] تصويتات التعليقات",
+    annotations: {title: "[التفاعل الخام] تصويتات التعليقات", readOnlyHint: false, destructiveHint: true},
     description:
       "سيادة كاملة على تصويتات التعليقات (إعجاب/عدم إعجاب القارئين على تعليقات بعضهم): list لجرد أصوات تعليق بعينه أو قارئ بعينه مع هوية المصوّت وموضع التعليق وملخص العدادات، stats لملخص عدادات تعليق أو أحدث التصويتات عبر المنصة، delete لإزالة صوت بعينه بمعرفه، وclear لمسح كل أصوات تعليق عند التنظيف الإشرافي (مع توثيق كامل في دفتر التدقيق).",
     inputSchema: {
@@ -1004,6 +1173,8 @@ export const MCP_TOOLS: McpToolSchema[] = [
   },
   {
     name: "manage_login_logs",
+    title: "[الأمن والرقابة] سجل أمن الدخول",
+    annotations: {title: "[الأمن والرقابة] سجل أمن الدخول", readOnlyHint: false, destructiveHint: true},
     description:
       "سيادة كاملة على سجل أمن الدخول (LoginLog — محرك إشعارات الأمان السيادي): list لجرد آخر دخولات القارئين مع نوع الجهاز والمتصفح ونظام التشغيل والموقع التقريبي وعلامة الجهاز الجديد وقنوات التنبيه، stats لملخص أمني شامل (إجمالي الدخولات، أجهزة جديدة، تنبيهات مُرسلة وقنواتها، نبض 24 ساعة)، delete لحذف سجل بعينه بمعرفه، وclear لمسح السجل كليًا عند التنظيف (مع توثيق كامل في دفتر التدقيق).",
     inputSchema: {
@@ -1023,6 +1194,8 @@ export const MCP_TOOLS: McpToolSchema[] = [
   },
 {
   "name": "get_system_telemetry",
+  "title": "[التشغيل والصيانة] مرصد النظام الحي",
+  "annotations": {"title": "[التشغيل والصيانة] مرصد النظام الحي", readOnlyHint: true, destructiveHint: false, idempotentHint: true},
   "description": "نبض النظام الحي الشامل: صحة قاعدة Neon PostgreSQL (زمن الاستجابة، الاتصالات النشطة مقابل السقف الأقصى، حجم القاعدة، إصدار المحرك)، لقطة حركة آخر 60 دقيقة (إجمالي الطلبات والأخطاء والمعدل الدقيق وأكثر المسارات مرورًا وتوزيع الأجهزة والدول)، نبض أخطاء التشغيل الأخيرة، مع طابع لحظة القياس.",
   "inputSchema": {
     "type": "object",
@@ -1031,6 +1204,8 @@ export const MCP_TOOLS: McpToolSchema[] = [
 },
 {
   "name": "get_traffic_log",
+  "title": "[التشغيل والصيانة] سجل حركة الخادم",
+  "annotations": {"title": "[التشغيل والصيانة] سجل حركة الخادم", readOnlyHint: true, destructiveHint: false, idempotentHint: true},
   "description": "سجل حركة الخادم الحي: كل استدعاءات Route Handlers وServer Actions بمنصة عامة ولوحة تحكم معًا — المسار والطريقة وكود الاستجابة ونوع الجهاز (هاتف/حاسوب/لوحي/روبوت) وIP والدولة والمدة، مع تصفية بالنافذة الزمنية أو معرف/بريد القارئ أو الأخطاء فقط.",
   "inputSchema": {
     "type": "object",
@@ -1060,6 +1235,8 @@ export const MCP_TOOLS: McpToolSchema[] = [
 },
 {
   "name": "get_server_errors",
+  "title": "[التشغيل والصيانة] سجل أخطاء التشغيل اللحظية",
+  "annotations": {"title": "[التشغيل والصيانة] سجل أخطاء التشغيل اللحظية", readOnlyHint: true, destructiveHint: false, idempotentHint: true},
   "description": "سجل أخطاء التشغيل اللحظية (instrumentation): الرسالة والـ Stack Trace الكامل وطريق الحدث ونوعه (route-handler/server-action/render) وعدد التكرارات وبصمة التجميع — فور وقوعها.",
   "inputSchema": {
     "type": "object",
@@ -1073,6 +1250,8 @@ export const MCP_TOOLS: McpToolSchema[] = [
 },
 {
   "name": "get_api_quotas",
+  "title": "[التشغيل والصيانة] حصص الواجهات الخارجية",
+  "annotations": {"title": "[التشغيل والصيانة] حصص الواجهات الخارجية", readOnlyHint: true, destructiveHint: false, idempotentHint: true},
   "description": "حصص واستهلاك الواجهات الخارجية اليومي وآخر 7 أيام: محاورة Gemini النصية، توليد الصوت Gemini TTS، تسليم بريد Resend (مع حالة النطاقات من API رسمي عند توفر المفتاح)، وتخزين الوسائط Cloudinary (الخطة ورصيد الاستخدام والتخزين والباندودث وعدد الأصول).",
   "inputSchema": {
     "type": "object",
@@ -1081,6 +1260,8 @@ export const MCP_TOOLS: McpToolSchema[] = [
 },
 {
   "name": "get_site_config",
+  "title": "[الإعدادات السيادية] قراءة التكوين السيادي",
+  "annotations": {"title": "[الإعدادات السيادية] قراءة التكوين السيادي", readOnlyHint: true, destructiveHint: false, idempotentHint: true},
   "description": "قراءة التكوين السيادي للمنصة من جدول SiteConfig: الهوية والعلامة (الاسم والوثائق والتذييل وروابط التواصل)، النصوص (الترحيب وشرائح التهيئة وشارة المحاور وتنويهه)، مفاتيح الميزات (المحاورة الذكية والتعليقات والمشغل الصوتي وقناة أهل الكلمة)، ومعايير اقتصاد الأثر (الأوزان والعتبة) — كله أو تصنيفًا أو مفتاحًا.",
   "inputSchema": {
     "type": "object",
@@ -1105,6 +1286,8 @@ export const MCP_TOOLS: McpToolSchema[] = [
 },
 {
   "name": "set_site_config",
+  "title": "[الإعدادات السيادية] تعديل التكوين السيادي لحظيًا",
+  "annotations": {"title": "[الإعدادات السيادية] تعديل التكوين السيادي لحظيًا", readOnlyHint: false, destructiveHint: false},
   "description": "تعديل التكوين السيادي وتطبيقه لحظيًا على الإنتاج دون إعادة نشر (Zero-Deploy): يتحقق من نوع كل مفتاح، يكتب في جدول SiteConfig، يفرغ كاش التكوين عبر revalidateTag، ويعيد تحقق المنصة العامة عابرة للتطبيقات — كل ذلك موثق في سجل التدقيق.",
   "inputSchema": {
     "type": "object",
@@ -1134,6 +1317,8 @@ export const MCP_TOOLS: McpToolSchema[] = [
 },
 {
   "name": "admin_cli",
+  "title": "[التشغيل والصيانة] تيرمينال الأوامر السيادي",
+  "annotations": {"title": "[التشغيل والصيانة] تيرمينال الأوامر السيادي", readOnlyHint: false, destructiveHint: true},
   "description": "تنفيذ أوامر التيرمينال السيادي Interactive CLI: sys info (نبض النظام والبيئة)، cache purge [all|path] (إفراغ الكاش فورًا)، user inspect <email|id> (السجل الأمني الكامل ونقاط الأثر والجلسات)، user ban/unban <email> [سبب] (تعطيل/تفعيل الحساب)، config list|get|set (سيادة التكوين)، db stats (الجداول والسجلات والأحجام)، traffic tail [n] وerrors tail [n] (آخر الحركة والأخطاء)، security tail [n] (اللوحة الأمنية: التنبيهات ومحاولات الاختراق واصطياد البوتات)، help (القائمة) — كل فعل مُغيِّر يوثق في دفتر التدقيق.",
   "inputSchema": {
     "type": "object",
@@ -1150,6 +1335,8 @@ export const MCP_TOOLS: McpToolSchema[] = [
 },
 {
   "name": "send_test_push",
+  "title": "[البث والإشعارات] بث إشعار تجريبي لأجهزة الإدارة",
+  "annotations": {"title": "[البث والإشعارات] بث إشعار تجريبي لأجهزة الإدارة", readOnlyHint: false, destructiveHint: false},
   "description": "بث إشعار ويب Push فوري تجريبي إلى كل أجهزة الإدارة المسجلة (AdminPushSubscription) للتحقق من أن قناة التنبيهات حية — تُستخدم بعد النشر أو قبل الفعاليات للتأكد من وصول التنبيهات لهواتف الإدارة. يوثق في سجل التدقيق.",
   "inputSchema": {
     "type": "object",
@@ -1167,6 +1354,8 @@ export const MCP_TOOLS: McpToolSchema[] = [
 },
 {
   "name": "get_security_overview",
+  "title": "[الأمن والرقابة] اللوحة الأمنية المجمعة",
+  "annotations": {"title": "[الأمن والرقابة] اللوحة الأمنية المجمعة", readOnlyHint: true, destructiveHint: false, idempotentHint: true},
   "description": "اللوحة الأمنية المجمعة لآخر 24 ساعة: عدّاد محاولات الدخول الفاشلة (LoginAttempt) وحظور التسجيل العنيف BRUTE_FORCE وبوتات فخ Honeypot المصطادة وتجاوزات حدود المعدل RATE_LIMIT، آخر التنبيهات الأمنية SecurityAlert بدرجات خطورتها (INFO/WARN/CRITICAL)، وأحدث بصمات أخطاء 500 من ServerErrorLog — صورة الحصانة الكاملة في استدعاء واحد.",
   "inputSchema": {
     "type": "object",
@@ -1184,6 +1373,8 @@ export const MCP_TOOLS: McpToolSchema[] = [
 },
 {
   "name": "kalam_manage_vip_privileges",
+  "title": "[العضوية والتوثيق] إدارة العضوية المميزة",
+  "annotations": {"title": "[العضوية والتوثيق] إدارة العضوية المميزة", readOnlyHint: false, destructiveHint: false},
   "description": "إدارة العضوية المميزة المستقلة (VIP Privileges) لأي قارئ — منفصلة تمامًا عن التوثيق الرسمي: grant لتفعيل العضوية بكبسولة مسماة بلون سداسي وسبب إلزامي وحزم صلاحيات دقيقة (حصة ذكاء غير محدودة، تجاوز حدود المعدل والتهدئة، قناة أهل الكلمة، تثبيت ذاتي للتعليقات، إطار تعليق فخم، ميزات تجريبية) ورصيد أثر ترحيبي ورتبة وظيفية اختيارية، set_privileges لتحديث مفاتيح الصلاحيات وحدها لحظيًا، revoke لسحب العضوية والشارة بسبب إلزامي (التوثيق الرسمي لا يُمس) — كل فعل يُشعِر المستخدم فورًا ويُوثق في سجلي التدقيق.",
   "inputSchema": {
     "type": "object",
@@ -1215,6 +1406,8 @@ export const MCP_TOOLS: McpToolSchema[] = [
 },
 {
   "name": "kalam_manage_verification",
+  "title": "[العضوية والتوثيق] إدارة التوثيق الرسمي",
+  "annotations": {"title": "[العضوية والتوثيق] إدارة التوثيق الرسمي", readOnlyHint: false, destructiveHint: false},
   "description": "إدارة التوثيق الرسمي — إثبات الهوية فقط (Proof of Identity)، منفصل تمامًا عن العضوية المميزة: check لفحص حالة التوثيق وتصنيفه ومسماه، grant لمنح علامة الصح الرسمية بنوع محدد (OWNER مؤسس حصري بالبذر التلقائي، OFFICIAL_AUTHOR كاتب رسمي زيتي، FAMILY_CORE فرد عائلة موثق فيروزي، NOTABLE نخبة أهل الكلمة كحلي)، update لتعديل النوع أو المسمى الظاهر لحظيًا، revoke لسحب التوثيق فقط بسبب إلزامي (العضوية المميزة لا تُمس). مزايا التوثيق البنيوية تلقائية: أولوية النقاشات، تخطي التهدئة، البطاقة الفكرية الموسعة — كل فعل يُشعِر المستخدم ويُوثق في دفتر التدقيق.",
   "inputSchema": {
     "type": "object",
@@ -1230,6 +1423,8 @@ export const MCP_TOOLS: McpToolSchema[] = [
 },
 {
   "name": "kalam_dispatch_vip_notification",
+  "title": "[البث والإشعارات] إشعار توثيق وتمييز فوري",
+  "annotations": {"title": "[البث والإشعارات] إشعار توثيق وتمييز فوري", readOnlyHint: false, destructiveHint: false},
   "description": "إطلاق إشعار توثيق وتمييز فوري لأي مستخدم عبر القنوات الثلاث معًا: إشعار داخلي في جرس المنصة، بث ويب فوري لهاتفه، وبريد إلكتروني مصمم عبر Resend — بأحداث جاهزة (منح شارة، بلوغ أهل الكلمة، تعديل مزايا، سحب شارة، منح توثيق رسمي، سحب توثيق) أو نص مخصص، مع تسجيل قنوات التسليم في سجل الأحداث الحي لمركز نشاط الأدمن.",
   "inputSchema": {
     "type": "object",
@@ -1247,6 +1442,8 @@ export const MCP_TOOLS: McpToolSchema[] = [
 },
 {
   "name": "kalam_get_audit_summary",
+  "title": "[الأمن والرقابة] الملخص الرقابي السيادي",
+  "annotations": {"title": "[الأمن والرقابة] الملخص الرقابي السيادي", readOnlyHint: true, destructiveHint: false, idempotentHint: true},
   "description": "قراءة السجل السيادي غير القابل للتلاعب (AuditTrail) — أرقام الملخص التنفيذي (محو حسابات، حظر، تمييز تعليقات، توثيق ورُتب، تعديلات إعدادات) مع آخر القيود الرقابية بالفاعل والمستهدف والسبب والدليل، لترشيح زمني (أيام) وبالتصنيف (USER_SELF_ACTION | ADMIN_MODERATION | ADMIN_VIP_CHANGE | SYSTEM_CONFIG_CHANGE) — لتجاوب أسئلة مثل: ماذا فعل المشرفون خلال الأسبوع المنصرم؟",
   "inputSchema": {
     "type": "object",
@@ -1259,6 +1456,8 @@ export const MCP_TOOLS: McpToolSchema[] = [
 },
 {
   "name": "kalam_execute_hard_delete",
+  "title": "[الأمن والرقابة] المحو السيادي الشامل لحساب",
+  "annotations": {"title": "[الأمن والرقابة] المحو السيادي الشامل لحساب", readOnlyHint: false, destructiveHint: true},
   "description": "تنفيذ المحو السيادي الشامل لحساب مستخدم (GDPR Hard Delete): معاملة ذرّية واحدة تمحو كل تعليقاته وتصويتاته وتفاعلاته ورصيد أثره ومحفوظاته ومواضع قراءته ونقاشاته مع الذكاء الاصطناعي ومقترحاته وإشعاراته وجلساته وروابط Google ثم سجله الأساسي، مع حذف صوره من التخزين السحابي وقيد رقابي إلزامي بالسبب والدليل المصور داخل المعاملة نفسها. حساب صاحب المنصة محمي ولا يُمحى مطلقًا.",
   "inputSchema": {
     "type": "object",
@@ -1273,6 +1472,8 @@ export const MCP_TOOLS: McpToolSchema[] = [
 },
 {
   "name": "kalam_generate_audit_pdf",
+  "title": "[الأمن والرقابة] توليد التقرير الرقابي PDF",
+  "annotations": {"title": "[الأمن والرقابة] توليد التقرير الرقابي PDF", readOnlyHint: false, destructiveHint: false},
   "description": "توليد التقرير الرقابي السيادي PDF بتنسيق عربي فاخر (ترويسة سيادية، ملخص تنفيذي بالأرقام، جدول تفصيلي بالقيود والسبب والدليل) لنطاق أسبوعي أو شهري، ورفعه إلى مجلد الأدلة المحمي وإرجاع رابط التنزيل الدائم.",
   "inputSchema": {
     "type": "object",
@@ -1282,6 +1483,8 @@ export const MCP_TOOLS: McpToolSchema[] = [
   }
 },  {
     name: "kalam_broadcast_notification",
+    title: "[البث والإشعارات] المرسل المركزي الموحد للإشعارات",
+    annotations: {title: "[البث والإشعارات] المرسل المركزي الموحد للإشعارات", readOnlyHint: false, destructiveHint: false},
     description:
       "المرسل المركزي الموحد للإشعارات: بث عام لكل القراء أو إشعار مخصص لمستخدم بعينه عبر القنوات الثلاث (جرس داخل الموقع + Web Push + بريد Resend) مع احترام تفضيلات كل قارئ، وخيار توثيق البث في سجل تحديثات المنصة الظاهر للقراء.",
     inputSchema: {
@@ -1308,6 +1511,8 @@ export const MCP_TOOLS: McpToolSchema[] = [
   },
   {
     name: "kalam_get_user_notifications",
+    title: "[البث والإشعارات] سجل إشعارات قارئ",
+    annotations: {title: "[البث والإشعارات] سجل إشعارات قارئ", readOnlyHint: true, destructiveHint: false, idempotentHint: true},
     description:
       "جلب وتدقيق سجل إشعارات أي مستخدم من الجدول المركزي الموحد: آخر الإشعارات بأنواعها وحالة قراءتها وعدد غير المقروء — لمساعدته إداريًا أو تتبع وصول التنبيهات إليه.",
     inputSchema: {
@@ -1322,6 +1527,8 @@ export const MCP_TOOLS: McpToolSchema[] = [
   },
   {
     name: "kalam_audit_auth_gates",
+    title: "[الأمن والرقابة] فحص بوابات المصادقة حيًا",
+    annotations: {title: "[الأمن والرقابة] فحص بوابات المصادقة حيًا", readOnlyHint: true, destructiveHint: false, idempotentHint: true},
     description:
       "فحص أمني حي لبوابات المصادقة: يجرّب نداءات مجهولة (بلا جلسة ولا كوكيز) على كل نقطة النهاية التفاعلية للمنصة العامة ويتحقق أنها مغلقة بإحكام (401/403) — التعليقات، تصويت التعليقات والمقالات، الحفظ، محاورة الذكاء الاصطناعي، المقترحات، الاشتراكات، الملف الشخصي، محو الحساب.",
     inputSchema: { type: "object", properties: {} },
@@ -1331,6 +1538,8 @@ export const MCP_TOOLS: McpToolSchema[] = [
   /* ==================== ز) البنية التحتية — GitHub (v4.0.0) ==================== */
   {
     name: "gh_get_repo",
+    title: "[البنية التحتية - GitHub] نظرة شاملة على المستودع",
+    annotations: {title: "[البنية التحتية - GitHub] نظرة شاملة على المستودع", readOnlyHint: true, destructiveHint: false, idempotentHint: true},
     description:
       "نظرة شاملة على أحد مستودعي المنصة على GitHub: المعلومات الأساسية والفرع الافتراضي وقائمة الفروع مع آخر SHA لكل فرع — نقطة البداية لأي عمل كودي.",
     inputSchema: {
@@ -1339,7 +1548,35 @@ export const MCP_TOOLS: McpToolSchema[] = [
     },
   },
   {
+    name: "gh_search_code",
+    title: "[البنية التحتية - GitHub] بحث نصي في كود المستودعين",
+    annotations: {title: "[البنية التحتية - GitHub] بحث نصي في كود المستودعين", readOnlyHint: true, destructiveHint: false, idempotentHint: true},
+    description:
+      "بحث نصي فوري عن أي كلمة أو دالة أو نص داخل ملفات مستودع public أو admin أو كليهما معًا — يعيد المسارات المطابقة وأرقام الأسطر ومقتطف كل مطابقة دون قراءة الملفات واحدًا تلو الآخر. التنزيل من أرشيف الشجرة نفسه بلا اعتماد على فهرسة جيت هب، فالنتيجة دقيقة سطرًا بسطر لحظة البحث على أي فرع.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        query: {
+          type: "string",
+          description: "الكلمة أو العبارة أو الدالة المبحوث عنها — إلزامي (مثل: NOTIFICATION_ASSETS أو getOrigin)",
+        },
+        repo: {
+          type: "string",
+          enum: ["public", "admin", "both"],
+          description: "المستودع — افتراضي public، وboth يبحث في المستودعين معًا",
+        },
+        path: { type: "string", description: "تضييق البحث على مسار — مثال: src/lib أو src/app/api" },
+        ref: { type: "string", description: "الفرع أو SHA — افتراضي main" },
+        caseSensitive: { type: "boolean", description: "بحث حساس لحالة الأحرف — افتراضي false (يتجاهل الحالة)" },
+        limit: { type: "number", description: "أقصى عدد ملفات نتائج لكل مستودع (افتراضي 20، أقصى 50)" },
+      },
+      required: ["query"],
+    },
+  },
+  {
     name: "gh_list_tree",
+    title: "[البنية التحتية - GitHub] استكشاف شجرة الملفات",
+    annotations: {title: "[البنية التحتية - GitHub] استكشاف شجرة الملفات", readOnlyHint: true, destructiveHint: false, idempotentHint: true},
     description:
       "استكشاف شجرة ملفات المستودع كاملة أو من مسار محدد — أسماء الملفات وأنواعها وأحجامها، لمعرفة مكان أي كود قبل قراءته أو تعديله.",
     inputSchema: {
@@ -1353,6 +1590,8 @@ export const MCP_TOOLS: McpToolSchema[] = [
   },
   {
     name: "gh_get_file",
+    title: "[البنية التحتية - GitHub] قراءة ملف من المستودع",
+    annotations: {title: "[البنية التحتية - GitHub] قراءة ملف من المستودع", readOnlyHint: true, destructiveHint: false, idempotentHint: true},
     description: "قراءة ملف كامل من المستودع بمحتواه النصي وSHA الخاص به — الكود والإعدادات وprisma/schema.prisma وكل شيء.",
     inputSchema: {
       type: "object",
@@ -1366,6 +1605,8 @@ export const MCP_TOOLS: McpToolSchema[] = [
   },
   {
     name: "gh_save_file",
+    title: "[البنية التحتية - GitHub] حفظ ملف في المستودع",
+    annotations: {title: "[البنية التحتية - GitHub] حفظ ملف في المستودع", readOnlyHint: false, destructiveHint: false},
     description:
       "إنشاء أو تعديل أي ملف في المستودع بكوميت مباشر: مرر المسار والمحتوى الكامل الجديد ورسالة الكوميت — يعرف تلقائيًا أن الملف قائم (تحديث) أم جديد (إنشاء). النصوص والكود بترميز utf8 (الافتراضي)، والصور والأيقونات والخطوط والملفات الثنائية بترميز base64 (مثل og-default.png وأيقونات PWA) حتى 3MB. يُوثق في سجل التدقيق.",
     inputSchema: {
@@ -1388,6 +1629,8 @@ export const MCP_TOOLS: McpToolSchema[] = [
   },
   {
     name: "gh_commit_files",
+    title: "[البنية التحتية - GitHub] كوميت ذرّي متعدد الملفات",
+    annotations: {title: "[البنية التحتية - GitHub] كوميت ذرّي متعدد الملفات", readOnlyHint: false, destructiveHint: false},
     description:
       "كوميت ذرّي واحد لعدة ملفات معًا عبر Git Trees API — للتعديلات المترابطة (مثل تحديث package.json مع كود المكتبة أو عدة صفحات معًا) فلا تُطلق إلا نشرة واحدة على Vercel بدل نشرة لكل ملف: كل ملف { path, content, encoding?, op? } حيث encoding utf8|base64 وop upsert|delete (حذف يستغني عن content). حتى 25 ملفًا و3MB للملف.",
     inputSchema: {
@@ -1416,6 +1659,8 @@ export const MCP_TOOLS: McpToolSchema[] = [
   },
   {
     name: "gh_manage_pulls",
+    title: "[البنية التحتية - GitHub] إدارة طلبات الدمج",
+    annotations: {title: "[البنية التحتية - GitHub] إدارة طلبات الدمج", readOnlyHint: false, destructiveHint: false},
     description:
       "إدارة طلبات الدمج Pull Requests بين الفروع في مستودعي المنصة: list جلب الطلبات المفتوحة، get مراجعة طلب كامل بملفاته وpatchها وإحصاءاته، create فتح طلب من فرع إلى main، comment تدوين مراجعة، merge دمجه (merge | squash | rebase)، close إغلاقه دون دمج — مراجعة التعديلات الكبيرة قبل هبوطها في main. يُوثق في سجل التدقيق.",
     inputSchema: {
@@ -1441,6 +1686,8 @@ export const MCP_TOOLS: McpToolSchema[] = [
   },
   {
     name: "gh_delete_file",
+    title: "[البنية التحتية - GitHub] حذف ملف من المستودع",
+    annotations: {title: "[البنية التحتية - GitHub] حذف ملف من المستودع", readOnlyHint: false, destructiveHint: true},
     description: "حذف ملف من المستودع بكوميت موثق — يجلب SHA تلقائيًا ويرسل الحذف إلى الفرع المحدد. يُوثق في سجل التدقيق.",
     inputSchema: {
       type: "object",
@@ -1455,6 +1702,8 @@ export const MCP_TOOLS: McpToolSchema[] = [
   },
   {
     name: "gh_list_commits",
+    title: "[البنية التحتية - GitHub] سجل الكوميتات",
+    annotations: {title: "[البنية التحتية - GitHub] سجل الكوميتات", readOnlyHint: true, destructiveHint: false, idempotentHint: true},
     description: "سجل الكوميتات الأحدث أولًا — بفلترة اختيارية بمسار ملف محدد لمعرفة من غيّر ماذا ومتى.",
     inputSchema: {
       type: "object",
@@ -1467,6 +1716,8 @@ export const MCP_TOOLS: McpToolSchema[] = [
   },
   {
     name: "gh_get_diff",
+    title: "[البنية التحتية - GitHub] مقارنة مرجعين",
+    annotations: {title: "[البنية التحتية - GitHub] مقارنة مرجعين", readOnlyHint: true, destructiveHint: false, idempotentHint: true},
     description:
       "مقارنة مرجعين (SHA أو فرعين أو main~3) — الكوميتات الفاصلة والملفات المتغيرة مع patch كل ملف: فرق دقيق قبل أي قرار دمج أو تراجع.",
     inputSchema: {
@@ -1481,6 +1732,8 @@ export const MCP_TOOLS: McpToolSchema[] = [
   },
   {
     name: "gh_create_branch",
+    title: "[البنية التحتية - GitHub] إنشاء فرع جديد",
+    annotations: {title: "[البنية التحتية - GitHub] إنشاء فرع جديد", readOnlyHint: false, destructiveHint: false},
     description: "إنشاء فرع جديد من فرع قائم (افتراضيًا من main) — لعمل تعديلات معزولة قبل دمجها. يُوثق في سجل التدقيق.",
     inputSchema: {
       type: "object",
@@ -1494,6 +1747,8 @@ export const MCP_TOOLS: McpToolSchema[] = [
   },
   {
     name: "gh_merge_branch",
+    title: "[البنية التحتية - GitHub] دمج فرع",
+    annotations: {title: "[البنية التحتية - GitHub] دمج فرع", readOnlyHint: false, destructiveHint: false},
     description: "دمج فرع داخل فرع مباشرة على GitHub (base المستقبل ← head المصدر) بكوميت دمج موثق.",
     inputSchema: {
       type: "object",
@@ -1508,6 +1763,8 @@ export const MCP_TOOLS: McpToolSchema[] = [
   },
   {
     name: "gh_delete_branch",
+    title: "[البنية التحتية - GitHub] حذف فرع",
+    annotations: {title: "[البنية التحتية - GitHub] حذف فرع", readOnlyHint: false, destructiveHint: true},
     description:
       "حذف فرع من المستودع بعد انتهاء العمل منه (الفرع الافتراضي main محمي من الحذف رفضًا صريحًا). يُوثق في سجل التدقيق.",
     inputSchema: {
@@ -1521,6 +1778,8 @@ export const MCP_TOOLS: McpToolSchema[] = [
   },
   {
     name: "gh_dispatch_workflow",
+    title: "[البنية التحتية - GitHub] تشغيل GitHub Actions يدويًا",
+    annotations: {title: "[البنية التحتية - GitHub] تشغيل GitHub Actions يدويًا", readOnlyHint: false, destructiveHint: false},
     description: "تشغيل GitHub Actions يدويًا (workflow_dispatch) على فرع محدد مع مدخلات اختيارية — إطلاق أي مسار آلي معرف في المستودع.",
     inputSchema: {
       type: "object",
@@ -1535,6 +1794,8 @@ export const MCP_TOOLS: McpToolSchema[] = [
   },
   {
     name: "gh_list_action_runs",
+    title: "[البنية التحتية - GitHub] آخر تشغيلات Actions",
+    annotations: {title: "[البنية التحتية - GitHub] آخر تشغيلات Actions", readOnlyHint: true, destructiveHint: false, idempotentHint: true},
     description: "آخر تشغيلات GitHub Actions في المستودع: الحالة والنتيجة والفرع والكوميت ورابط التفاصيل.",
     inputSchema: {
       type: "object",
@@ -1546,6 +1807,8 @@ export const MCP_TOOLS: McpToolSchema[] = [
   },
   {
     name: "gh_get_action_run",
+    title: "[البنية التحتية - GitHub] تفاصيل تشغيل Actions",
+    annotations: {title: "[البنية التحتية - GitHub] تفاصيل تشغيل Actions", readOnlyHint: true, destructiveHint: false, idempotentHint: true},
     description: "تفاصيل تشغيل Actions محدد: كل الـjobs وخطواتها وزمن كل خطوة ونتيجتها — تشخيص فشل البناء خطوة بخطوة.",
     inputSchema: {
       type: "object",
@@ -1558,6 +1821,8 @@ export const MCP_TOOLS: McpToolSchema[] = [
   },
   {
     name: "gh_dependabot_alerts",
+    title: "[البنية التحتية - GitHub] تنبيهات الأمان",
+    annotations: {title: "[البنية التحتية - GitHub] تنبيهات الأمان", readOnlyHint: true, destructiveHint: false, idempotentHint: true},
     description:
       "تنبيهات الأمان (Dependabot) للمستودع: الحزم المعرضة وشدة الخطورة والنطاق المصاب وأول إصدار مُصلح — بحالة مفتوحة افتراضيًا أو مؤرشفة.",
     inputSchema: {
@@ -1572,6 +1837,8 @@ export const MCP_TOOLS: McpToolSchema[] = [
   /* ==================== ح) البنية التحتية — Vercel (v4.0.0) ==================== */
   {
     name: "vercel_list_deployments",
+    title: "[البنية التحتية - Vercel] آخر النشرات",
+    annotations: {title: "[البنية التحتية - Vercel] آخر النشرات", readOnlyHint: true, destructiveHint: false, idempotentHint: true},
     description: "آخر نشرات أي مشروع من مشروعي المنصة: الحالة والهدف والإنتاج والكوميت ورابط المفتش — بفلترة بالإنتاج production.",
     inputSchema: {
       type: "object",
@@ -1584,6 +1851,8 @@ export const MCP_TOOLS: McpToolSchema[] = [
   },
   {
     name: "vercel_get_deployment",
+    title: "[البنية التحتية - Vercel] تفاصيل نشرة محددة",
+    annotations: {title: "[البنية التحتية - Vercel] تفاصيل نشرة محددة", readOnlyHint: true, destructiveHint: false, idempotentHint: true},
     description: "تفاصيل نشرة محددة: حالتها وهدفها والكوميت المرتبط والأسماء المستعارة (النطاقات) الموجهة إليها.",
     inputSchema: {
       type: "object",
@@ -1593,6 +1862,8 @@ export const MCP_TOOLS: McpToolSchema[] = [
   },
   {
     name: "vercel_get_deployment_logs",
+    title: "[البنية التحتية - Vercel] سجلات بناء نشرة",
+    annotations: {title: "[البنية التحتية - Vercel] سجلات بناء نشرة", readOnlyHint: true, destructiveHint: false, idempotentHint: true},
     description: "سجلات بناء نشرة محددة (Build Logs) بالأسطر الزمنية — تشخيص فشل النشر سطرًا سطرًا.",
     inputSchema: {
       type: "object",
@@ -1605,6 +1876,8 @@ export const MCP_TOOLS: McpToolSchema[] = [
   },
   {
     name: "vercel_redeploy",
+    title: "[البنية التحتية - Vercel] إعادة نشر إنتاجي",
+    annotations: {title: "[البنية التحتية - Vercel] إعادة نشر إنتاجي", readOnlyHint: false, destructiveHint: false},
     description:
       "إطلاق نشر إنتاج جديد فورًا لمشروع المنصة (من أحدث main افتراضيًا أو SHA محدد) — نفس زر Redeploy في اللوحة. يُوثق في سجل التدقيق.",
     inputSchema: {
@@ -1617,6 +1890,8 @@ export const MCP_TOOLS: McpToolSchema[] = [
   },
   {
     name: "vercel_rollback",
+    title: "[البنية التحتية - Vercel] تراجع الإنتاج لنسخة سابقة",
+    annotations: {title: "[البنية التحتية - Vercel] تراجع الإنتاج لنسخة سابقة", readOnlyHint: false, destructiveHint: false},
     description:
       "التراجع لنسخة سابقة: محاولة التراجع الفوري الرسمي أولًا، وإن لم يتاح يطلق نشرًا إنتاجيًا جديدًا من SHA النسخة المستهدفة — النتيجة واحدة: الإنتاج يعود لكود النسخة القديمة. يُوثق في سجل التدقيق.",
     inputSchema: {
@@ -1630,6 +1905,8 @@ export const MCP_TOOLS: McpToolSchema[] = [
   },
   {
     name: "vercel_list_env",
+    title: "[البنية التحتية - Vercel] متغيرات البيئة",
+    annotations: {title: "[البنية التحتية - Vercel] متغيرات البيئة", readOnlyHint: true, destructiveHint: false, idempotentHint: true},
     description:
       "متغيرات بيئة المشروع من Vercel مباشرة: الأسماء والأهداف والقيم — مخفية افتراضيًا وتُكشف بـreveal=true (تعامل بحرص).",
     inputSchema: {
@@ -1642,6 +1919,8 @@ export const MCP_TOOLS: McpToolSchema[] = [
   },
   {
     name: "vercel_set_env",
+    title: "[البنية التحتية - Vercel] إضافة أو تعديل متغير بيئة",
+    annotations: {title: "[البنية التحتية - Vercel] إضافة أو تعديل متغير بيئة", readOnlyHint: false, destructiveHint: false},
     description:
       "إضافة أو تعديل متغير بيئة على المشروع (upsert): إنه موجود يُحدَّث وإنه جديد يُنشأ — يحتاج إعادة نشر بعده ليصبح حيًا. يُوثق في سجل التدقيق.",
     inputSchema: {
@@ -1657,6 +1936,8 @@ export const MCP_TOOLS: McpToolSchema[] = [
   },
   {
     name: "vercel_delete_env",
+    title: "[البنية التحتية - Vercel] حذف متغير بيئة",
+    annotations: {title: "[البنية التحتية - Vercel] حذف متغير بيئة", readOnlyHint: false, destructiveHint: true},
     description: "حذف متغير بيئة من المشروع بالاسم — يُوثق في سجل التدقيق. يحتاج إعادة نشر بعده ليأخذ مفعوله.",
     inputSchema: {
       type: "object",
@@ -1669,6 +1950,8 @@ export const MCP_TOOLS: McpToolSchema[] = [
   },
   {
     name: "vercel_domains",
+    title: "[البنية التحتية - Vercel] إدارة النطاقات",
+    annotations: {title: "[البنية التحتية - Vercel] إدارة النطاقات", readOnlyHint: false, destructiveHint: true},
     description: "إدارة نطاقات المشروع: list عرضها وحالة تحققها | add إضافة نطاق جديد | remove إزالته.",
     inputSchema: {
       type: "object",
@@ -1681,6 +1964,8 @@ export const MCP_TOOLS: McpToolSchema[] = [
   },
   {
     name: "vercel_project_info",
+    title: "[البنية التحتية - Vercel] إعدادات المشروع",
+    annotations: {title: "[البنية التحتية - Vercel] إعدادات المشروع", readOnlyHint: true, destructiveHint: false, idempotentHint: true},
     description: "إعدادات المشروع من Vercel: الاسم والفريموركس وأوامر البناء والتثبيت وآخر نشرة.",
     inputSchema: {
       type: "object",
@@ -1689,6 +1974,8 @@ export const MCP_TOOLS: McpToolSchema[] = [
   },
   {
     name: "vercel_get_crons",
+    title: "[البنية التحتية - Vercel] المهام المجدولة",
+    annotations: {title: "[البنية التحتية - Vercel] المهام المجدولة", readOnlyHint: true, destructiveHint: false, idempotentHint: true},
     description: "المهام المجدولة (Cron Jobs) للمنصة كما هي معرفة في vercel.json بمستودع المشروع — المسارات والجداول الزمنية.",
     inputSchema: {
       type: "object",
@@ -1697,6 +1984,8 @@ export const MCP_TOOLS: McpToolSchema[] = [
   },
   {
     name: "vc_runtime_logs",
+    title: "[البنية التحتية - Vercel] سجلات التشغيل الحية",
+    annotations: {title: "[البنية التحتية - Vercel] سجلات التشغيل الحية", readOnlyHint: true, destructiveHint: false, idempotentHint: true},
     description:
       "سجلات تشغيل النشرة الحية (Runtime / Function Logs) من Vercel — أحداث دوال الخادم بعد الجاهزية: أخطاء الدوال وتعطل الـMiddleware وstdout الخلفي — لتشخيص العطل قبل وصوله لكود التطبيق: جرّبه عند 500 فجائي أو خطأ MIDDLEWARE_INVOCATION_FAILED. يجلب مجرى أحداث النشرة الرسمي ويفصل أحداث التشغيل عن البناء (includeBuild=true لعرض البناء أيضًا) — الافتراضي أحدث نشرة إنتاج للمشروع.",
     inputSchema: {
@@ -1712,6 +2001,8 @@ export const MCP_TOOLS: McpToolSchema[] = [
   },
   {
     name: "inspect_live_page",
+    title: "[فحص حي] فحص صفحة منشورة حيًا",
+    annotations: {title: "[فحص حي] فحص صفحة منشورة حيًا", readOnlyHint: true, destructiveHint: false, idempotentHint: true},
     description:
       "فحص حي لأي رابط منشور (الموقع العام أو اللوحة أو أي رابط) بعد أي نشر: كود الاستجابة وسلسلة التحويلات والترويسات المهمة والعنوان <title> ووصف الميتا وكل وسوم OG وTwitter والرابط الكانوني وأول عناوين H1 وحجم HTML — تأكيد فوري أن الإنتاج يخدم ما هو متوقع (meta og:image الجديدة مثلًا).",
     inputSchema: {
@@ -1723,9 +2014,51 @@ export const MCP_TOOLS: McpToolSchema[] = [
     },
   },
 
+  {
+    name: "test_api_endpoint",
+    title: "[فحص حي] اختبار مسار API حي على الإنتاج",
+    annotations: {title: "[فحص حي] اختبار مسار API حي على الإنتاج", readOnlyHint: false, destructiveHint: true},
+    description:
+      "تجربة أي مسار API حي في الموقع العام أو اللوحة مباشرة على الإنتاج: GET أو POST أو PUT أو PATCH أو DELETE بجسم JSON وترويسات اختيارية، ويعيد كود الاستجابة ومدة الاستجابة والترويسات المهمة والـJSON الناتج كاملًا — للتأكد الفوري من عمل أي مسار برمجي بعد النشر. لا يمرر جلسة إدارية — المسارات المحمية ستعيد 401 كما يراها أي مجهول، وهذا بالضبط ما يجعله فحصًا أمينًا للبوابات.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        target: {
+          type: "string",
+          enum: ["public", "admin"],
+          description: "الموقع المستهدف — public الموقع العام (افتراضي) | admin لوحة التحكم",
+        },
+        path: {
+          type: "string",
+          description: "مسار الـAPI مثل /api/comments أو /api/ai/discuss — إلزامي إلا إذا مررت fullUrl",
+        },
+        method: {
+          type: "string",
+          enum: ["GET", "POST", "PUT", "PATCH", "DELETE"],
+          description: "طريقة الطلب — افتراضي GET",
+        },
+        body: {
+          type: "object",
+          description: "جسم الطلب ككائن JSON — يُرسل مع Content-Type: application/json (يُتجاهل في GET)",
+        },
+        headers: {
+          type: "object",
+          description: "ترويسات إضافية اختيارية مثل {\"x-worker-secret\":\"…\"}",
+        },
+        fullUrl: {
+          type: "string",
+          description: "رابط كامل بديل عن target+path — يجب أن يكون https عامًا (يُرفض localhost والعناوين الداخلية)",
+        },
+        timeoutMs: { type: "number", description: "مهلة الانتظار بالمللي ثانية (افتراضي 15000، أقصى 30000)" },
+      },
+    },
+  },
+
   /* ==================== ط) قاعدة البيانات Neon (v4.0.0) ==================== */
   {
     name: "db_inspect_schema",
+    title: "[قاعدة البيانات] فحص مخطط Neon",
+    annotations: {title: "[قاعدة البيانات] فحص مخطط Neon", readOnlyHint: true, destructiveHint: false, idempotentHint: true},
     description:
       "فحص مخطط قاعدة Neon الحية: كل الجداول بأعداد صفوفها التقريبية وأعمدتها وأحجامها على القرص — أو تفصيل جدول واحد بأعمدته كاملة.",
     inputSchema: {
@@ -1735,6 +2068,8 @@ export const MCP_TOOLS: McpToolSchema[] = [
   },
   {
     name: "db_query",
+    title: "[قاعدة البيانات] الاستعلام التنفيذي المؤمن",
+    annotations: {title: "[قاعدة البيانات] الاستعلام التنفيذي المؤمن", readOnlyHint: false, destructiveHint: true},
     description:
       "الاستعلام التنفيذي المؤمن على Neon — CRUD كامل وأوامر الهيكلة المقننة: وضع select للقراءة (SELECT/WITH/SHOW/EXPLAIN بسقف صفوف)، ووضع execute للكتابة (INSERT/UPDATE/DELETE) وأيضًا DDL المقيّد (ALTER TABLE وCREATE TABLE وCREATE INDEX وDROP INDEX) لتطبيق تعديل prisma/schema.prisma على قاعدة Neon فورًا — بإقرار نصي إلزامي confirm='أؤقر التنفيذ'. عبارة واحدة، وعبارات تدمير القاعدة كلها محجوبة نهائيًا، وكل نداء يُوثق في السجل؛ بعد DDL تحقق عبر db_inspect_schema.",
     inputSchema: {
@@ -1750,11 +2085,15 @@ export const MCP_TOOLS: McpToolSchema[] = [
   },
   {
     name: "db_migrations",
+    title: "[قاعدة البيانات] حالة مهاجرات Prisma",
+    annotations: {title: "[قاعدة البيانات] حالة مهاجرات Prisma", readOnlyHint: true, destructiveHint: false, idempotentHint: true},
     description: "حالة مهاجرات Prisma على قاعدة الإنتاج: آخر المهاجرات المطبقة وزمنها وأي مهاجر معلق أو فاشل.",
     inputSchema: { type: "object", properties: {} },
   },
   {
     name: "kalam_get_audit_log",
+    title: "[الأمن والرقابة] سجل التدقيق الخام",
+    annotations: {title: "[الأمن والرقابة] سجل التدقيق الخام", readOnlyHint: true, destructiveHint: false, idempotentHint: true},
     description:
       "سجل التدقيق الخام (AuditLog) بفلاتر حرّة: آخر العمليات الموثقة بأفعالها وكياناتها وIP الفاعل وmeta الكاملة — السجل الذي تكتب فيه كل الأدوات المغيّرة.",
     inputSchema: {
@@ -1770,6 +2109,8 @@ export const MCP_TOOLS: McpToolSchema[] = [
   /* ==================== ي) الخدمات السيادية (v4.0.0) ==================== */
   {
     name: "cloudinary_upload_file",
+    title: "[الخزنة السحابية] رفع ملف إلى Cloudinary",
+    annotations: {title: "[الخزنة السحابية] رفع ملف إلى Cloudinary", readOnlyHint: false, destructiveHint: false},
     description:
       "رفع ملف إلى Cloudinary مباشرة: صورة (image) أو ملف خام (raw) أو فيديو — بقرار file إما رابط مباشر أو بيانات base64، مع مجلد ومعرف عام اختياريين. يُرجع الرابط الآمن ورابط التسليم المحسّن للصور. يُوثق في سجل التدقيق.",
     inputSchema: {
@@ -1786,6 +2127,8 @@ export const MCP_TOOLS: McpToolSchema[] = [
   },
   {
     name: "cloudinary_rename_asset",
+    title: "[الخزنة السحابية] إعادة تسمية أصل سحابي",
+    annotations: {title: "[الخزنة السحابية] إعادة تسمية أصل سحابي", readOnlyHint: false, destructiveHint: false},
     description:
       "إعادة تسمية/نقل أصل Cloudinary إلى معرف عام جديد (حتى بين مجلدات مختلفة) — تنظيم المكتبة دون إعادة رفع. يُوثق في سجل التدقيق.",
     inputSchema: {
@@ -1801,6 +2144,8 @@ export const MCP_TOOLS: McpToolSchema[] = [
   },
   {
     name: "resend_send_email",
+    title: "[البريد] إرسال بريد مخصص عبر Resend",
+    annotations: {title: "[البريد] إرسال بريد مخصص عبر Resend", readOnlyHint: false, destructiveHint: false},
     description:
       "إرسال بريد مخصص عبر Resend من نطاق المنصة: إلى أي عناوين مفصولة بفاصلة، بنص HTML أو خام، من عنوان المرسل المعتمد افتراضيًا — لرسائل مباشرة خارج قوالب الإشعارات. يُوثق في سجل التدقيق.",
     inputSchema: {
@@ -1818,24 +2163,30 @@ export const MCP_TOOLS: McpToolSchema[] = [
   },
   {
     name: "resend_manage",
+    title: "[البريد] إدارة نطاقات البريد وحالة التسليم",
+    annotations: {title: "[البريد] إدارة نطاقات البريد وحالة التسليم", readOnlyHint: false, destructiveHint: true},
     description:
-      "إدارة نطاقات البريد في Resend بالكامل: list عرض النطاقات وحالة تحققها | get تفاصيل نطاق وسجلات DNS المطلوبة | verify إطلاق التحقق من سجلات DNS لنطاق (مثل ziadamr.me بعد ضبط DNS) | create إضافة نطاق جديد (يرجع سجلات DNS اللازمة) | delete حذف نطاق — يُحدد النطاق بـ domain_id أو باسمه domain مباشرة. التعديلات تُوثق في سجل التدقيق.",
+      "إدارة نطاقات البريد في Resend بالكامل وحالة تسليم الرسائل: list عرض النطاقات وحالة تحققها | get تفاصيل نطاق وسجلات DNS المطلوبة | verify إطلاق التحقق من سجلات DNS لنطاق (مثل ziadamr.me بعد ضبط DNS) | create إضافة نطاق جديد (يرجع سجلات DNS اللازمة) | delete حذف نطاق | email_status متابعة حالة تسليم بريد بعينه (وصل delivered أم ارتد bounced أم معلق) بمعرفه من resend_send_email — يُحدد النطاق بـ domain_id أو باسمه domain مباشرة. التعديلات تُوثق في سجل التدقيق.",
     inputSchema: {
       type: "object",
       properties: {
         action: {
           type: "string",
-          enum: ["list", "get", "verify", "create", "delete"],
-          description: "الفعل — افتراضي list",
+          enum: ["list", "get", "verify", "create", "delete", "email_status"],
+          description:
+            "الفعل — افتراضي list؛ email_status لفحص حالة تسليم رسالة أُرسلت سابقًا",
         },
         domain_id: { type: "string", description: "معرف النطاق من action=list — بديل عن domain" },
         domain: { type: "string", description: "اسم النطاق مثل ziadamr.me — إلزامي مع create ويسبتدل domain_id في get/verify/delete" },
         region: { type: "string", description: "منطقة الإرسال مع create (اختياري — مثل eu-west-1 أو us-east-1)" },
+        email_id: { type: "string", description: "معرف الرسالة من resend_send_email (يبدأ بـ uuid) — إلزامي مع email_status" },
       },
     },
   },
   {
     name: "kalam_push_admin_custom",
+    title: "[البث والإشعارات] إشعار Push مخصص لصاحب المنصة",
+    annotations: {title: "[البث والإشعارات] إشعار Push مخصص لصاحب المنصة", readOnlyHint: false, destructiveHint: false},
     description:
       "إشعار Push مخصص لأجهزة صاحب المنصة المسجلة (هاتفه وحاسوبه) بأي عنوان ومتن ورابط — تنبيهات شخصية خارج قنوات الأمن الآلية. يُوثق في سجل التدقيق.",
     inputSchema: {

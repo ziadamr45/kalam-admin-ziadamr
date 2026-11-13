@@ -5,6 +5,10 @@
  */
 
 import { Prisma, type ArticleStatus, type CommentStatus } from "@prisma/client";
+import { readFileSync } from "fs";
+import path from "path";
+import { Resvg } from "@resvg/resvg-js";
+import * as fontkit from "fontkit";
 import { revalidatePath } from "next/cache";
 import { prisma } from "@/lib/prisma";
 import { writeAudit, getClientIp, raiseAlert } from "@/lib/guard";
@@ -2361,6 +2365,162 @@ async function getSiteHealth() {
   };
 }
 
+/* ============================ بطاقة الاقتباس المصورة (v5.2.0) ============================ */
+
+/* هوية البطاقتين — نفس روح quote-generator في الموقع العام */
+const QUOTE_CARD_THEMES: Record<string, { bg: string; text: string; gold: string; muted: string; frameOpacity: number }> = {
+  dark: { bg: "#0b0a08", text: "#f3ede0", gold: "#c9a45c", muted: "#b3a488", frameOpacity: 0.85 },
+  paper: { bg: "#faf6ee", text: "#2b241a", gold: "#a16a1f", muted: "#6b5f4d", frameOpacity: 0.7 },
+};
+
+const QUOTE_CARD_SIZES: Record<string, { w: number; h: number }> = {
+  square: { w: 1080, h: 1080 },
+  portrait: { w: 1080, h: 1350 },
+  story: { w: 1080, h: 1920 },
+};
+
+/* قياس التشكيل الحقيقي عبر محرك الخط — عرض السطر قبل الرسم لضمان التوفيق */
+let cardAmiri: import("fontkit").Font | null = null;
+function cardFont(): import("fontkit").Font {
+  if (!cardAmiri) {
+    /* ملف TTF مفرد — openSync يعيده Font لا FontCollection */
+    cardAmiri = fontkit.openSync(
+      path.join(process.cwd(), "src/assets/fonts/Amiri-Bold.ttf"),
+    ) as import("fontkit").Font;
+  }
+  return cardAmiri;
+}
+
+function shapedWidth(text: string, fontSize: number): number {
+  const font = cardFont();
+  let w = 0;
+  for (const g of font.layout(text).glyphs) w += g.advanceWidth;
+  return (w / font.unitsPerEm) * fontSize;
+}
+
+/** توفيق النص لأسطر تحت سقف العرض — فقرة فقرة */
+function wrapQuoteText(text: string, maxWidth: number, fontSize: number): string[] {
+  const lines: string[] = [];
+  for (const paragraph of text.split(/\n+/)) {
+    const words = paragraph.split(/\s+/).filter(Boolean);
+    let cur = "";
+    for (const word of words) {
+      const candidate = cur ? `${cur} ${word}` : word;
+      if (shapedWidth(candidate, fontSize) <= maxWidth || !cur) cur = candidate;
+      else {
+        lines.push(cur);
+        cur = word;
+      }
+    }
+    if (cur) lines.push(cur);
+  }
+  return lines;
+}
+
+function xmlEscape(text: string): string {
+  return text.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
+}
+
+async function generateQuoteCard(args: McpArgs, meta: McpRequestMeta) {
+  const quote = (str(args, "quote") ?? "").trim();
+  if (!quote) throw new McpToolError("نص الاقتباس quote إلزامي");
+  if (quote.length > 600) throw new McpToolError(`الاقتباس أطول من السقف (${quote.length} > 600 حرفًا) — قصّره`);
+  const format = str(args, "format") ?? "square";
+  const theme = str(args, "theme") ?? "dark";
+  if (!QUOTE_CARD_SIZES[format]) throw new McpToolError("format يقبل square | portrait | story فقط");
+  if (!QUOTE_CARD_THEMES[theme]) throw new McpToolError("theme يقبل dark | paper فقط");
+  const attribution = (str(args, "attribution") ?? "كلام له لازمة").slice(0, 80);
+
+  const { w: W, h: H } = QUOTE_CARD_SIZES[format];
+  const t = QUOTE_CARD_THEMES[theme];
+  const pad = 110;
+  const maxTextWidth = W - 2 * pad;
+
+  /* خط تكيفي: أكبر مقاس تملأه الأسطر داخل المساحة المتاحة */
+  const reservedBottom = 250;
+  const availableHeight = H - 2 * pad - reservedBottom;
+  let fontSize = 58;
+  let lines: string[] = [];
+  while (fontSize >= 28) {
+    lines = wrapQuoteText(quote, maxTextWidth, fontSize);
+    const blockH = lines.length * fontSize * 1.95;
+    if (blockH <= availableHeight) break;
+    fontSize -= 2;
+  }
+  if (lines.length * fontSize * 1.95 > availableHeight) {
+    throw new McpToolError("الاقتباس أطول مما تتسع له البطاقة بهذا المقاس — قصّره أو استخدم format=story");
+  }
+
+  const lineHeight = fontSize * 1.95;
+  const blockH = lines.length * lineHeight;
+  const startY = Math.round(pad + (availableHeight - blockH) / 2 + fontSize);
+  const texts = lines
+    .map(
+      (l, i) =>
+        `<text x="${W - pad}" y="${Math.round(startY + i * lineHeight)}" text-anchor="end" font-weight="700">${xmlEscape(l)}</text>`,
+    )
+    .join("\n    ");
+  const dividerY = Math.round(startY + blockH - fontSize + 44);
+  const attributionY = dividerY + 62;
+  const brandY = H - pad + 30;
+
+  const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${W}" height="${H}" viewBox="0 0 ${W} ${H}">
+  <rect width="${W}" height="${H}" fill="${t.bg}"/>
+  <rect x="42" y="42" width="${W - 84}" height="${H - 84}" rx="26" fill="none" stroke="${t.gold}" stroke-width="2.5" opacity="${t.frameOpacity}"/>
+  <g fill="${t.text}" font-family="Amiri" font-size="${fontSize}" direction="rtl">
+    ${texts}
+  </g>
+  <rect x="${W / 2 - 70}" y="${dividerY}" width="140" height="3" rx="1.5" fill="${t.gold}"/>
+  <text x="${W - pad}" y="${attributionY}" text-anchor="end" fill="${t.muted}" font-family="Tajawal" font-size="30" direction="rtl">— ${xmlEscape(attribution)}</text>
+  <text x="${pad}" y="${brandY}" text-anchor="start" fill="${t.gold}" font-family="Tajawal" font-size="26" direction="rtl">كلام له لازمة</text>
+</svg>`;
+
+  const png = new Resvg(svg, {
+    fitTo: { mode: "width", value: W },
+    font: {
+      fontFiles: ["Amiri-Regular.ttf", "Amiri-Bold.ttf", "Tajawal-Regular.ttf", "Tajawal-Bold.ttf"].map((f) =>
+        path.join(process.cwd(), "src/assets/fonts", f),
+      ),
+      loadSystemFonts: false,
+      defaultFontFamily: "Amiri",
+    },
+    background: t.bg,
+  })
+    .render()
+    .asPng();
+
+  const stamp = new Date().toISOString().replace(/\D/g, "").slice(0, 14);
+  const uploaded = await uploadImage(
+    new Blob([new Uint8Array(png)], { type: "image/png" }),
+    `quote-card-${format}-${stamp}.png`,
+    "kalam/quote-cards",
+  );
+  /* استخراج المعرف العام من رابط الأصل — uploadImage لا يعيد publicId صراحةً */
+  const publicId =
+    uploaded.rawUrl.split("/upload/")[1]?.replace(/^v\d+\//, "").replace(/\.[a-z0-9]+$/i, "") ?? null;
+  await writeAudit({
+    adminId: null,
+    action: "mcp.quote_card_generated",
+    entity: "Cloudinary",
+    entityId: publicId,
+    meta: { via: "gemini-spark-mcp", format, theme, chars: quote.length, lines: lines.length, bytes: uploaded.bytes },
+    ip: meta.ip,
+  });
+  return {
+    generated: true,
+    format,
+    theme,
+    dimensions: { width: W, height: H },
+    fontLines: lines.length,
+    fontSize,
+    url: uploaded.url,
+    rawUrl: uploaded.rawUrl,
+    publicId,
+    bytes: uploaded.bytes,
+    note: "بطاقة رسمية جاهزة للنشر مباشرة على فيسبوك أو حالات واتساب — حذفها لاحقًا بـ manage_media (delete بنوع image)",
+  };
+}
+
 /* ============================ التشغيل اليدوي — نشر المجدول فورًا ============================ */
 
 async function runMaintenance(args: McpArgs, meta: McpRequestMeta) {
@@ -3370,6 +3530,195 @@ async function testArticleAiDiscuss(args: McpArgs, meta: McpRequestMeta) {
   };
 }
 
+/* ============================ التشكيل الآلي الذكي وفحص تطابق الكتل (v5.2.0) ============================ */
+
+const TASHKEEL_DIACRITICS = /[\u064B-\u065E\u0670\u0640]/g;
+
+/** إزالة التشكيل والتطويل — للمقارنة الصرفية بين النسختين */
+function stripTashkeel(text: string): string {
+  return text.replace(TASHKEEL_DIACRITICS, "");
+}
+
+/** لقطة بنية الكتل: تسلسل وسوم [[..]] وكتل ::: ووسوم ماركداون — تطابقها شرط سلامة الكاريوكي */
+function blockSignature(text: string): string[] {
+  const tags: string[] = [];
+  let m: RegExpExecArray | null;
+  const inline = /\[\[([^\]\[]+)\]\]/g;
+  while ((m = inline.exec(text))) tags.push(`[[${m[1].trim()}]]`);
+  const fence = /(^|\n):::(\w+)?[^\n]*(?=\n|$)/g;
+  while ((m = fence.exec(text))) tags.push(m[2] ? `:::${m[2]}` : `:::${m[3] ?? ""}`);
+  const heads = /^#{1,3} .+$/gm;
+  while ((m = heads.exec(text))) tags.push(m[0].split(/\s/)[0]);
+  return tags;
+}
+
+function wordList(text: string): string[] {
+  return stripTashkeel(text)
+    .replace(/\s+/g, " ")
+    .trim()
+    .split(" ")
+    .filter(Boolean);
+}
+
+/** مقارنة صرفية كاملة بين النسختين — تطابق الكلمات والكتل أولًا بأول */
+function compareTashkeelPair(
+  plain: string,
+  tashkeel: string,
+): { match: boolean; wordCountPlain: number; wordCountTashkeel: number; blocksPlain: string[]; blocksTashkeel: string[]; firstDivergence: { index: number; plain: string; tashkeel: string } | null } {
+  const a = wordList(plain);
+  const b = wordList(tashkeel);
+  const blocksPlain = blockSignature(plain);
+  const blocksTashkeel = blockSignature(tashkeel);
+  let firstDivergence: { index: number; plain: string; tashkeel: string } | null = null;
+  const n = Math.max(a.length, b.length);
+  for (let i = 0; i < n; i++) {
+    if (a[i] !== b[i]) {
+      firstDivergence = { index: i + 1, plain: a[i] ?? "—", tashkeel: b[i] ?? "—" };
+      break;
+    }
+  }
+  return {
+    match: a.length === b.length && firstDivergence === null && blocksPlain.join("|") === blocksTashkeel.join("|"),
+    wordCountPlain: a.length,
+    wordCountTashkeel: b.length,
+    blocksPlain,
+    blocksTashkeel,
+    firstDivergence,
+  };
+}
+
+function buildTashkeelSystemPrompt(): string {
+  return `أنت محوِّل تشكيل عربي حتمي دقيق لمقالات منصة «كلام له لازمة». مهمتك: أخذ متن المقال الوارد وإعادة نفس النص حرفيًا مع إضافة التشكيل الكامل للحروف (الفتحة والضمة والكسرة والسكون والشدّة والتنوين) دون تغيير كلمة واحدة أو ترتيبها أو حذف أو إضافة.
+
+قواعد حاكمة لا تُخالف:
+- انسخ المتن كما هو حرفيًا: نفس الأسطر ونفس الفقرات ونفس ترتيب الكلمات تمامًا — مهمتك التشكيل فقط.
+- كتل المحتوى الخاصة تُبقى كما هي بالأقواس نفسها دون أي تشكيل داخل أقواسها ودون تعديل بنيتها: [[آية|السورة|رقم الآية]] و[[/آية]] و[[حديث|...]] و[[/حديث]] وكتل :::quran و:::hadith و:::note و:::question و:::name — أقواس هذه الكتل ووسومها لا تتشكَّل أبدًا (اكتبها بالأحرف نفسها)، ومتنها الداخلي يُشكَّل كالنص العادي دون المساس بالأقواس.
+- وسوم ماركداون تبقى كما هي: علامات # للعناوين و** للبارز والقوائم - و1. والروابط [نص](رابط) وخطوط --- — العلامات نفسها لا تتشكَّل، والنص العربي حولها يُشكَّل.
+- الأرقام والرموز واللاتينية تبقى كما هي.
+- قاعدة التنوين الحتمية: التنوين (ً) يوضع فوق الحرف الذي قبل ألف التنوين لا على الألف نفسها — اكتب: عالمًا، شكرًا، كتابًا (صحيح)، ولا تكتب أبدًا: عالماً، شكراً، كتاباً (خطأ).
+- أعد النص المشكول فقط بلا أي مقدمة أو شرح أو أسوار كود.`;
+}
+
+async function tashkeelAndValidateArticle(args: McpArgs, meta: McpRequestMeta) {
+  const idOrSlug = str(args, "id");
+  const action = str(args, "action") ?? "validate";
+  if (!idOrSlug) throw new McpToolError("معرف المقال id (أو slug) إلزامي");
+  if (!["validate", "generate", "save"].includes(action)) {
+    throw new McpToolError("action يقبل validate | generate | save فقط");
+  }
+  const article = await requireArticle(idOrSlug);
+
+  /* 1) فحص النسخة المحفوظة حاليًا — بلا ذكاء ولا تكلفة */
+  if (action === "validate") {
+    if (!article.contentWithTashkeel?.trim()) {
+      return {
+        validated: false,
+        article: { id: article.id, title: article.title, slug: article.slug },
+        hasTashkeel: false,
+        wordCountPlain: wordList(article.content).length,
+        note: "لا توجد نسخة مشكولة محفوظة لهذا المقال — استخدم action=generate لتوليدها أو save لحفظها مباشرة",
+      };
+    }
+    const report = compareTashkeelPair(article.content, article.contentWithTashkeel);
+    await writeAudit({
+      adminId: null,
+      action: "mcp.tashkeel_validated",
+      entity: "Article",
+      entityId: article.id,
+      meta: { via: "gemini-spark-mcp", match: report.match, words: report.wordCountPlain },
+      ip: meta.ip,
+    });
+    return {
+      validated: true,
+      article: { id: article.id, title: article.title, slug: article.slug },
+      hasTashkeel: true,
+      ...report,
+      note: report.match
+        ? "النسختان متطابقتان صرفيًا وكتليًا — تظليل الكاريوكي سيحلل بلا انزياح"
+        : "تطابق ناقص — إذا كان الصوت مولّدًا على هذه النسخة فقد ينزاح التظليل؛ استخدم generate لتوليد نسخة مضبوطة",
+    };
+  }
+
+  /* 2) التوليد عبر Gemini — generate للمراجعة دون حفظ، save يحفظ بعد الفحص */
+  if (!geminiConfigured()) {
+    throw new McpToolError("محرك المحاورة غير مهيأ — تأكد من GEMINI_API_KEY في متغيرات البيئة");
+  }
+  const body = article.content;
+  if (Buffer.byteLength(body, "utf8") > 16_000) {
+    throw new McpToolError(
+      `متن المقال أكبر من سقف التشكيل الآلي (16KB) — شكّله على مراحل بتعديل الجزء يدويًا أو عبر gh_get_file`,
+    );
+  }
+  const started = Date.now();
+  const generatedRaw = await geminiChat({
+    system: buildTashkeelSystemPrompt(),
+    turns: [{ role: "user", text: `شكّل المتن التالي حرفيًا وفق القواعد:\n\n${body}` }],
+    candidates: [process.env.GEMINI_TASHKEEL_MODEL, "gemini-2.5-flash", "gemini-2.0-flash"].filter(Boolean) as string[],
+    memoKind: "tashkeel",
+    maxOutputTokens: 32_768,
+    temperature: 0.15,
+    timeoutMs: 52_000,
+  });
+  /* تنظيف أحتال التسليم الشائعة: أسوار كود أو مقدمة */
+  const generated = fixNunation(
+    generatedRaw
+      .replace(/^```(?:markdown|md)?\s*\n?/i, "")
+      .replace(/\n?```\s*$/i, "")
+      .trim(),
+  );
+  void bumpApiUsage("GEMINI_CHAT");
+  const report = compareTashkeelPair(body, generated);
+  const elapsedMs = Date.now() - started;
+
+  if (action === "generate") {
+    return {
+      generated: true,
+      saved: false,
+      article: { id: article.id, title: article.title, slug: article.slug },
+      ...report,
+      generatedTashkeel: generated,
+      elapsedMs,
+      note: report.match
+        ? "نسخة مشكولة مطابقة — راجعها ثم اعتمدها بـ action=save"
+        : "المقارنة وجدت انحرافًا — لا تعتمدها؛ أعد التوليد أو عدّل النسخة يدويًا",
+    };
+  }
+
+  /* save: الحفظ يُمنع إن لم تتطابق النسختان — لا انزياح كاريوكي يدخل قاعدة البيانات */
+  if (!report.match) {
+    return {
+      saved: false,
+      rejected: true,
+      article: { id: article.id, title: article.title, slug: article.slug },
+      ...report,
+      generatedTashkeel: generated.slice(0, 4000),
+      elapsedMs,
+      note: "رفض الحفظ: النسخة المولدة لا تطابق المتن صرفيًا أو كتليًا — تظليل الصوت سينزاح؛ راجع النسخة عبر generate وعدّل الفرق يدويًا",
+    };
+  }
+  await prisma.article.update({
+    where: { id: article.id },
+    data: { contentWithTashkeel: generated, tashkeelEnabled: true },
+  });
+  await revalidateArticlePaths(article.slug, article.section?.slug);
+  await writeAudit({
+    adminId: null,
+    action: "mcp.tashkeel_saved",
+    entity: "Article",
+    entityId: article.id,
+    meta: { via: "gemini-spark-mcp", words: report.wordCountPlain, ms: elapsedMs },
+    ip: meta.ip,
+  });
+  return {
+    generated: true,
+    saved: true,
+    article: { id: article.id, title: article.title, slug: article.slug },
+    ...report,
+    elapsedMs,
+    note: "حُفظت النسخة المشكولة المطابقة على المقال وتفعّل مفتاح التشكيل — الكاريوكي لن ينزاح",
+  };
+}
+
 /** نسخة احتياطية فورية كاملة للمحتوى — لقطة JSON واحدة تتضمن كل المقالات بحالاتها
  *  (بالمتن العادي والمشكول والتغذية الفكرية السرية والأغلفة وبيانات الصوت) والأقسام
  *  والصفحات القانونية والتكوين السيادي كله — ملفات الصوت نفسها على Cloudinary
@@ -3572,6 +3921,117 @@ async function manageAdminAccount(args: McpArgs, meta: McpRequestMeta) {
       disabled: true,
       admin: admin.username,
       note: "عُطِّل التحقق الثنائي ومُسح سرّه المُشفّر — أعد تفعيله من إعدادات الأمان في اللوحة بأسرع وقت",
+    };
+  }
+
+  /* فريق المشرفين (v5.2.0): إنشاء حساب مشرف جديد في جدول AdminUser —
+     كلمة مرور قوية إلزامية والحساب يبدأ بلا 2FA (يفعّلها بنفسه من اللوحة) */
+  if (action === "create_admin") {
+    const username = (str(args, "username") ?? "").trim();
+    const newPassword = str(args, "newPassword") ?? "";
+    if (!username) throw new McpToolError("اسم حساب المشرف username إلزامي");
+    if (username.length < 3 || username.length > 60) {
+      throw new McpToolError("اسم الحساب يجب أن يكون بين 3 و60 حرفًا");
+    }
+    if (!newPassword) throw new McpToolError("كلمة المرور newPassword إلزامية مع create_admin");
+    const strength = validatePasswordStrength(newPassword);
+    if (!strength.ok) throw new McpToolError(strength.message ?? "كلمة المرور ضعيفة");
+    const exists = await prisma.adminUser.findUnique({ where: { username }, select: { id: true } });
+    if (exists) throw new McpToolError(`يوجد حساب بالاسم «${username}» أصلًا — اختر اسمًا آخر`);
+    const created = await prisma.adminUser.create({
+      data: { username, passwordHash: await hashPassword(newPassword) },
+      select: { id: true, username: true, createdAt: true },
+    });
+    await writeAudit({
+      adminId: null,
+      action: "mcp.admin_created",
+      entity: "AdminUser",
+      entityId: created.id,
+      meta: { via: "gemini-spark-mcp", username },
+      ip: meta.ip,
+    });
+    await raiseAlert({
+      type: "ADMIN_ACCOUNT_CREATED_VIA_MCP",
+      severity: "INFO",
+      message: `أُنشئ حساب مشرف جديد «${username}» عبر بوابة MCP — تأكد أنه إجراء مشروع وراجع صلاحيات اللوحة`,
+      meta: { via: "gemini-spark-mcp", ip: meta.ip },
+    });
+    return {
+      created: true,
+      admin: { id: created.id, username: created.username },
+      note: "حُدث حساب المشرف — سجل الدخول باسم الحساب وكلمة المرور، ويُنصح بتفعيل التحقق الثنائي فورًا من إعدادات الأمان",
+    };
+  }
+
+  /* حذف حساب مشرف — حماية صارمة: آخر حساب في المنصة وحساب المالك الأقدم لا يُحذفان */
+  if (action === "delete_admin") {
+    const username = (str(args, "username") ?? "").trim();
+    if (!username) throw new McpToolError("اسم حساب المشرف username إلزامي مع delete_admin");
+    const target = await prisma.adminUser.findUnique({ where: { username }, select: { id: true, username: true } });
+    if (!target) throw new McpToolError(`لا يوجد حساب باسم «${username}»`);
+    const [total, oldest] = await Promise.all([
+      prisma.adminUser.count(),
+      prisma.adminUser.findFirst({ orderBy: { createdAt: "asc" }, select: { id: true, username: true } }),
+    ]);
+    if (total <= 1) throw new McpToolError("هذا آخر حساب إداري في المنصة — حذفه يغلق اللوحة نهائيًا، مرفوض");
+    if (oldest && oldest.id === target.id) {
+      throw new McpToolError(`«${username}» هو حساب المالك الأصلي (أقدم حساب) — لا يُحذف مطلقًا`);
+    }
+    await prisma.$transaction([
+      prisma.auditLog.updateMany({ where: { adminId: target.id }, data: { adminId: null } }),
+      prisma.adminUser.delete({ where: { id: target.id } }),
+    ]);
+    await writeAudit({
+      adminId: null,
+      action: "mcp.admin_deleted",
+      entity: "AdminUser",
+      entityId: target.id,
+      meta: { via: "gemini-spark-mcp", username },
+      ip: meta.ip,
+    });
+    await raiseAlert({
+      type: "ADMIN_ACCOUNT_DELETED_VIA_MCP",
+      severity: "WARN",
+      message: `حُذف حساب المشرف «${username}» عبر بوابة MCP — أُبطلت جلساته وأجهزته الموثوقة معه`,
+      meta: { via: "gemini-spark-mcp", ip: meta.ip },
+    });
+    return { deleted: true, admin: username, note: "حُذف الحساب مع جلساته وأجهزته الموثوقة تلقائيًا، وتُركت قيود تدقيقه السابقة بلا رابط" };
+  }
+
+  /* طوارئ فريق المشرفين: تصفير التحقق الثنائي لأي حساب مشرف آخر — تنبيه أمني CRITICAL */
+  if (action === "reset_admin_2fa") {
+    const username = (str(args, "username") ?? "").trim();
+    if (!username) throw new McpToolError("اسم حساب المشرف username إلزامي مع reset_admin_2fa");
+    const target = await prisma.adminUser.findUnique({
+      where: { username },
+      select: { id: true, username: true, totpEnabled: true },
+    });
+    if (!target) throw new McpToolError(`لا يوجد حساب باسم «${username}»`);
+    if (!target.totpEnabled) {
+      return { reset: false, admin: username, note: "التحقق الثنائي غير مفعّل على هذا الحساب أصلًا" };
+    }
+    await prisma.adminUser.update({
+      where: { id: target.id },
+      data: { totpEnabled: false, totpSecretEnc: null },
+    });
+    await writeAudit({
+      adminId: null,
+      action: "mcp.admin_2fa_reset",
+      entity: "AdminUser",
+      entityId: target.id,
+      meta: { via: "gemini-spark-mcp", username, emergency: true },
+      ip: meta.ip,
+    });
+    await raiseAlert({
+      type: "ADMIN_2FA_RESET_VIA_MCP",
+      severity: "CRITICAL",
+      message: `صُفِّر التحقق الثنائي لحساب المشرف «${username}» عبر بوابة MCP — تأكد أن الطوارئ مشروعة وأعد التفعيل بأسرع وقت`,
+      meta: { via: "gemini-spark-mcp", ip: meta.ip },
+    });
+    return {
+      reset: true,
+      admin: username,
+      note: "صُفِّر التحقق الثنائي ومُسح سرّه — على صاحب الحساب تفعيله من جديد من إعدادات الأمان في اللوحة",
     };
   }
 
@@ -4586,6 +5046,10 @@ export async function executeMcpTool(
       return testArticleAiDiscuss(args, meta);
     case "export_content_backup":
       return exportContentBackup(meta);
+    case "tashkeel_and_validate_article":
+      return tashkeelAndValidateArticle(args, meta);
+    case "generate_quote_card":
+      return generateQuoteCard(args, meta);
     case "manage_discussion_quota":
       return manageDiscussionQuota(args, meta);
     case "get_site_health":

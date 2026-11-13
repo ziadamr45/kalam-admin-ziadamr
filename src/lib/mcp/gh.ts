@@ -6,6 +6,7 @@
  * كل عملية مغيّرة تُوثَّق في سجل التدقيق (AuditLog).
  */
 
+import * as zlib from "node:zlib";
 import { writeAudit } from "@/lib/guard";
 import {
   McpToolError,
@@ -681,11 +682,128 @@ async function ghManagePulls(args: McpArgs, meta: McpRequestMeta) {
   throw new McpToolError("action يقبل list | get | create | comment | merge | close فقط");
 }
 
+/**
+ * البحث النصي داخل كود المستودعين — ينزّل tarball الفرع المطلوب (فهرسة جيت هب
+ * الرسمية للبحث عبر API لا تشمل مستودعينا كليًا، فالحل الأمتن هو المصدر نفسه:
+ * أرشيف الشجرة الكاملة) ويحلّله بمحلل tar خفيف في الذاكرة ويعيد المسارات
+ * وأرقام الأسطر ومقتطف كل مطابقة — دقة سطرية مطلقة بلا انتظار فهرسة.
+ */
+const TAR_TEXT_EXT =
+  /\.(ts|tsx|js|jsx|mjs|cjs|json|css|scss|md|txt|yml|yaml|prisma|sh|html|sql|svg|xml|toml|lock|env|example|gitignore)$/i;
+
+function parseTarBuffer(buf: Buffer): { name: string; size: number; data: Buffer }[] {
+  const entries: { name: string; size: number; data: Buffer }[] = [];
+  let off = 0;
+  let pendingPath: string | null = null;
+  while (off + 512 <= buf.length && entries.length < 5000) {
+    const header = buf.subarray(off, off + 512);
+    if (header.every((b) => b === 0)) break;
+    const nameField = header.subarray(0, 100).toString("utf8").replace(/\0.*$/, "");
+    const prefix = header.subarray(345, 345 + 155).toString("utf8").replace(/\0.*$/, "");
+    const sizeStr = header.subarray(124, 124 + 12).toString("utf8").replace(/\0.*$/, "").trim();
+    const size = parseInt(sizeStr, 8) || 0;
+    const typeflag = String.fromCharCode(header[156]);
+    const dataStart = off + 512;
+    const data = buf.subarray(dataStart, dataStart + size);
+    if (typeflag === "L") {
+      pendingPath = data.toString("utf8").replace(/\0.*$/, "");
+    } else if (typeflag === "x" || typeflag === "g") {
+      const m = /(?:^|\n)path=([^\n]*)/.exec(data.toString("utf8"));
+      if (m && typeflag === "x") pendingPath = m[1];
+    } else if (typeflag === "0" || typeflag === "\0" || typeflag === "") {
+      let name = prefix ? `${prefix}/${nameField}` : nameField;
+      if (pendingPath) name = pendingPath;
+      entries.push({ name, size, data });
+      pendingPath = null;
+    }
+    off = dataStart + Math.ceil(size / 512) * 512;
+  }
+  return entries;
+}
+
+async function ghSearchCode(args: McpArgs): Promise<unknown> {
+  const query = str(args, "query");
+  if (!query) throw new McpToolError("كلمة البحث query إلزامية — مثال: NOTIFICATION_ASSETS");
+  const limit = Math.min(Math.max(num(args, "limit") ?? 20, 1), 50);
+  const repoChoice = (str(args, "repo") ?? "public").toLowerCase();
+  const pathPrefix = str(args, "path")?.replace(/^\/+|\/+$/g, "");
+  const caseSensitive = args.caseSensitive === true;
+  const ref = str(args, "ref") ?? "main";
+
+  const targets =
+    repoChoice === "both" ? Object.entries(REPOS) : [[repoChoice, REPOS[repoChoice]] as [string, string]];
+  if (!targets.length || targets.some(([, name]) => !name)) {
+    throw new McpToolError(`مستودع غير معروف: «${repoChoice}» — المقبول: public | admin | both`);
+  }
+  const needle = caseSensitive ? query : query.toLowerCase();
+
+  const searched: string[] = [];
+  const matches: { repo: string; path: string; hits: { line: number; preview: string }[] }[] = [];
+  let truncated = false;
+  let filesScanned = 0;
+
+  for (const [key, name] of targets) {
+    const full = `${OWNER}/${name}`;
+    const res = await fetch(`https://api.github.com/repos/${full}/tarball/${encodeURIComponent(ref)}`, {
+      headers: { Authorization: `Bearer ${ghToken()}`, "User-Agent": "kalam-mcp-v4" },
+      cache: "no-store",
+      signal: AbortSignal.timeout(60_000),
+    });
+    if (!res.ok) {
+      throw new McpToolError(`تعذر تنزيل أرشيف ${full} عند ${ref} (${res.status}) — تحقق من الفرع`);
+    }
+    const gz = Buffer.from(await res.arrayBuffer());
+    if (gz.length > 30_000_000) {
+      throw new McpToolError(`أرشيف المستودع أكبر من سقف البحث (${Math.round(gz.length / 1e6)}MB > 30MB)`);
+    }
+    const entries = parseTarBuffer(zlib.gunzipSync(gz));
+    searched.push(full);
+    filesScanned += entries.length;
+
+    for (const e of entries) {
+      if (matches.length >= limit) {
+        truncated = true;
+        break;
+      }
+      if (e.size > 1_000_000 || e.size === 0) continue;
+      const clean = e.name.split("/").slice(1).join("/"); /* إسقاط مجلد الجذر ziadamr45-repo-sha */
+      if (pathPrefix && !(clean === pathPrefix || clean.startsWith(`${pathPrefix}/`))) continue;
+      const textLike = TAR_TEXT_EXT.test(clean) || (!clean.includes(".") && e.size < 200_000);
+      if (!textLike) continue;
+      const text = e.data.toString("utf8");
+      const lines = text.split("\n");
+      const hits: { line: number; preview: string }[] = [];
+      for (let i = 0; i < lines.length && hits.length < 5; i++) {
+        const hay = caseSensitive ? lines[i] : lines[i].toLowerCase();
+        if (hay.includes(needle)) {
+          hits.push({ line: i + 1, preview: lines[i].trim().slice(0, 200) });
+        }
+      }
+      if (hits.length) matches.push({ repo: key, path: clean, hits });
+    }
+  }
+
+  return {
+    query,
+    ref,
+    searched,
+    filesScanned,
+    count: matches.length,
+    truncated,
+    matches,
+    note:
+      matches.length === 0
+        ? "لا مطابقات في الأرشيف النصي — جرّب caseSensitive=false (الافتراضي)، أو تحقق من الإملاء، أو المسار قد يكون ثنائيًا غير ممسوح"
+        : undefined,
+  };
+}
+
 /* ============================ الموزّع ============================ */
 
 export async function executeGhTool(name: string, args: McpArgs, meta: McpRequestMeta): Promise<unknown> {
   switch (name) {
     case "gh_get_repo": return ghGetRepo(args);
+    case "gh_search_code": return ghSearchCode(args);
     case "gh_list_tree": return ghListTree(args);
     case "gh_get_file": return ghGetFile(args);
     case "gh_save_file": return ghSaveFile(args, meta);

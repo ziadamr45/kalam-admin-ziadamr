@@ -476,6 +476,142 @@ async function inspectLivePage(args: McpArgs): Promise<unknown> {
   };
 }
 
+/**
+ * اختبار مسار API حي على الإنتاج — GET/POST/PUT/PATCH/DELETE بجسم JSON
+ * وترويسات اختيارية، ويعيد كود الاستجابة والمدة والـJSON الناتج فورًا
+ * للتأكد من عمل أي مسار برمجي بعد النشر. بلا جلسة إدارية — المسارات
+ * المحمية تعيد 401 كما يراها أي مجهول (فحص البوابات الأمين).
+ * حارس SSRF: https فقط، ولا localhost ولا عناوين الشبكات الداخلية.
+ */
+function probeBase(target: string): string {
+  if (target === "admin") {
+    return process.env.NEXT_PUBLIC_ADMIN_URL ?? "https://kalam-admin-ziadamr.vercel.app";
+  }
+  return process.env.NEXT_PUBLIC_SITE_URL ?? "https://kalam-ziadamr.vercel.app";
+}
+
+function safePublicUrl(raw: string): string {
+  let u: URL;
+  try {
+    u = new URL(raw);
+  } catch {
+    throw new McpToolError(`رابط غير صالح: «${raw}»`);
+  }
+  if (u.protocol !== "https:") {
+    throw new McpToolError("البروتوكول يجب أن يكون https — يُرفض http والعناوين الداخلية");
+  }
+  const host = u.hostname.toLowerCase();
+  const blocked =
+    host === "localhost" ||
+    host === "0.0.0.0" ||
+    host.endsWith(".localhost") ||
+    host.endsWith(".internal") ||
+    /^\d{1,3}(\.\d{1,3}){3}$/.test(host) ||
+    host === "metadata.google.internal";
+  if (blocked) {
+    throw new McpToolError(`المضيف «${host}» داخلي أو ممنوع — الأداة تفحص الروابط العامة https فقط`);
+  }
+  return u.toString();
+}
+
+async function testApiEndpoint(args: McpArgs): Promise<unknown> {
+  const fullUrlArg = str(args, "fullUrl");
+  const target = (str(args, "target") ?? "public").toLowerCase();
+  if (!["public", "admin"].includes(target)) {
+    throw new McpToolError("target يقبل public | admin فقط — أو مرر fullUrl برابط كامل");
+  }
+  const url = fullUrlArg ? safePublicUrl(fullUrlArg) : safePublicUrl(`${probeBase(target)}${str(args, "path") ?? ""}`);
+  if (!fullUrlArg && !str(args, "path")) {
+    throw new McpToolError("path إلزامي مثل /api/comments — أو مرر fullUrl برابط كامل");
+  }
+  const method = (str(args, "method") ?? "GET").toUpperCase();
+  if (!["GET", "POST", "PUT", "PATCH", "DELETE"].includes(method)) {
+    throw new McpToolError("method يقبل GET | POST | PUT | PATCH | DELETE فقط");
+  }
+  const timeoutMs = Math.min(Math.max(num(args, "timeoutMs") ?? 15_000, 1_000), 30_000);
+
+  const headers: Record<string, string> = { "User-Agent": "kalam-mcp-probe/5.2" };
+  const rawHeaders = args.headers;
+  if (rawHeaders && typeof rawHeaders === "object" && !Array.isArray(rawHeaders)) {
+    for (const [k, v] of Object.entries(rawHeaders as Record<string, unknown>)) {
+      if (typeof v === "string" && k.toLowerCase() !== "host") headers[k] = v.slice(0, 500);
+    }
+  }
+
+  let body: string | undefined;
+  if (args.body !== undefined && args.body !== null) {
+    if (method === "GET" || method === "HEAD") {
+      throw new McpToolError(`الطريقة ${method} لا تحمل جسمًا — مرر body مع POST/PUT/PATCH/DELETE فقط`);
+    }
+    body = JSON.stringify(args.body);
+    headers["Content-Type"] = headers["Content-Type"] ?? "application/json";
+  }
+
+  const started = Date.now();
+  const res = await fetch(url, {
+    method,
+    headers,
+    body,
+    redirect: "manual",
+    cache: "no-store",
+    signal: AbortSignal.timeout(timeoutMs),
+  });
+  const elapsedMs = Date.now() - started;
+
+  const location = res.headers.get("location");
+  const importantHeaders: Record<string, string> = {};
+  for (const h of ["content-type", "cache-control", "www-authenticate", "allow", "x-vercel-cache"]) {
+    const v = res.headers.get(h);
+    if (v) importantHeaders[h] = v.slice(0, 200);
+  }
+
+  const rawText = await res.text().catch(() => "");
+  let json: unknown = null;
+  let textPreview: string | null = null;
+  const contentType = res.headers.get("content-type") ?? "";
+  if (contentType.includes("json")) {
+    try {
+      json = JSON.parse(rawText);
+    } catch {
+      textPreview = rawText.slice(0, 1000);
+    }
+  } else {
+    textPreview = rawText.slice(0, 1000);
+  }
+
+  /* حجم استجابة JSON المفصلة — قصّها عند الضخامة حفاظًا على سياق العميل */
+  let jsonPreview: unknown = null;
+  if (json !== null) {
+    const serialized = JSON.stringify(json);
+    if (serialized.length > 12_000) {
+      jsonPreview = {
+        note: "الاستجابة أكبر من 12KB — هذا مقتطف نصي منها، استخدم مسارًا أضيق أو فلترة",
+        preview: serialized.slice(0, 6000),
+      };
+    } else {
+      jsonPreview = json;
+    }
+  }
+
+  return {
+    tested: true,
+    url,
+    method,
+    status: res.status,
+    ok: res.ok,
+    elapsedMs,
+    redirects: location ? { location } : undefined,
+    headers: importantHeaders,
+    json: jsonPreview,
+    text: textPreview,
+    bodySent: body ? { bytes: body.length } : undefined,
+    note:
+      res.status === 401 || res.status === 403
+        ? "البوابة مغلقة أمام المجهول — هذا المتوقع للمسارات المحمية (الأداة لا تحمل جلسة إدارية)"
+        : undefined,
+  };
+}
+
 /* ============================ الموزّع ============================ */
 
 export async function executeVcTool(name: string, args: McpArgs, meta: McpRequestMeta): Promise<unknown> {
@@ -493,6 +629,7 @@ export async function executeVcTool(name: string, args: McpArgs, meta: McpReques
     case "vercel_get_crons": return vcGetCrons(args);
     case "vc_runtime_logs": return vcRuntimeLogs(args);
     case "inspect_live_page": return inspectLivePage(args);
+    case "test_api_endpoint": return testApiEndpoint(args);
     default: throw new McpToolError(`أداة Vercel غير معروفة: «${name}»`);
   }
 }

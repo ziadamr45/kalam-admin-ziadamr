@@ -49,6 +49,7 @@ const PUBLIC_PATHS = [
 const NOTIFICATION_ASSETS = [
   "/sw.js",
   "/icons/",
+  "/favicon.ico",
   "/badge-admin-96x96.png",
 ];
 

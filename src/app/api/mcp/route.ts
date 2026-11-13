@@ -98,6 +98,7 @@ function toolResult(id: unknown, payload: unknown, isError = false) {
 async function handleMessage(
   msg: Record<string, unknown>,
   clientIp: string,
+  origin: string,
 ): Promise<Response | null> {
   const id = msg.id ?? null;
   const method = typeof msg.method === "string" ? msg.method : "";
@@ -119,12 +120,18 @@ async function handleMessage(
           tools: { listChanged: false },
         },
         serverInfo: {
+          /* الاسم القصير — نفسه نص المنشن @كلام له لازمة في واجهة Gemini */
           name: MCP_SERVER_NAME,
           version: MCP_SERVER_VERSION,
-          title: "البوابة السيادية الكاملة — كلام له لازمة | Kalam Laho Lazma",
+          title: MCP_SERVER_NAME,
+          /* شعار اللوحة الرسمي — يسحبه أي عميل MCP متوافق مع المعيار */
+          icons: [
+            { src: `${origin}/icons/icon-192.png`, mimeType: "image/png", sizes: ["192x192"] },
+            { src: `${origin}/icons/icon-512.png`, mimeType: "image/png", sizes: ["512x512"] },
+          ],
         },
         instructions:
-          `هذا الخادم يمنح ${MCP_TOOLS.length} أداة سيادية تغطي كل ذرة في منصة «كلام له لازمة» بلا استثناء — لا قراءة ولا تعديل خارج نطاق الأدوات: إدارة المقالات والأقسام (إنشاء وتعديل وحذف) والأغلفة والتوليد الصوتي، رقابة التعليقات وبلاغاتها وتمييز الملهم منها وتحريره، إدارة القراء (حظر/فك حظر/منح وخصم رصيد الأثر/تصفير الهوية/فحص وإبطال دخولاتهم)، دفتر الأثر الفكري نقطة بنقطة، ذرات التفاعل الخام (تصويتات ومشاركات ومحفوظات) مع إزالة أي سجل، بيانات القراءة الخام مع حق النسيان، حصص نقاش الذكاء الاصطناعي وتصفيرها، قناة مقترحات أهل الكلمة، رسائل اتصل بنا، الصفحات القانونية، البث الجماهيري وجرس الإشعارات الداخلي واشتراكات الإشعارات الفورية، سجل تحديثات المنصة، أخطاء المنصة المبلّغ عنها، إعدادات الحوكمة وقائمة الفحص الأخلاقي، مركز الأمن (التنبيهات ومحاولات الاختراق وقواعد IP وسجل التدقيق)، وحساب الإدارة نفسه (جلساته وأجهزته الموثوقة وكلمة مروره بالتحقق الحالي)، إضافة إلى مركز السيطرة السيادي: مرصد النظام الحي (get_system_telemetry وget_traffic_log وget_server_errors وget_api_quotas)، التكوين السيادي لحظي التطبيق (get_site_config وset_site_config)، والتيرمينال السيادي الكامل (admin_cli) بكل أوامره، وإصدار v5.1.0: التعليق الرسمي الموثق باسم صاحب المنصة (post_official_comment) واختبار المحاور الذكي على المسودات (test_article_ai_discuss) وعينات الصوت السريعة (فعل sample في manage_article_audio) والنسخة الاحتياطية الفورية للمحتوى (export_content_backup)، مع الدروع الأمنية الحية (get_security_overview وsend_test_push) والتقليم الدوري (run_maintenance)، ومنظومة التوثيق والعضوية المميزة (kalam_manage_vip_privileges وkalam_manage_verification وkalam_dispatch_vip_notification)، والسجل السيادي والمحو التام (kalam_get_audit_summary وkalam_execute_hard_delete وkalam_generate_audit_pdf وkalam_get_audit_log)، إضافة إلى البنية التحتية السيادية الكاملة (v4.0.0): تحكم كامل في مستودعي GitHub للموقع العام واللوحة (قراءة وإنشاء وتعديل وحذف ملفات وكوميتات وفروع ودمج وتشغيل Actions ومتابعة Dependabot بأدوات gh_)، وتحكم كامل في Vercel (نشر وإعادة نشر وتراجع لنسخة سابقة وإضافة وتعديل وحذف متغيرات البيئة وإدارة الدومينات وسجلات البناء بكلها بأدوات vercel_)، وقاعدة Neon PostgreSQL بCRUD تنفيذي مؤمن (db_inspect_schema وdb_query وdb_migrations — وضع execute يستلزم إقرار confirm='أؤقر التنفيذ')، والخدمات المربوطة (Cloudinary رفع وإعادة تسمية وResend بريد مخصص ونطاقات وPush إداري مخصص بأدوات cloudinary_ وresend_ وkalam_push_admin_custom). كل الأفعال المغيّرة تُوثّق في سجل التدقيق وكل تغيير بنية يستدعي فحص get_site_health بعد التنفيذ.`,
+          `هذا الخادم يمنح ${MCP_TOOLS.length} أداة سيادية تغطي كل ذرة في منصة «كلام له لازمة» بلا استثناء — لا قراءة ولا تعديل خارج نطاق الأدوات: إدارة المقالات والأقسام (إنشاء وتعديل وحذف) والأغلفة والتوليد الصوتي، رقابة التعليقات وبلاغاتها وتمييز الملهم منها وتحريره، إدارة القراء (حظر/فك حظر/منح وخصم رصيد الأثر/تصفير الهوية/فحص وإبطال دخولاتهم)، دفتر الأثر الفكري نقطة بنقطة، ذرات التفاعل الخام (تصويتات ومشاركات ومحفوظات) مع إزالة أي سجل، بيانات القراءة الخام مع حق النسيان، حصص نقاش الذكاء الاصطناعي وتصفيرها، قناة مقترحات أهل الكلمة، رسائل اتصل بنا، الصفحات القانونية، البث الجماهيري وجرس الإشعارات الداخلي واشتراكات الإشعارات الفورية، سجل تحديثات المنصة، أخطاء المنصة المبلّغ عنها، إعدادات الحوكمة وقائمة الفحص الأخلاقي، مركز الأمن (التنبيهات ومحاولات الاختراق وقواعد IP وسجل التدقيق)، وحساب الإدارة نفسه (جلساته وأجهزته الموثوقة وكلمة مروره بالتحقق الحالي)، إضافة إلى مركز السيطرة السيادي: مرصد النظام الحي (get_system_telemetry وget_traffic_log وget_server_errors وget_api_quotas)، التكوين السيادي لحظي التطبيق (get_site_config وset_site_config)، والتيرمينال السيادي الكامل (admin_cli) بكل أوامره، وإصدار v5.1.0: التعليق الرسمي الموثق باسم صاحب المنصة (post_official_comment) واختبار المحاور الذكي على المسودات (test_article_ai_discuss) وعينات الصوت السريعة (فعل sample في manage_article_audio) والنسخة الاحتياطية الفورية للمحتوى (export_content_backup)، وإصدار v5.2.0: تصنيف بروتوكول MCP الرسمي للـ${MCP_TOOLS.length} أداة كلها بعناوين عربية مقسّمة باسم قسمها في حقل annotations (readOnlyHint يفرق القراءة عن الكتابة عن الحذف فتنقسم القائمة في واجهة العميل تلقائيًا إلى «قراءة» و«كتابة» و«كتابة / حذف»)، وشعار اللوحة الرسمي في serverInfo.icons وفي الميتاداتا القياسية logo_uri، والبحث النصي الفوري داخل كود المستودعين (gh_search_code)، والتشكيل الآلي الذكي للمقالات مع فحص تطابق الكتل والكلمات قبل توليد الصوت (tashkeel_and_validate_article)، وتوليد بطاقة اقتباس مصورة بهوية المنصة ورفعها إلى Cloudinary للنشر على السوشيال ميديا (generate_quote_card)، واختبار أي مسار API حي على الإنتاج بكل الطرق وجسم JSON وترويسات (test_api_endpoint)، ومتابعة حالة تسليم البريد في Resend (فعل email_status في resend_manage)، وإدارة فريق المشرفين كله (أفعال create_admin وdelete_admin وreset_admin_2fa في manage_admin_account)، مع الدروع الأمنية الحية (get_security_overview وsend_test_push) والتقليم الدوري (run_maintenance)، ومنظومة التوثيق والعضوية المميزة (kalam_manage_vip_privileges وkalam_manage_verification وkalam_dispatch_vip_notification)، والسجل السيادي والمحو التام (kalam_get_audit_summary وkalam_execute_hard_delete وkalam_generate_audit_pdf وkalam_get_audit_log)، إضافة إلى البنية التحتية السيادية الكاملة (v4.0.0): تحكم كامل في مستودعي GitHub للموقع العام واللوحة (قراءة وإنشاء وتعديل وحذف ملفات وكوميتات وفروع ودمج وتشغيل Actions ومتابعة Dependabot بأدوات gh_)، وتحكم كامل في Vercel (نشر وإعادة نشر وتراجع لنسخة سابقة وإضافة وتعديل وحذف متغيرات البيئة وإدارة الدومينات وسجلات البناء بكلها بأدوات vercel_)، وقاعدة Neon PostgreSQL بCRUD تنفيذي مؤمن (db_inspect_schema وdb_query وdb_migrations — وضع execute يستلزم إقرار confirm='أؤقر التنفيذ')، والخدمات المربوطة (Cloudinary رفع وإعادة تسمية وResend بريد مخصص ونطاقات وPush إداري مخصص بأدوات cloudinary_ وresend_ وkalam_push_admin_custom). كل الأفعال المغيّرة تُوثّق في سجل التدقيق وكل تغيير بنية يستدعي فحص get_site_health بعد التنفيذ.`,
       });
     }
 
@@ -222,7 +229,7 @@ export async function POST(request: Request) {
     ) as Record<string, unknown>[];
     if (messages.length === 0) return new Response(null, { status: 202, headers: CORS_HEADERS });
     const payload = await Promise.all(
-      messages.map((m) => handleMessage(m, getClientIp(request)).then((r) => r!.json())),
+      messages.map((m) => handleMessage(m, getClientIp(request), getOrigin(request)).then((r) => r!.json())),
     );
     return new Response(JSON.stringify(payload), {
       status: 200,
@@ -235,7 +242,7 @@ export async function POST(request: Request) {
   }
 
   return (
-    (await handleMessage(body as Record<string, unknown>, getClientIp(request))) ??
+    (await handleMessage(body as Record<string, unknown>, getClientIp(request), getOrigin(request))) ??
     new Response(null, { status: 202 })
   );
 }

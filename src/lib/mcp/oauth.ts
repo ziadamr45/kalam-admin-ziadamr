@@ -81,6 +81,8 @@ export function protectedResourceMetadata(origin: string) {
     scopes_supported: [OAUTH_SCOPE],
     bearer_methods_supported: ["header"],
     resource_documentation: `${origin}/api/mcp`,
+    /* شعار اللوحة الرسمي — يسحبه أي عميل MCP أو واجهة ربط تلقائيًا */
+    logo_uri: `${origin}/icons/icon-512.png`,
   };
 }
 
@@ -96,6 +98,8 @@ export function authorizationServerMetadata(origin: string) {
     token_endpoint_auth_methods_supported: ["none"],
     scopes_supported: [OAUTH_SCOPE],
     service_documentation: `${origin}/api/mcp`,
+    /* شعار اللوحة الرسمي في ميتاداتا خادم التفويض كذلك (حقل اكتشاف OIDC القياسي) */
+    logo_uri: `${origin}/icons/icon-512.png`,
   };
 }
 
