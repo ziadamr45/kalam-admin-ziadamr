@@ -3560,6 +3560,30 @@ function wordList(text: string): string[] {
     .filter(Boolean);
 }
 
+/** إصلاح حتمي للانحرافات الحرفية: عدّ الكلمات متساوٍ → الكلمة الأصلية تفوز حرفيًا
+ *  (النموذج قد "يصحح" همزة أو يضيف حرفًا — النص الأصلي للمؤلف هو المرجع لا النموذج،
+ *  والكلمة المُصلحة تُعاد بلا تشكيل لحفظ الحروف بدقة التظليل الحرفي) */
+function repairWordDivergences(
+  plain: string,
+  generated: string,
+): { repaired: string; fixedWords: { word: string; modelVersion: string }[]; wordCountPlain: number; wordCountGenerated: number } {
+  const pw = plain.split(/\s+/).filter(Boolean);
+  const gw = generated.split(/(\s+)/); /* كلمات وفواصل متناوبة — نحافظ على البنية النصية */
+  const fixedWords: { word: string; modelVersion: string }[] = [];
+  let wi = 0;
+  for (let i = 0; i < gw.length; i++) {
+    const tok = gw[i];
+    if (!tok || /^\s+$/.test(tok)) continue;
+    if (wi >= pw.length) break;
+    if (stripTashkeel(tok) !== pw[wi]) {
+      if (fixedWords.length < 30) fixedWords.push({ word: pw[wi], modelVersion: tok });
+      gw[i] = pw[wi];
+    }
+    wi++;
+  }
+  return { repaired: gw.join(""), fixedWords, wordCountPlain: pw.length, wordCountGenerated: wi };
+}
+
 /** مقارنة صرفية كاملة بين النسختين — تطابق الكلمات والكتل أولًا بأول */
 function compareTashkeelPair(
   plain: string,
@@ -3595,6 +3619,7 @@ function buildTashkeelSystemPrompt(): string {
 - كتل المحتوى الخاصة تُبقى كما هي بالأقواس نفسها دون أي تشكيل داخل أقواسها ودون تعديل بنيتها: [[آية|السورة|رقم الآية]] و[[/آية]] و[[حديث|...]] و[[/حديث]] وكتل :::quran و:::hadith و:::note و:::question و:::name — أقواس هذه الكتل ووسومها لا تتشكَّل أبدًا (اكتبها بالأحرف نفسها)، ومتنها الداخلي يُشكَّل كالنص العادي دون المساس بالأقواس.
 - وسوم ماركداون تبقى كما هي: علامات # للعناوين و** للبارز والقوائم - و1. والروابط [نص](رابط) وخطوط --- — العلامات نفسها لا تتشكَّل، والنص العربي حولها يُشكَّل.
 - الأرقام والرموز واللاتينية تبقى كما هي.
+- التزام حرفي مطلق: أعد كل كلمة بنفس حروفها الأصلية تمامًا — لا تُصحّح إملاءً ولا تستبدل همزة بأخرى ولا تُضف أو تُحذف حرفًا؛ أي كلمة خالفت الأصل حرفيًا ستُستبدل آليًا بالأصلية وتخرج بلا تشكيل.
 - قاعدة التنوين الحتمية: التنوين (ً) يوضع فوق الحرف الذي قبل ألف التنوين لا على الألف نفسها — اكتب: عالمًا، شكرًا، كتابًا (صحيح)، ولا تكتب أبدًا: عالماً، شكراً، كتاباً (خطأ).
 - أعد النص المشكول فقط بلا أي مقدمة أو شرح أو أسوار كود.`;
 }
@@ -3671,15 +3696,22 @@ async function tashkeelAndValidateArticle(args: McpArgs, meta: McpRequestMeta) {
     throw err;
   }
   /* تنظيف أحتال التسليم الشائعة: أسوار كود أو مقدمة */
-  const generated = fixNunation(
+  const cleaned = fixNunation(
     generatedRaw
       .replace(/^```(?:markdown|md)?\s*\n?/i, "")
       .replace(/\n?```\s*$/i, "")
       .trim(),
   );
+  /* إصلاح الانحرافات الحرفية — الكلمة الأصلية للمؤلف تفوز (تصحيحات النموذج مرفوضة) */
+  const repair = repairWordDivergences(body, cleaned);
+  const generated = repair.repaired;
   void bumpApiUsage("GEMINI_CHAT");
   const report = compareTashkeelPair(body, generated);
   const elapsedMs = Date.now() - started;
+  const repairNote =
+    repair.fixedWords.length > 0
+      ? `أصلح ${repair.fixedWords.length} كلمة انحرفت حرفيًا عن الأصل (استُبدلت بالأصلية بلا تشكيل) — أولها: ${repair.fixedWords.slice(0, 5).map((f) => `«${f.modelVersion}»→«${f.word}»`).join("، ")}`
+      : null;
 
   if (action === "generate") {
     return {
@@ -3687,24 +3719,28 @@ async function tashkeelAndValidateArticle(args: McpArgs, meta: McpRequestMeta) {
       saved: false,
       article: { id: article.id, title: article.title, slug: article.slug },
       ...report,
+      repairedWords: repair.fixedWords.length,
+      repairNote,
       generatedTashkeel: generated,
       elapsedMs,
       note: report.match
-        ? "نسخة مشكولة مطابقة — راجعها ثم اعتمدها بـ action=save"
-        : "المقارنة وجدت انحرافًا — لا تعتمدها؛ أعد التوليد أو عدّل النسخة يدويًا",
+        ? "نسخة مشكولة مطابقة حرفيًا — راجعها ثم اعتمدها بـ action=save"
+        : "المقارنة وجدت انحرافًا متبقيًا — لا تعتمدها؛ أعد التوليد أو عدّل النسخة يدويًا",
     };
   }
 
-  /* save: الحفظ يُمنع إن لم تتطابق النسختان — لا انزياح كاريوكي يدخل قاعدة البيانات */
+  /* save: الحفظ يُمنع إن لم تتطابق النسختان بعد الإصلاح — لا انزياح كاريوكي يدخل قاعدة البيانات */
   if (!report.match) {
     return {
       saved: false,
       rejected: true,
       article: { id: article.id, title: article.title, slug: article.slug },
       ...report,
+      repairedWords: repair.fixedWords.length,
+      repairNote,
       generatedTashkeel: generated.slice(0, 4000),
       elapsedMs,
-      note: "رفض الحفظ: النسخة المولدة لا تطابق المتن صرفيًا أو كتليًا — تظليل الصوت سينزاح؛ راجع النسخة عبر generate وعدّل الفرق يدويًا",
+      note: "رفض الحفظ: النسخة المولدة لا تطابق المتن صرفيًا أو كتليًا بعد الإصلاح — تظليل الصوت سينزاح؛ راجعها عبر generate وعدّل الفرق يدويًا",
     };
   }
   await prisma.article.update({
@@ -3717,7 +3753,7 @@ async function tashkeelAndValidateArticle(args: McpArgs, meta: McpRequestMeta) {
     action: "mcp.tashkeel_saved",
     entity: "Article",
     entityId: article.id,
-    meta: { via: "gemini-spark-mcp", words: report.wordCountPlain, ms: elapsedMs },
+    meta: { via: "gemini-spark-mcp", words: report.wordCountPlain, repairedWords: repair.fixedWords.length, ms: elapsedMs },
     ip: meta.ip,
   });
   return {
@@ -3725,6 +3761,8 @@ async function tashkeelAndValidateArticle(args: McpArgs, meta: McpRequestMeta) {
     saved: true,
     article: { id: article.id, title: article.title, slug: article.slug },
     ...report,
+    repairedWords: repair.fixedWords.length,
+    repairNote,
     elapsedMs,
     note: "حُفظت النسخة المشكولة المطابقة على المقال وتفعّل مفتاح التشكيل — الكاريوكي لن ينزاح",
   };
