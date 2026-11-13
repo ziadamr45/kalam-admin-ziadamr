@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { createContext, useContext, useState } from "react";
-import { ToastProvider } from "@/components/ui";
+import { ConfirmProvider, ToastProvider } from "@/components/ui";
 import { PushToggle } from "@/components/push-toggle";
 import { SovereignTerminal } from "@/components/sovereign-terminal";
 import { AdminNotificationBell, AdminUrgentBar } from "@/components/notification-center";
@@ -99,6 +99,7 @@ export function DashboardShell({
   };
 
   return (
+    <ConfirmProvider>
     <ToastProvider>
       <SidebarOpenContext.Provider value={sidebarOpen}>
       <div className="flex min-h-screen overflow-x-clip bg-steel-50">
@@ -303,5 +304,6 @@ export function DashboardShell({
       <SovereignTerminal open={terminalOpen} onToggle={toggleTerminal} />
       </SidebarOpenContext.Provider>
     </ToastProvider>
+    </ConfirmProvider>
   );
 }

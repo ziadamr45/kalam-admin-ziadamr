@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
-import { Badge, Button, Card, useToast } from "@/components/ui";
+import { Badge, Button, Card, useConfirm, useToast } from "@/components/ui";
 
 type Message = {
   id: string;
@@ -24,6 +24,7 @@ function fmt(iso: string) {
 
 export function MessagesManager() {
   const { toast } = useToast();
+  const { confirm } = useConfirm();
   const [messages, setMessages] = useState<Message[]>([]);
   const [filter, setFilter] = useState<"all" | "unread">("all");
   const [loading, setLoading] = useState(true);
@@ -52,7 +53,13 @@ export function MessagesManager() {
   };
 
   const remove = async (m: Message) => {
-    if (!confirm(`حذف رسالة ${m.name} نهائيًا؟`)) return;
+    const ok = await confirm({
+      title: "حذف رسالة نهائيًا",
+      body: `ستُحذف رسالة «${m.name}» نهائيًا ولا يمكن استرجاعها. هل تريد المتابعة؟`,
+      confirmLabel: "نعم، احذفها",
+      tone: "danger",
+    });
+    if (!ok) return;
     const res = await fetch(`/api/messages/${m.id}`, { method: "DELETE" });
     if (res.ok) {
       toast("حُذفت الرسالة", "success");

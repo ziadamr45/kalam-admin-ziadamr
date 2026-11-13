@@ -1,6 +1,7 @@
 "use client";
 
-import { createContext, useCallback, useContext, useEffect, useState } from "react";
+import { createContext, useCallback, useContext, useEffect, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 
 /* =================== عناصر واجهة مصغرة موحدة =================== */
 
@@ -171,6 +172,121 @@ export function ToastProvider({ children }: { children: React.ReactNode }) {
         ))}
       </div>
     </ToastContext.Provider>
+  );
+}
+
+/* =================== نافذة التأكيد الموحدة (Confirm) ===================
+   هوية اللوحة: الكحلي والنحاسي — بديل كامل لنوافذ المتصفح التقليدية:
+   ممنوع window.confirm نهائيًا؛ كل تأكيد يمر من هنا عبر Promise،
+   مرسومًا عبر createPortal بكشيدة نحاسية على سطح أبيض هادئ. */
+
+type ConfirmTone = "copper" | "danger";
+
+type ConfirmOptions = {
+  title: string;
+  body: string;
+  confirmLabel?: string;
+  cancelLabel?: string;
+  tone?: ConfirmTone;
+};
+
+type ConfirmRequest = ConfirmOptions & { resolve: (ok: boolean) => void };
+
+const ConfirmContext = createContext<(options: ConfirmOptions) => Promise<boolean>>(async () => false);
+
+export function useConfirm() {
+  /* نمط موحد مع useToast — تفكيك { confirm } في كل موضع استدعاء */
+  const confirm = useContext(ConfirmContext);
+  return { confirm };
+}
+
+export function ConfirmProvider({ children }: { children: React.ReactNode }) {
+  const [mounted, setMounted] = useState(false);
+  const [request, setRequest] = useState<ConfirmRequest | null>(null);
+  const confirmBtnRef = useRef<HTMLButtonElement | null>(null);
+  const cancelBtnRef = useRef<HTMLButtonElement | null>(null);
+
+  useEffect(() => setMounted(true), []);
+
+  const confirm = useCallback((options: ConfirmOptions) => {
+    return new Promise<boolean>((resolve) => setRequest({ ...options, resolve }));
+  }, []);
+
+  const settle = useCallback((ok: boolean) => {
+    setRequest((r) => {
+      r?.resolve(ok);
+      return null;
+    });
+  }, []);
+
+  /* Escape يلغي دائمًا — والتركيز الافتراضي للإلغاء في الخطر وللتأكيد في العادي */
+  useEffect(() => {
+    if (!request) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") settle(false);
+    };
+    document.addEventListener("keydown", onKey);
+    const t = setTimeout(() => {
+      if (request.tone === "danger") cancelBtnRef.current?.focus();
+      else confirmBtnRef.current?.focus();
+    }, 60);
+    return () => {
+      document.removeEventListener("keydown", onKey);
+      clearTimeout(t);
+    };
+  }, [request, settle]);
+
+  const isDanger = request?.tone === "danger";
+
+  return (
+    <ConfirmContext.Provider value={confirm}>
+      {children}
+      {mounted &&
+        request &&
+        createPortal(
+          <div className="fixed inset-0 z-90 flex items-center justify-center p-4" role="dialog" aria-modal="true" aria-label={request.title}>
+            <div className="absolute inset-0 animate-fade-in bg-[#0d1626]/72 backdrop-blur-sm" onClick={() => settle(false)} />
+            <div className="relative w-full max-w-sm animate-fade-up overflow-hidden rounded-2xl border border-steel-200 bg-white shadow-lift">
+              {/* الكشيدة النحاسية العلوية — توقيع الهوية الإدارية */}
+              <div className="h-1 w-full bg-gradient-to-l from-copper-600 via-copper-500 to-copper-600" aria-hidden />
+
+              <div className="px-6 pb-6 pt-7 text-center">
+                <div
+                  className="mx-auto mb-4 flex h-12 w-12 items-center justify-center rounded-2xl"
+                  style={{ background: isDanger ? "#FEE2E2" : "#F5EBD3", color: isDanger ? "#B91C1C" : "#84531B" }}
+                  aria-hidden
+                >
+                  <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round">
+                    <path d="M20.2 3.8c-5.8.4-10.5 4-12.5 9.4L3 21l7.9-4.7c5.4-2 9-6.7 9.3-12.5Z" />
+                    <path d="M6.5 17.5 13 11" />
+                  </svg>
+                </div>
+                <h3 className="text-base font-bold text-steel-900">{request.title}</h3>
+                <p className="mt-2 text-[13px] leading-7 text-steel-500">{request.body}</p>
+                <div className="mt-5 flex items-center justify-center gap-3">
+                  <button
+                    ref={cancelBtnRef}
+                    onClick={() => settle(false)}
+                    className="rounded-xl bg-steel-100 px-5 py-2.5 text-xs font-bold text-steel-600 transition-all hover:bg-steel-200 active:translate-y-0"
+                  >
+                    {request.cancelLabel ?? "تراجع"}
+                  </button>
+                  <button
+                    ref={confirmBtnRef}
+                    onClick={() => settle(true)}
+                    className={`rounded-xl px-5 py-2.5 text-xs font-bold text-white shadow-soft transition-all ${
+                      isDanger ? "bg-danger-600 hover:bg-danger-500" : "bg-copper-600 hover:bg-copper-700"
+                    }`}
+                  >
+                    {request.confirmLabel ?? "تأكيد"}
+                  </button>
+                </div>
+              </div>
+            </div>
+          </div>,
+          document.body,
+        )}
+    </ConfirmContext.Provider>
   );
 }
 

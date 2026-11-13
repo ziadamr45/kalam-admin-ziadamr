@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Button, Card, useToast } from "@/components/ui";
+import { Button, Card, useConfirm, useToast } from "@/components/ui";
 
 /**
  * ============================================================
@@ -26,6 +26,7 @@ type Baseline = Draft & { updatedAt: string | null; isCustom: boolean };
 
 export function LegalPagesEditor() {
   const { toast } = useToast();
+  const { confirm } = useConfirm();
   const [active, setActive] = useState<PageKey>("privacy");
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
@@ -92,9 +93,17 @@ export function LegalPagesEditor() {
     return () => window.removeEventListener("beforeunload", handler);
   }, [isDirty]);
 
-  const switchTab = (key: PageKey) => {
+  const switchTab = async (key: PageKey) => {
     if (key === active) return;
-    if (isDirty && !confirm(`لديك تعديلات غير محفوظة في «${PAGES.find((p) => p.key === active)!.label}» — التنقل الآن سيتركها دون حفظ. متابعة؟`)) {
+    if (
+      isDirty &&
+      !(await confirm({
+        title: "تعديلات غير محفوظة",
+        body: `لديك تعديلات غير محفوظة في «${PAGES.find((p) => p.key === active)!.label}» — التنقل الآن سيتركها دون حفظ. متابعة؟`,
+        confirmLabel: "اتركها وتابع",
+        tone: "danger",
+      }))
+    ) {
       return;
     }
     setActive(key);
@@ -106,17 +115,31 @@ export function LegalPagesEditor() {
     toast("سُحب النص المعروض حاليًا على الموقع إلى المحرر", "info");
   };
 
-  const restoreDefault = () => {
+  const restoreDefault = async () => {
     const def = defaultsMap[active];
     if (!def) return;
-    if (isDirty && !confirm("استعادة النص الافتراضي ستستبدل ما في المحرر الآن (قبل الحفظ) — متابعة؟")) return;
+    if (
+      isDirty &&
+      !(await confirm({
+        title: "استعادة النص الافتراضي",
+        body: "استعادة النص الافتراضي ستستبدل ما في المحرر الآن (قبل الحفظ). متابعة؟",
+        confirmLabel: "نعم، استعده",
+        tone: "danger",
+      }))
+    )
+      return;
     setDrafts((d) => ({ ...d, [active]: { title: def.title, content: def.content } }));
     toast("استُعيد النص الافتراضي إلى المحرر — اضغط «حفظ ونشر» ليصبح هو المعروض", "info");
   };
 
   const save = async () => {
     if (!draft) return;
-    if (!confirm("سيُنشر النص فورًا على صفحة المنصة العامة ويُحدَّث تاريخ الصفحة تلقائيًا — متابعة النشر؟")) return;
+    const ok = await confirm({
+      title: "نشر مباشر على المنصة",
+      body: "سيُنشر النص فورًا على صفحة المنصة العامة ويُحدَّث تاريخ الصفحة تلقائيًا. متابعة النشر؟",
+      confirmLabel: "نعم، انشره",
+    });
+    if (!ok) return;
     setBusy(true);
     try {
       const res = await fetch("/api/legal-pages", {
