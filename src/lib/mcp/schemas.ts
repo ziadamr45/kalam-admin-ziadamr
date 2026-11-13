@@ -16,7 +16,7 @@ export type McpToolSchema = {
 
 export const MCP_PROTOCOL_VERSION = "2025-03-26";
 export const MCP_SERVER_NAME = "كلام له لازمة - Kalam Laho Lazma";
-export const MCP_SERVER_VERSION = "5.0.0";
+export const MCP_SERVER_VERSION = "5.1.0";
 
 export const MCP_TOOLS: McpToolSchema[] = [
   /* ==================== أ) أدوات المقالات ==================== */
@@ -207,23 +207,24 @@ export const MCP_TOOLS: McpToolSchema[] = [
   {
     name: "manage_article_audio",
     description:
-      "الإدارة الكاملة لصوت المقال: status للحالة اللحظية (التقدم done/total والصوت المختار والمدة والخطأ واكتشاف المهمة المعلقة stale مع شفائها الذاتي بضرب العامل)، set_voice لاختيار صوت القارئ (من قائمة Gemini الرسمية) يُطبق على التوليد القادم، start لإطلاق التوليد (مثل trigger_audio_generation مع دعم voice)، delete لإيقاف أي معالجة جارية وحذف الصوت من المقال وتنظيف ملفاته من Cloudinary كاملةً.",
+      "الإدارة الكاملة لصوت المقال: status للحالة اللحظية (التقدم done/total والصوت المختار والمدة والخطأ واكتشاف المهمة المعلقة stale مع شفائها الذاتي بضرب العامل)، set_voice لاختيار صوت القارئ (من قائمة Gemini الرسمية) يُطبق على التوليد القادم، start لإطلاق التوليد (مثل trigger_audio_generation مع دعم voice)، delete لإيقاف أي معالجة جارية وحذف الصوت من المقال وتنظيف ملفاته من Cloudinary كاملةً، وsample لعينة صوتية سريعة بأي صوت من الأصوات الثلاثين تُسمع فورًا قبل اعتماده (بلا مقال).",
     inputSchema: {
       type: "object",
       properties: {
-        id: { type: "string", description: "معرف المقال أو slug — إلزامي" },
+        id: { type: "string", description: "معرف المقال أو slug — إلزامي لكل الأفعال عدا sample" },
         action: {
           type: "string",
-          enum: ["status", "set_voice", "start", "delete"],
-          description: "status الحالة اللحظية (افتراضي) | set_voice اختيار الصوت | start إطلاق التوليد | delete حذف الصوت وتنظيفه",
+          enum: ["status", "set_voice", "start", "delete", "sample"],
+          description:
+            "status الحالة اللحظية (افتراضي) | set_voice اختيار الصوت | start إطلاق التوليد | delete حذف الصوت وتنظيفه | sample عينة صوتية سريعة للاستماع إلى أي صوت قبل اعتماده",
         },
         voice: {
           type: "string",
-          description: "مع set_voice (واختياري مع start): صوت Gemini مثل Charon أو Sulafat أو Orus أو Kore",
+          description: "مع set_voice وsample (واختياري مع start): صوت Gemini مثل Charon أو Sulafat أو Orus أو Kore",
         },
+        text: { type: "string", description: "مع sample: الجملة المطلوب سماعها (اختياري — افتراضيًا جملة قصيرة مناسبة)" },
         resume: { type: "boolean", description: "مع start: استئناف مهمة معلقة بدل رفضها" },
       },
-      required: ["id"],
     },
   },
   {
@@ -298,6 +299,55 @@ export const MCP_TOOLS: McpToolSchema[] = [
       required: ["action"],
     },
   },
+  {
+    name: "post_official_comment",
+    description:
+      "نشر تعليق رسمي فوري باسم صاحب المنصة الموثق (OWNER) على أي مقال منشور — يُعتمد APPROVED لحظته وتُعاد ترندرة صفحة المقال، مع خيار تثبيته ذاتيًا (selfPin — يفك تثبيت تعليق المالك السابق في المقال) أو تمييزه فكريًا ملهمًا (inspire — +نقاط أثر وثبوت أعلى المقال)، وإرسال إشعار COMMENT_REPLY للمشاركين في نقاش المقال.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        id: { type: "string", description: "معرف المقال أو slug — إلزامي (التعليق على المنشور فقط)" },
+        content: { type: "string", description: "نص التعليق الرسمي — إلزامي (حتى 4000 حرف)" },
+        selfPin: {
+          type: "boolean",
+          description: "تثبيت التعليق أعلى الحوار بأسلوب التثبيت الذاتي — يفك تثبيت تعليق المالك السابق في المقال نفسه",
+        },
+        inspire: {
+          type: "boolean",
+          description: "تمييز التعليق «تعليقًا فكريًا ملهمًا» بنفس مسار الأداة الرسمية — نقاط أثر وثبوت أعلى المقال",
+        },
+      },
+      required: ["id", "content"],
+    },
+  },
+  {
+    name: "test_article_ai_discuss",
+    description:
+      "اختبار المحاور الذكي على أي مقال حتى وهو مسودة (DRAFT) — محاكاة دقيقة لمسار /api/ai/discuss على الموقع العام: نفس برومبت النظام الحاكم ونفس حقن التغذية الفكرية السرية (authorIntent) التي لا تُعاد في أي استجابة، مع سجل حوار اختياري — لقياس جودة ردود المحاور قبل النشر دون انتظار ودون حساب على حصص أي قارئ.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        id: { type: "string", description: "معرف المقال أو slug — إلزامي (يعمل على كل الحالات حتى DRAFT)" },
+        message: {
+          type: "string",
+          description: "سؤال الاختبار (حتى 1200 حرف) — يُترك فارغًا لسؤال جاهز: «ما الجوهر الذي يقف عليه هذا المقال؟ ناقش أقوى نقطة فيه وأضعفها بصراحة.»",
+        },
+        history: {
+          type: "array",
+          items: {
+            type: "object",
+            properties: {
+              role: { type: "string", enum: ["user", "model"] },
+              text: { type: "string" },
+            },
+            required: ["role", "text"],
+          },
+          description: "سجل حوار تراكمي اختياري [{ role: user|model, text }] لمحاكاة نقاش متعدد الأدوار",
+        },
+      },
+      required: ["id"],
+    },
+  },
 
   /* ==================== هـ) إدارة الكاش ==================== */
   {
@@ -337,7 +387,7 @@ export const MCP_TOOLS: McpToolSchema[] = [
   {
     name: "manage_user",
     description:
-      "السيادة الكاملة على حساب قارئ (بمعرف userId أو بريد email): حظره نهائيًا بسبب موثق أو فك حظره، منح/خصم رصيد أثر، تصفير هويته المخصصة عائدًا إياه لحالة Google الأصلية، تعديل بطاقته الفكرية كاملةً (الاسم المعروض والصورة والنبذة والنبذة الموسعة وروابط التواصل الموثقة)، فحص أجهزته المسجلة وإبطال جهاز بعينه، وفحص دخولات Google وجلساته وإبطالها.",
+      "السيادة الكاملة على حساب قارئ (بمعرف userId أو بريد email): حظره نهائيًا بسبب موثق أو فك حظره، منح/خصم رصيد أثر، تصفير هويته المخصصة عائدًا إياه لحالة Google الأصلية، تعديل بطاقته الفكرية كاملةً (الاسم المعروض والصورة والنبذة والنبذة الموسعة وروابط التواصل الموثقة)، فحص أجهزته المسجلة وإبطال جهاز بعينه، وفحص دخولات Google وجلساته وإبطالها، وتصفير تجربة التهيئة لمعاينة شرائح الترحيب المعدلة، وعرض/تعديل تفضيلات إشعاراته، وجرد مواضع قراءته وضبطها أو تصفيرها.",
     inputSchema: {
       type: "object",
       properties: {
@@ -355,9 +405,15 @@ export const MCP_TOOLS: McpToolSchema[] = [
             "revoke_device",
             "list_logins",
             "revoke_logins",
+            "reset_onboarding",
+            "get_prefs",
+            "set_prefs",
+            "list_reading",
+            "set_reading",
+            "reset_reading",
           ],
           description:
-            "ban حظر | unban فك الحظر | adjust_impact منح/خصم أثر | reset_identity تصفير الهوية المخصصة | update_identity تعديل البطاقة الفكرية (الاسم/الصورة/النبذة/الموسعة/الروابط) | list_devices جرد أجهزة القارئ | revoke_device إبطال جهاز بعينه | list_logins فحص دخولات Google وجلساته | revoke_logins إبطال جلساته وإجباره على إعادة الدخول",
+            "ban حظر | unban فك الحظر | adjust_impact منح/خصم أثر | reset_identity تصفير الهوية المخصصة | update_identity تعديل البطاقة الفكرية (الاسم/الصورة/النبذة/الموسعة/الروابط) | list_devices جرد أجهزة القارئ | revoke_device إبطال جهاز بعينه | list_logins فحص دخولات Google وجلساته | revoke_logins إبطال جلساته وإجباره على إعادة الدخول | reset_onboarding تصفير تجربة التهيئة (يشاهد شرائح الترحيب من جديد) | get_prefs عرض تفضيلات الإشعارات | set_prefs تعديلها | list_reading جرد مواضع قراءته | set_reading ضبط موضع قراءة مقال | reset_reading تصفير مواضع القراءة (مقال أو الكل)",
         },
         reason: {
           type: "string",
@@ -389,6 +445,17 @@ export const MCP_TOOLS: McpToolSchema[] = [
         },
         deviceId: { type: "string", description: "معرف الجهاز مع revoke_device — من list_devices" },
         limit: { type: "number", description: "عدد الأجهزة مع list_devices (افتراضي 20، أقصى 50)" },
+        prefs: {
+          type: "object",
+          description:
+            'مع set_prefs: التفضيلات الجديدة مثل {"pushNewArticles":true,"impactAndReplies":false} — المفاتيح المقبولة pushNewArticles وimpactAndReplies فقط',
+        },
+        articleId: {
+          type: "string",
+          description: "معرف المقال أو slug — إلزامي مع set_reading، ومع reset_reading يقصر التصفير على مقال واحد (بدونه تُمسح كل المواضع)",
+        },
+        progress: { type: "number", description: "مع set_reading: نسبة التقدم 0-100 (افتراضي 0)" },
+        scrollY: { type: "number", description: "مع set_reading: موضع التمرير بالبكسل (افتراضي 0)" },
       },
       required: ["action"],
     },
@@ -485,14 +552,14 @@ export const MCP_TOOLS: McpToolSchema[] = [
   {
     name: "broadcast_notification",
     description:
-      "مركز الإشعارات الجماهيري: بث إشعار لكل القراء غير المحظورين (أو إشعار مخصص لمستخدم بعينه) عبر جرس المنصة الداخلي وإشعار الويب الفوري لهواتفهم معًا، مع خيار توثيق البث في سجل تحديثات المنصة الظاهر للقراء — وجلب آخر التحديثات الموثقة أو حذف سجل منها.",
+      "مركز الإشعارات الجماهيري: بث إشعار لكل القراء غير المحظورين (أو إشعار مخصص لمستخدم بعينه) عبر جرس المنصة الداخلي وإشعار الويب الفوري لهواتفهم معًا، مع خيار توثيق البث في سجل تحديثات المنصة الظاهر للقراء — وجلب آخر التحديثات الموثقة أو تعديل سجل منها (عنوانه أو نصه أو نوعه) أو حذفه.",
     inputSchema: {
       type: "object",
       properties: {
         action: {
           type: "string",
-          enum: ["send", "list_updates", "delete_update"],
-          description: "send إرسال (افتراضي) | list_updates جلب سجل التحديثات | delete_update حذف سجل",
+          enum: ["send", "list_updates", "edit_update", "delete_update"],
+          description: "send إرسال (افتراضي) | list_updates جلب سجل التحديثات | edit_update تعديل سجل قائم | delete_update حذف سجل",
         },
         title: { type: "string", description: "عنوان الإشعار — إلزامي مع send (3 أحرف فأكثر)" },
         details: { type: "string", description: "نص الإشعار/التحديث — إلزامي مع send" },
@@ -512,10 +579,16 @@ export const MCP_TOOLS: McpToolSchema[] = [
         },
         sendInApp: { type: "boolean", description: "الإرسال لجرس المنصة الداخلي (افتراضي true)" },
         sendPush: { type: "boolean", description: "الإرسال كإشعار ويب فوري (افتراضي true)" },
-        id: { type: "string", description: "معرف سجل التحديث — إلزامي مع delete_update" },
+        id: { type: "string", description: "معرف سجل التحديث — إلزامي مع edit_update وdelete_update" },
         limit: { type: "number", description: "عدد نتائج list_updates (افتراضي 12)" },
       },
     },
+  },
+  {
+    name: "export_content_backup",
+    description:
+      "نسخة احتياطية فورية كاملة للمحتوى في لقطة JSON واحدة منظمة: كل المقالات بحالاتها (بالمتن العادي والمشكول والتغذية الفكرية السرية authorIntent والأغلفة وبيانات الصوت وروابطه السحابية) والأقسام كلها والصفحات القانونية الثلاث والتكوين السيادي SiteConfig كله — خذها واحفظها في أي وقت؛ مقاطع الصوت الخام وكلماتها المتزامنة تُستبعد تخفيفًا للحجم وتكفي روابط الملفات للاسترجاع.",
+    inputSchema: { type: "object", properties: {} },
   },
 
   /* ==================== ط) الإعدادات السيادية ==================== */
@@ -801,19 +874,22 @@ export const MCP_TOOLS: McpToolSchema[] = [
   {
     name: "manage_admin_account",
     description:
-      "ذرات حساب الإدارة نفسه: نظرة شاملة على حسابات الأدمن وجلسات اللوحة الحية بأجهزتها وعناوينها والأجهزة الموثوقة وحالة التحقق الثنائي، مع إبطال أي جلسة، وإزالة جهاز موثوق، وتغيير كلمة المرور (يتطلب كلمة المرور الحالية للتحقق).",
+      "ذرات حساب الإدارة نفسه: نظرة شاملة على حسابات الأدمن وجلسات اللوحة الحية بأجهزتها وعناوينها والأجهزة الموثوقة وحالة التحقق الثنائي، مع إبطال أي جلسة، وإزالة جهاز موثوق، وتغيير كلمة المرور (يتطلب كلمة المرور الحالية للتحقق)، وطوارئ تعطيل التحقق الثنائي عند فقدان الهاتف (بكلمة المرور الحالية، ويوثَّق كتنبيه أمني CRITICAL).",
     inputSchema: {
       type: "object",
       properties: {
         action: {
           type: "string",
-          enum: ["overview", "revoke_session", "remove_device", "change_password"],
+          enum: ["overview", "revoke_session", "remove_device", "change_password", "disable_2fa"],
           description:
-            "overview نظرة شاملة (افتراضي) | revoke_session إبطال جلسة | remove_device إزالة جهاز موثوق | change_password تغيير كلمة المرور",
+            "overview نظرة شاملة (افتراضي) | revoke_session إبطال جلسة | remove_device إزالة جهاز موثوق | change_password تغيير كلمة المرور | disable_2fa طوارئ تعطيل التحقق الثنائي",
         },
         sessionId: { type: "string", description: "معرف الجلسة — إلزامي مع revoke_session" },
         deviceId: { type: "string", description: "معرف الجهاز — إلزامي مع remove_device" },
-        currentPassword: { type: "string", description: "كلمة المرور الحالية — إلزامية مع change_password للتحقق" },
+        currentPassword: {
+          type: "string",
+          description: "كلمة المرور الحالية — إلزامية مع change_password وdisable_2fa للتحقق",
+        },
         newPassword: { type: "string", description: "كلمة المرور الجديدة — إلزامية مع change_password" },
       },
     },
@@ -1013,11 +1089,12 @@ export const MCP_TOOLS: McpToolSchema[] = [
         "type": "string",
         "enum": [
           "BRANDING",
+          "SOCIAL",
           "TEXTS",
           "FLAGS",
           "IMPACT"
         ],
-        "description": "تصفية بتصنيف واحد — تُترك فارغة للكل"
+        "description": "تصفية بتصنيف واحد (SOCIAL لروابط التواصل الرسمية) — تُترك فارغة للكل"
       },
       "key": {
         "type": "string",
