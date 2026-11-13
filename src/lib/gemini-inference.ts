@@ -414,12 +414,14 @@ export async function generateCoverArt(
  * الرؤية الفنية للوصف، والعربي غير المهيأ أو فشل الترجمة يعيد null
  * ليتحول المستدعي إلى القالب الاحتياطي بدل إرسال عربي خام للمحرك.
  */
-export async function translateCoverPromptToEnglish(text: string): Promise<string | null> {
+export async function translateCoverPromptToEnglish(
+  text: string,
+): Promise<{ ok: boolean; prompt: string | null; reason?: string }> {
   const trimmed = text.replace(/["'`]+/g, " ").replace(/\s+/g, " ").trim();
-  if (trimmed.length < 3) return null;
+  if (trimmed.length < 3) return { ok: false, prompt: null, reason: "empty" };
   /* إنجليزي (أو رموز فقط) — يعود كما هو دون استدعاء النموذج */
-  if (!/[\u0600-\u06FF]/.test(trimmed)) return trimmed;
-  if (!geminiConfigured()) return null;
+  if (!/[\u0600-\u06FF]/.test(trimmed)) return { ok: true, prompt: trimmed, reason: "already-english" };
+  if (!geminiConfigured()) return { ok: false, prompt: null, reason: "gemini-not-configured" };
   try {
     const translated = await geminiChat({
       candidates: ["gemini-2.5-flash", "gemini-2.5-flash-lite", "gemini-2.0-flash"],
@@ -443,10 +445,14 @@ export async function translateCoverPromptToEnglish(text: string): Promise<strin
       .replace(/\s+/g, " ")
       .trim();
     if (cleaned.length >= 20 && /[a-zA-Z]{3,}/.test(cleaned)) {
-      return cleaned;
+      return { ok: true, prompt: cleaned, reason: "translated" };
     }
-    return null;
-  } catch {
-    return null;
+    return { ok: false, prompt: null, reason: "translation-too-short" };
+  } catch (err) {
+    return {
+      ok: false,
+      prompt: null,
+      reason: `gemini-error: ${err instanceof GeminiError ? err.message.slice(0, 120) : "تعذر الاتصال"}`,
+    };
   }
 }

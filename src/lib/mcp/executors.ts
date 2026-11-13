@@ -4350,14 +4350,18 @@ async function generateArticleCover(args: McpArgs, meta: McpRequestMeta) {
      | قالب المنصة ← يرقّيه Gemini من الجوهر */
   let artPrompt: string;
   let promptEngine: string;
+  let translationNote: string | null = null;
   if (customPrompt) {
-    const translated = await translateCoverPromptToEnglish(customPrompt);
-    if (translated) {
-      artPrompt = translated;
-      promptEngine = translated === customPrompt.trim() ? "custom-en" : "custom-translated";
+    const tr = await translateCoverPromptToEnglish(customPrompt);
+    if (tr.ok && tr.prompt) {
+      artPrompt = tr.prompt;
+      promptEngine = tr.reason === "already-english" ? "custom-en" : "custom-translated";
     } else {
       artPrompt = buildArtPrompt(article.title, article.summary ?? "", core);
       promptEngine = "template-fallback";
+      translationNote = tr.reason
+        ? `تعذر ترجمة الوصف العربي (${tr.reason === "gemini-not-configured" ? "خدمة الذكاء الاصطناعي غير مهيأة" : tr.reason.startsWith("gemini-error") ? tr.reason.slice("gemini-error: ".length) : "الصياغة لم تكتمل"}) — استُخدم القالب الاحتياطي؛ أعد المحاولة أو اكتب البرومبت بالإنجليزية`
+        : null;
     }
   } else {
     artPrompt = buildArtPrompt(article.title, article.summary ?? "", core);
@@ -4408,6 +4412,7 @@ async function generateArticleCover(args: McpArgs, meta: McpRequestMeta) {
       promptEngine,
       prompt: artPrompt,
       aspect,
+      ...(translationNote ? { note: translationNote } : {}),
       coreChars: core.length,
     };
   }

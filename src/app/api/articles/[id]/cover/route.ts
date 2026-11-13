@@ -81,15 +81,19 @@ export async function POST(request: Request, { params }: Params) {
        الوصف العربي المخصص يُترجم عبر Gemini أولًا: محركات الصور لا تفهم العربية */
     let artPrompt: string;
     let promptEngine: string;
+    let promptNote: string | null = null;
     if (customPrompt.length >= 3) {
-      const translated = await translateCoverPromptToEnglish(customPrompt);
-      if (translated) {
-        artPrompt = `${translated}, ${COVER_CUSTOM_SUFFIX}`;
-        promptEngine = translated === customPrompt ? "custom-en" : "custom-translated";
+      const tr = await translateCoverPromptToEnglish(customPrompt);
+      if (tr.ok && tr.prompt) {
+        artPrompt = `${tr.prompt}, ${COVER_CUSTOM_SUFFIX}`;
+        promptEngine = tr.reason === "already-english" ? "custom-en" : "custom-translated";
       } else {
         /* عربي بلا ترجمة ممكنة — القالب الإنجليزي الاحتياطي بدل عربي خام يفشل */
         artPrompt = buildArtPrompt(article.title, article.summary, core);
         promptEngine = "template-fallback";
+        promptNote = tr.reason
+          ? `تعذر ترجمة وصفك العربي (${tr.reason === "gemini-not-configured" ? "خدمة الذكاء الاصطناعي غير مهيأة" : tr.reason.startsWith("gemini-error") ? tr.reason.slice("gemini-error: ".length) : "الصياغة لم تكتمل"}) — استُخدم القالب الفني الاحتياطي؛ أعد المحاولة بعد لحظات أو اكتب البرومبت بالإنجليزية ليُعتمد كما هو`
+          : null;
       }
     } else {
       artPrompt = buildArtPrompt(article.title, article.summary, core);
@@ -145,7 +149,7 @@ export async function POST(request: Request, { params }: Params) {
       ip: getClientIp(request),
     });
 
-    return NextResponse.json({ image: dataUrl, engine, prompt: artPrompt, aspect });
+    return NextResponse.json({ image: dataUrl, engine, prompt: artPrompt, aspect, ...(promptNote ? { note: promptNote } : {}) });
   } catch (err) {
     if (err instanceof GeminiError) {
       return NextResponse.json({ error: err.message }, { status: err.status >= 500 ? 502 : err.status });
