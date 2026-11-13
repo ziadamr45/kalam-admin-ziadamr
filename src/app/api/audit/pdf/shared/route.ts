@@ -13,11 +13,15 @@ export async function GET(request: Request) {
   const range = (url.searchParams.get("range") ?? "").toLowerCase();
   const exp = Number(url.searchParams.get("exp"));
   const sig = url.searchParams.get("sig");
+  const from = url.searchParams.get("from");
+  const to = url.searchParams.get("to");
 
-  if (!["weekly", "monthly"].includes(range)) {
-    return NextResponse.json({ error: "نطاق التقرير يجب أن يكون weekly أو monthly" }, { status: 400 });
+  if (!["weekly", "monthly", "custom"].includes(range)) {
+    return NextResponse.json({ error: "نطاق التقرير يجب أن يكون weekly أو monthly أو custom" }, { status: 400 });
   }
-  if (!verifyAuditShare(range, exp, sig)) {
+  /* النطاق المخصص: من/to جزء من الحمولة الموقعة — أي تخمين يفسد التوقيع */
+  const extra = range === "custom" ? `from=${from ?? ""}&to=${to ?? ""}` : "";
+  if (!verifyAuditShare(range, exp, sig, extra)) {
     return NextResponse.json(
       { error: exp < Date.now() / 1000 ? "انتهت صلاحية رابط التقرير — ولّد رابطًا جديدًا" : "رابط غير موقّع — رفض الوصول" },
       { status: 403 },
@@ -25,7 +29,8 @@ export async function GET(request: Request) {
   }
 
   try {
-    const ledgerRange = resolveLedgerRange(range);
+    const ledgerRange =
+      range === "custom" ? resolveLedgerRange("custom", from, to) : resolveLedgerRange(range);
     const { entries, summary } = await loadLedger({ range: ledgerRange, take: 500 });
     const buffer = await renderAuditReportPdf({
       entries,

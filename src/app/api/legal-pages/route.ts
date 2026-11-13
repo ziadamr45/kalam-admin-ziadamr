@@ -2,10 +2,12 @@ import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { requireSession, isRejected, writeAudit, getClientIp } from "@/lib/guard";
 import { revalidatePublicPaths } from "@/lib/revalidate";
+import { LEGAL_DEFAULTS, LEGAL_TITLES, LEGAL_DEFAULTS_UPDATED_AT } from "@/lib/legal-defaults";
 
 const ALLOWED_SLUGS = ["privacy", "terms", "dialogue-ethics"];
 
-/** قراءة نصوص الصفحات القانونية القابلة للتحرير */
+/** قراءة نصوص الصفحات القانونية القابلة للتحرير — مع النصوص الافتراضية
+    المعرضة حاليًا على الموقع (لتعبئة المحرر عند غياب نسخة محفوظة) */
 export async function GET(request: Request) {
   const guard = await requireSession(request);
   if (isRejected(guard)) return guard;
@@ -14,7 +16,18 @@ export async function GET(request: Request) {
     const pages = await prisma.legalPage.findMany({
       where: { slug: { in: ALLOWED_SLUGS } },
     });
-    return NextResponse.json({ pages });
+    /* النص الافتراضي لكل صفحة — نفس المصدر الذي يعرضه الموقع العام عند غياب النسخة المحفوظة */
+    const defaults = Object.fromEntries(
+      ALLOWED_SLUGS.map((slug) => [
+        slug,
+        {
+          title: LEGAL_TITLES[slug as keyof typeof LEGAL_TITLES],
+          content: LEGAL_DEFAULTS[slug as keyof typeof LEGAL_DEFAULTS],
+          updatedAt: LEGAL_DEFAULTS_UPDATED_AT,
+        },
+      ]),
+    );
+    return NextResponse.json({ pages, defaults });
   } catch {
     return NextResponse.json({ error: "خطأ داخلي" }, { status: 500 });
   }

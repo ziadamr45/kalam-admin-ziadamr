@@ -40,7 +40,7 @@ import { kickWorker } from "@/lib/audio-job";
 import { TTS_VOICES, TTS_VOICE, synthesizeChunk } from "@/lib/gemini-tts";
 import { encodeNarration, pcmDurationSec } from "@/lib/audio-encode";
 import { bumpApiUsage } from "@/lib/api-usage";
-import { generateCoverArt, geminiChat, geminiConfigured, GeminiError, type ChatTurn } from "@/lib/gemini-inference";
+import { generateCoverArt, translateCoverPromptToEnglish, geminiChat, geminiConfigured, GeminiError, type ChatTurn, type CoverAspect } from "@/lib/gemini-inference";
 import { buildArtPrompt, sanitizeForPrompt } from "@/lib/cover-prompt";
 import {
   resolveEmailConfig,
@@ -4325,6 +4325,13 @@ async function generateArticleCover(args: McpArgs, meta: McpRequestMeta) {
   if (!id) throw new McpToolError("معرف المقال (أو slug) إلزامي");
   const customPrompt = str(args, "prompt");
   const preview = bool(args, "preview") === true;
+  /* نسبة الأبعاد — تطابق واجهة المحرر: landscape | square | portrait */
+  const aspectRaw = str(args, "aspect")?.toLowerCase();
+  const aspect: CoverAspect =
+    aspectRaw === "square" || aspectRaw === "portrait" ? aspectRaw : "landscape";
+  if (aspectRaw && aspectRaw !== "square" && aspectRaw !== "portrait" && aspectRaw !== "landscape") {
+    throw new McpToolError("aspect يقبل landscape | square | portrait فقط");
+  }
 
   const article =
     (await prisma.article.findUnique({
@@ -4339,9 +4346,23 @@ async function generateArticleCover(args: McpArgs, meta: McpRequestMeta) {
 
   const core = sanitizeForPrompt(article.content ?? "").slice(0, 1600);
 
-  /* البرومبت: مخصص صريح ← يُعتمد كما هو | قالب المنصة ← يرقّيه Gemini من الجوهر */
-  let artPrompt = customPrompt ?? buildArtPrompt(article.title, article.summary ?? "", core);
-  let promptEngine = customPrompt ? "custom" : "template";
+  /* البرومبت: مخصص صريح ← يُترجم للإنجليزية إن كان عربيًا (محركات الصور لا تفهم العربية)
+     | قالب المنصة ← يرقّيه Gemini من الجوهر */
+  let artPrompt: string;
+  let promptEngine: string;
+  if (customPrompt) {
+    const translated = await translateCoverPromptToEnglish(customPrompt);
+    if (translated) {
+      artPrompt = translated;
+      promptEngine = translated === customPrompt.trim() ? "custom-en" : "custom-translated";
+    } else {
+      artPrompt = buildArtPrompt(article.title, article.summary ?? "", core);
+      promptEngine = "template-fallback";
+    }
+  } else {
+    artPrompt = buildArtPrompt(article.title, article.summary ?? "", core);
+    promptEngine = "template";
+  }
   if (!customPrompt && geminiConfigured()) {
     try {
       const synthesized = await geminiChat({
@@ -4386,6 +4407,7 @@ async function generateArticleCover(args: McpArgs, meta: McpRequestMeta) {
       article: { id: article.id, title: article.title, slug: article.slug },
       promptEngine,
       prompt: artPrompt,
+      aspect,
       coreChars: core.length,
     };
   }
@@ -4395,7 +4417,7 @@ async function generateArticleCover(args: McpArgs, meta: McpRequestMeta) {
   let base64: string;
   let mimeType: string;
   try {
-    const art = await generateCoverArt(artPrompt, Date.now() + 50_000);
+    const art = await generateCoverArt(artPrompt, Date.now() + 50_000, aspect);
     engine = art.engine;
     base64 = art.base64;
     mimeType = art.mimeType;
@@ -5793,20 +5815,31 @@ async function executeHardDeleteTool(args: McpArgs, meta: McpRequestMeta) {
 /** kalam_generate_audit_pdf — التقرير الرقابي الفاخر → رابط تنزيل دائم */
 async function generateAuditPdfTool(args: McpArgs, meta: McpRequestMeta) {
   const range = (str(args, "range") ?? "weekly").toLowerCase();
-  if (!["weekly", "monthly"].includes(range))
-    throw new McpToolError("range يقبل weekly | monthly فقط");
+  const from = str(args, "from");
+  const to = str(args, "to");
+  if (!["weekly", "monthly", "custom"].includes(range))
+    throw new McpToolError("range يقبل weekly | monthly | custom فقط");
+  if (range === "custom" && (!from || !to))
+    throw new McpToolError("النطاق المخصص يتطلب from وto بصيغة YYYY-MM-DD");
 
-  const ledgerRange = resolveLedgerRange(range);
+  /* رابط تنزيل موقّع HMAC من الخادم نفسه — بلا اعتماد على مزود خارجي؛
+     النطاق المخصص يوقع معاملاته (from/to) داخل التوقيع نفسه */
+  const extra = range === "custom" ? `from=${from}&to=${to}` : undefined;
+  let ledgerRange;
+  try {
+    ledgerRange = range === "custom" ? resolveLedgerRange("custom", from, to) : resolveLedgerRange(range);
+  } catch (err) {
+    throw new McpToolError(err instanceof Error ? err.message : "نطاق التاريخ المخصص غير صالح");
+  }
   const { entries, summary } = await loadLedger({ range: ledgerRange, take: 500 });
-  /* رابط تنزيل موقّع HMAC من الخادم نفسه — بلا اعتماد على مزود خارجي */
-  const downloadUrl = buildAuditShareUrl(range === "monthly" ? "monthly" : "weekly");
+  const downloadUrl = buildAuditShareUrl(range as "weekly" | "monthly" | "custom", 30, extra);
 
   await writeAudit({
     adminId: null,
     action: "mcp.audit_pdf_generated",
     entity: "AuditTrail",
     entityId: `shared:${range}`,
-    meta: { via: "gemini-spark-mcp", range: ledgerRange.label, entries: summary.total, url: downloadUrl },
+    meta: { via: "gemini-spark-mcp", range: ledgerRange.label, from, to, entries: summary.total, url: downloadUrl },
     ip: meta.ip,
   });
 

@@ -353,7 +353,10 @@ export async function pollinationsImage(
   }
 
   throw new GeminiError(
-    `تعذر توليد الصورة عبر المحرك المجاني الاحتياطي${lastStatus ? ` (HTTP ${lastStatus})` : ""} — أعد المحاولة بعد لحظات`,
+    `تعذر توليد الصورة عبر المحرك المجاني الاحتياطي${lastStatus ? ` (HTTP ${lastStatus})` : ""}` +
+      (lastStatus === 429 || lastStatus === 503
+        ? " — المحرك المجاني على سيرفرات مشتركة يقيد الطلبات (صورة كل ~45 ثانية تقريبًا): انتظر نصف دقيقة وأعد المحاولة، أو ولّد غلافًا آخر بعد قليل — القيد مؤقت ويعود للعمل تلقائيًا"
+        : " — أعد المحاولة بعد لحظات، وإن تكرر فانتظر نصف دقيقة (المحرك المجاني يقيد الصورة كل ~45 ثانية تقريبًا)"),
     502,
   );
 }
@@ -402,4 +405,44 @@ export async function generateCoverArt(
     height: a.height,
   });
   return { ...r, engine: "pollinations-flux" };
+}
+
+/**
+ * ترجمة برومبت الغلاف المخصص إلى الإنجليزية الفنية — محركات الصور
+ * (Pollinations المجاني وغيره) لا تفهم العربية فتنتج أخطاء أو صورًا
+ * مشوهة. الوصف العربي يمر عبر Gemini ليُصاغ بالإنجليزية مع الحفاظ على
+ * الرؤية الفنية للوصف، والعربي غير المهيأ أو فشل الترجمة يعيد null
+ * ليتحول المستدعي إلى القالب الاحتياطي بدل إرسال عربي خام للمحرك.
+ */
+export async function translateCoverPromptToEnglish(text: string): Promise<string | null> {
+  const trimmed = text.replace(/["'`]+/g, " ").replace(/\s+/g, " ").trim();
+  if (trimmed.length < 3) return null;
+  /* إنجليزي (أو رموز فقط) — يعود كما هو دون استدعاء النموذج */
+  if (!/[\u0600-\u06FF]/.test(trimmed)) return trimmed;
+  if (!geminiConfigured()) return null;
+  try {
+    const translated = await geminiChat({
+      candidates: ["gemini-2.5-flash", "gemini-2.5-flash-lite", "gemini-2.0-flash"],
+      memoKind: "cover-prompt",
+      timeoutMs: 12_000,
+      temperature: 0.4,
+      maxOutputTokens: 220,
+      system:
+        "أنت مترجم فني خبير. مهمتك إعادة صياغة وصف الغلاف العربي بالإنجليزية كسطر توجيه واحد لمحرك توليد الصور (image-generation prompt)، محافظًا على كل تفاصيل الوصف الفنية: الموضوع والمزاج والإضاءة والألوان والأسلوب. أخرج السطر الإنجليزي فقط دون أي شرح أو علامات تنسيق أو اقتباسات، ودون أي حرف عربي.",
+      turns: [
+        {
+          role: "user",
+          text: `أعد صياغة وصف الغلاف التالي بالإنجليزية كسطر توجيه فني واحد:\n\n${trimmed}`,
+        },
+      ],
+    });
+    const cleaned = translated.replace(/["'`]+/g, "").replace(/\s+/g, " ").trim();
+    /* تقبل الصياغة فقط إن كانت إنجليزية فعلًا — أي عربي باقٍ يعني فشلًا */
+    if (cleaned.length >= 20 && /[a-zA-Z]/.test(cleaned) && !/[\u0600-\u06FF]/.test(cleaned)) {
+      return cleaned;
+    }
+    return null;
+  } catch {
+    return null;
+  }
 }

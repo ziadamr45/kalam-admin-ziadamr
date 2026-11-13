@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { requireSession, isRejected, writeAudit, getClientIp } from "@/lib/guard";
-import { generateCoverArt, geminiChat, geminiConfigured, GeminiError, type CoverAspect } from "@/lib/gemini-inference";
+import { generateCoverArt, translateCoverPromptToEnglish, geminiChat, geminiConfigured, GeminiError, type CoverAspect } from "@/lib/gemini-inference";
 import { uploadImage, cloudinaryConfigured } from "@/lib/cloudinary";
 import { buildArtPrompt, sanitizeForPrompt, COVER_CUSTOM_SUFFIX } from "@/lib/cover-prompt";
 
@@ -77,12 +77,20 @@ export async function POST(request: Request, { params }: Params) {
       body.aspect === "square" || body.aspect === "portrait" ? body.aspect : "landscape";
 
     /* الخطوة 1 — برومبت إنجليزي احترافي: وصف صاحب القرار يغلب المدير الفني،
-       وإلا فصياغة Gemini أو القالب الإنجليزي الحتمي المدمج — لا يُفشل التوليد هنا أبدًا */
+       وإلا فصياغة Gemini أو القالب الإنجليزي الحتمي المدمج — لا يُفشل التوليد هنا أبدًا.
+       الوصف العربي المخصص يُترجم عبر Gemini أولًا: محركات الصور لا تفهم العربية */
     let artPrompt: string;
     let promptEngine: string;
     if (customPrompt.length >= 3) {
-      artPrompt = `${customPrompt}, ${COVER_CUSTOM_SUFFIX}`;
-      promptEngine = "custom";
+      const translated = await translateCoverPromptToEnglish(customPrompt);
+      if (translated) {
+        artPrompt = `${translated}, ${COVER_CUSTOM_SUFFIX}`;
+        promptEngine = translated === customPrompt ? "custom-en" : "custom-translated";
+      } else {
+        /* عربي بلا ترجمة ممكنة — القالب الإنجليزي الاحتياطي بدل عربي خام يفشل */
+        artPrompt = buildArtPrompt(article.title, article.summary, core);
+        promptEngine = "template-fallback";
+      }
     } else {
       artPrompt = buildArtPrompt(article.title, article.summary, core);
       promptEngine = "template";
