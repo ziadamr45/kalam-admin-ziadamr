@@ -35,6 +35,10 @@ const PUBLIC_PATHS = [
      وx-worker-secret على مستوى المسار نفسه (403 عند أي خلل) */
   "/api/internal",
   "/api/audio/worker",
+  /* تشخيص التوليد الصوتي — حمايته ?secret=CRON_SECRET على مستوى المسار
+     نفسه (نفس نمط /api/cron و/api/internal)، والوسيط كان يقطعه بـ401
+     قبل أن يصل للسر فلا يمكن استدعاؤه خارجيًا أصلًا رغم تصميمه لهذا */
+  "/api/audio/selftest",
   /* تنزيل التقرير الرقابي عبر رابط موقّع HMAC بصلاحية مؤقتة — بلا جلسة */
   "/api/audit/pdf/shared",
 ];
