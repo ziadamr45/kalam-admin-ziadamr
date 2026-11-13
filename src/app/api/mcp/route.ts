@@ -175,8 +175,9 @@ async function handleMessage(
           () => executeMcpTool(name, args, { ip: clientIp }),
         );
 
-        /* القيد الموحد للبوابة — كل أداة مغيّرة ناجحة بقيد رقابي في السجل
-           السيادي باسمها واسم العميل ومدخلاتها المطبّهة من الأسرار */
+        /* القيد الموحد للبوابة — كل أداة مغيّرة ناجحة بقيد رقابي فوري في السجل
+           السيادي باسمها واسم العميل ومدخلاتها المطبّهة من الأسرار. المصدر
+           يُختم صراحةً MCP لأن الكتابة تجري خارج نطاق سياق القناة */
         const tool = MCP_TOOLS.find((t) => t.name === name);
         if (tool && tool.annotations?.readOnlyHint !== true) {
           void writeTrail({
@@ -185,6 +186,8 @@ async function handleMessage(
             actorRole: "SYSTEM",
             actionCategory: "MCP_ACTION",
             actionType: name,
+            source: "MCP",
+            channelLabel: clientName,
             description: `تنفيذ أداة «${tool.annotations?.title ?? name}» عبر بوابة MCP بواسطة ${clientName}`,
             tool: name,
             reason: typeof args.reason === "string" ? (args.reason as string) : null,
