@@ -3575,7 +3575,8 @@ function repairWordDivergences(
     const tok = gw[i];
     if (!tok || /^\s+$/.test(tok)) continue;
     if (wi >= pw.length) break;
-    if (stripTashkeel(tok) !== pw[wi]) {
+    /* شطب الطرفين قبل المقارنة — المتن الأصلي يحتمل تشكيلاً جزئيًا موروثًا */
+    if (stripTashkeel(tok) !== stripTashkeel(pw[wi])) {
       if (fixedWords.length < 30) fixedWords.push({ word: pw[wi], modelVersion: tok });
       gw[i] = pw[wi];
     }
