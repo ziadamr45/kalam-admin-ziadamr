@@ -163,8 +163,9 @@ export function DashboardShell({
                 </span>
                 <PushToggle />
               </div>
-              {/* الحسابات التقنية الرسمية — من المصدر الموحد للروابط */}
-              <div className="mb-3 flex items-center gap-2 px-2">
+              {/* الحسابات التقنية الرسمية — من المصدر الموحد للروابط
+                  (لفّ مرن + توزيع عادل كي لا تُقص الروابط على الحافة الشمالية في RTL) */}
+              <div className="mb-3 flex flex-wrap items-center justify-between gap-x-1 gap-y-1.5 px-2">
                 <a
                   href={SOCIAL_LINKS.github}
                   target="_blank"
