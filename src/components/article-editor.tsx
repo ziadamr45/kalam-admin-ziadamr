@@ -1,7 +1,7 @@
 "use client";
 
 import { useRouter } from "next/navigation";
-import { useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useSidebarOpen } from "@/components/dashboard-shell";
 import {
   Badge,
@@ -86,12 +86,16 @@ export function ArticleEditor({
   /* التغذية الفكرية السرية — تُحقن في System Prompt لمساعد النقاش ولا تُعرض للجمهور إطلاقًا */
   const [authorIntent, setAuthorIntent] = useState(initial?.authorIntent ?? "");
 
-  /* مولّد الغلاف الذكي */
+  /* مولّد الغلاف الذكي — التوليد معاينة فقط لا تمس شيئًا، والاعتماد يملأ
+     حقل صورة الغلاف في المحرر ويُحفظ مع المقال عند حفظ التغييرات كأي حقل */
   const [coverBusy, setCoverBusy] = useState<"generate" | "adopt" | null>(null);
   const [coverPreview, setCoverPreview] = useState<string>("");
   const [coverError, setCoverError] = useState<string>("");
-  /* اعتُمد الغلاف المولّد تلقائيًا على الخادم (رُفع سحابيًا وارتبط بالمقال)؟ */
-  const [coverAutoSaved, setCoverAutoSaved] = useState(false);
+  /* وصف بصري اختياري من صاحب القرار — يغلب المدير الفني الآلي تمامًا */
+  const [coverPromptInput, setCoverPromptInput] = useState("");
+  const [coverAspect, setCoverAspect] = useState<"landscape" | "square" | "portrait">("landscape");
+  const [artPromptShown, setArtPromptShown] = useState(""); /* البرومبت النهائي المعاين */
+  const [promptPanelOpen, setPromptPanelOpen] = useState(false);
 
   /* أدوات إدراج الآيات والأحاديث + المعاينة الحية */
   const contentRef = useRef<HTMLTextAreaElement | null>(null);
@@ -108,11 +112,44 @@ export function ArticleEditor({
 
   const [busy, setBusy] = useState(false);
   const [checklistOpen, setChecklistOpen] = useState(false);
-  const [checks, setChecks] = useState<boolean[]>(() => {
-    const saved = initial?.checklistData?.items;
-    if (saved) return checklist.map((c) => saved.find((s) => s.text === c.text)?.checked ?? false);
-    return checklist.map(() => false);
-  });
+  /* لقطة القائمة الأخلاقية عند فتح الصفحة — تُقاس عليها التعديلات في حارس الخروج */
+  const initialChecks = () =>
+    checklist.map((c) => initial?.checklistData?.items?.find((s) => s.text === c.text)?.checked ?? false);
+  const [checks, setChecks] = useState<boolean[]>(() => initialChecks());
+
+  /* حارس التعديلات غير المحفوظة — كل حقل يُقارن بلقطة فتح الصفحة، وأي فرق
+     يجعل إغلاق التبويب أو تحديثه يستدعي تحذير المتصفح قبل الخروج */
+  const dirty = useMemo(() => {
+    const i = initial;
+    return (
+      title !== (i?.title ?? "") ||
+      slug !== (i?.slug ?? "") ||
+      summary !== (i?.summary ?? "") ||
+      content !== (i?.content ?? "") ||
+      tashkeel !== (i?.contentWithTashkeel ?? "") ||
+      (sectionId ?? null) !== (i?.sectionId ?? null) ||
+      coverImage !== (i?.coverImage ?? "") ||
+      audioUrl !== (i?.audioUrl ?? "") ||
+      (audioDurationSec ?? null) !== (i?.audioDurationSec ?? null) ||
+      authorIntent !== (i?.authorIntent ?? "") ||
+      tashkeelEnabled !== (i?.tashkeelEnabled ?? true) ||
+      status !== (i?.status ?? "DRAFT") ||
+      scheduledAt !== (i?.scheduledAt ? i.scheduledAt.slice(0, 16) : "") ||
+      checks.some((c, idx) => c !== (initialChecks()[idx] ?? false))
+    );
+    /* eslint-disable-next-line react-hooks/exhaustive-deps */
+  }, [initial, checklist, title, slug, summary, content, tashkeel, sectionId, coverImage, audioUrl, audioDurationSec, authorIntent, tashkeelEnabled, status, scheduledAt, checks]);
+
+  useEffect(() => {
+    if (!dirty) return;
+    const handler = (e: BeforeUnloadEvent) => {
+      e.preventDefault();
+      e.returnValue = ""; /* كروم يشترط ضبط القيمة لعرض التحذير */
+      return "";
+    };
+    window.addEventListener("beforeunload", handler);
+    return () => window.removeEventListener("beforeunload", handler);
+  }, [dirty]);
 
   /* توليد slug تلقائي من العنوان ما لم يحرره المالك يدويًا */
   const onTitleChange = (value: string) => {
@@ -139,10 +176,19 @@ export function ArticleEditor({
     [content, tashkeel, wordCount, tashkeelWordCount],
   );
 
-  /* مزامنة اختيارية: التشكيل يتبع النص القياسي عند الكتابة */
+  /* مزامنة اختيارية: التشكيل يتبع النص القياسي مع كل حرف طالما المزامنة مفعّلة —
+     وتتوقف تلقائيًا لحظة أول تعديل يدوي لخانة التشكيل (القرار ينتقل ليد صاحبه) */
   const onContentChange = (value: string) => {
     setContent(value);
-    if (syncTashkeel && tashkeel.trim() === "") setTashkeel(value);
+    if (syncTashkeel) setTashkeel(value);
+  };
+
+  const onTashkeelChange = (value: string) => {
+    setTashkeel(value);
+    if (syncTashkeel) {
+      setSyncTashkeel(false);
+      toast("توقفت المزامنة التلقائية — التشكيل صار بيدك من هنا", "info");
+    }
   };
 
   /* إدراج كتلة آية/حديث في موضع المؤشر داخل الحقل النشط */
@@ -282,18 +328,21 @@ export function ArticleEditor({
     save("PUBLISHED", true);
   };
 
-  /* ============ مولّد الغلاف الذكي — خطوتان على الخادم ثم سلسلة محركات رسم متدرجة ============ */
+  /* ============ مولّد الغلاف الذكي — توليد للمعاينة فقط، واعتماد يملأ الحقل ============ */
   const generateCover = async () => {
     if (!initial?.id) return;
     setCoverBusy("generate");
     setCoverError("");
     setCoverPreview("");
-    setCoverAutoSaved(false);
     try {
       const res = await fetch(`/api/articles/${initial.id}/cover`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ action: "generate" }),
+        body: JSON.stringify({
+          action: "generate",
+          prompt: coverPromptInput.trim() || undefined,
+          aspect: coverAspect,
+        }),
       });
       const data = await res.json().catch(() => ({}));
       if (!res.ok) {
@@ -301,14 +350,9 @@ export function ArticleEditor({
         return;
       }
       setCoverPreview(data.image || "");
-      if (data.url) {
-        /* الخادم رفع الصورة سحابيًا وحفظها في coverImage مباشرة */
-        setCoverImage(data.url);
-        setCoverAutoSaved(true);
-        toast("وُلّد الغلاف ورُفع سحابيًا وارتبط بالمقال تلقائيًا", "success");
-      } else {
-        toast("صُنع الغلاف من مضمون المقال — اعتمده أو ولّد بديلًا", "success");
-      }
+      setArtPromptShown(typeof data.prompt === "string" ? data.prompt : "");
+      setPromptPanelOpen(false);
+      toast("وُلّدت معاينة الغلاف — صورتك الحالية سليمة تمامًا؛ اعتمدها للاستبدال أو ولّد بديلًا", "success");
     } catch {
       setCoverError("انقطع الاتصال أثناء التوليد — أعد المحاولة");
     } finally {
@@ -330,9 +374,10 @@ export function ArticleEditor({
         toast(data.error || "تعذر اعتماد الغلاف", "error");
         return;
       }
-      setCoverImage(data.url);
+      /* الرابط يملأ حقل الغلاف في المحرر فقط — يثبت في المقال عند حفظ التغييرات */
+      setCoverImage(data.url || "");
       setCoverPreview("");
-      toast("اعُتمد الغلاف ورُفع سحابيًا وارتبط بالمقال", "success");
+      toast("اعُتمد الغلاف في المحرر — اضغط حفظ التغييرات ليثبت في المقال", "success");
     } catch {
       toast("انقطع الاتصال أثناء الاعتماد — أعد المحاولة", "error");
     } finally {
@@ -576,15 +621,25 @@ export function ArticleEditor({
           <textarea
             ref={tashkeelRef}
             value={tashkeel}
-            onChange={(e) => setTashkeel(e.target.value)}
+            onChange={(e) => onTashkeelChange(e.target.value)}
             onFocus={() => setInsertTarget("tashkeel")}
             rows={14}
             className="field tashkeel-editor resize-y font-body"
             placeholder="وَالْكَلَامُ الْمُشَكَّلُ هُنَا بِكَامِلِ حَرَكَاتِهِ.."
           />
           <label className="mt-2 flex items-center gap-2 text-[11px] text-steel-500">
-            <input type="checkbox" checked={syncTashkeel} onChange={(e) => setSyncTashkeel(e.target.checked)} className="accent-copper-600" />
-            مزامنة تلقائية من النسخة القياسية (حتى تبدأ الكتابة المشكولة)
+            <input
+              type="checkbox"
+              checked={syncTashkeel}
+              onChange={(e) => {
+                const on = e.target.checked;
+                setSyncTashkeel(on);
+                /* تشغيل المزامنة = لحاق التشكيل بالنص القياسي فورًا ثم اتباعه حرفًا بحرف */
+                if (on) setTashkeel(content);
+              }}
+              className="accent-copper-600"
+            />
+            مزامنة تلقائية من النسخة القياسية — تتوقف تلقائيًا عند أول تعديل يدوي للتشكيل
           </label>
         </Card>
 
@@ -639,13 +694,14 @@ export function ArticleEditor({
       <Card className="space-y-5 p-6">
         <h3 className="text-sm font-bold text-steel-800">الوسائط والملحقات</h3>
 
-        {/* مولّد الغلاف التجريدي الذكي — من مضمون المقال بأسلوب فلسفي هادئ */}
+        {/* مولّد الغلاف الذكي — معاينة فقط حتى الاعتماد اليدوي والحفظ */}
         <div className="rounded-2xl border border-steel-100 p-4">
           <div className="flex flex-wrap items-center justify-between gap-3">
             <div>
               <p className="text-xs font-bold text-steel-700">مولّد الغلاف الذكي</p>
               <p className="mt-0.5 text-[11px] text-steel-400">
-                يصيغ فنًا تجريديًا فلسفيًا هادئًا يعبّر عن فكرة المقال — بلا أي نصوص مكتوبة
+                مشهد تصويري واقعي هادئ يعبّر عن فكرة المقال — معاينة فقط:
+                صورتك الحالية لا تُمسّ ولا تُحفظ أي شيء حتى تعتمد وتحفظ
               </p>
             </div>
             <Button
@@ -657,9 +713,33 @@ export function ArticleEditor({
             >
               {coverBusy === "generate"
                 ? "جارٍ التوليد.. (قد يستغرق حتى دقيقة)"
-                : "توليد غلاف تجريدي ذكي من مضمون المقال"}
+                : "توليد غلاف ذكي من مضمون المقال"}
             </Button>
           </div>
+
+          {/* وصف بصري اختياري + نسبة الأبعاد — يغلب المدير الفني الآلي */}
+          <div className="mt-3 grid gap-3 sm:grid-cols-[1fr_auto]">
+            <textarea
+              value={coverPromptInput}
+              onChange={(e) => setCoverPromptInput(e.target.value)}
+              rows={2}
+              className="field resize-y text-sm leading-7"
+              placeholder="وصف بصري اختياري — اكتب ما في خيالك (مثال: مكتب خشبي قديم وكتاب مفتوح وضوء شمس دافئ من نافذة) وسيُنفَّذ حرفيًا. اتركه فارغًا ليصوغ المدير الفني الآلي من مضمون المقال"
+            />
+            <div className="flex items-start">
+              <select
+                value={coverAspect}
+                onChange={(e) => setCoverAspect(e.target.value as "landscape" | "square" | "portrait")}
+                className="field max-w-44"
+                title="نسبة أبعاد الغلاف"
+              >
+                <option value="landscape">أفقي 16:9 — غلاف المقال</option>
+                <option value="square">مربع 1:1 — السوشيال</option>
+                <option value="portrait">عمودي 2:3 — الستوري</option>
+              </select>
+            </div>
+          </div>
+
           {!initial?.id && (
             <p className="mt-2 text-[11px] text-copper-700">
               احفظ المقال كمسودة أولًا (زر «حفظ كمسودة» أدناه) ثم عُد ليتاح التوليد.
@@ -690,36 +770,44 @@ export function ArticleEditor({
                 alt="معاينة الغلاف المولّد"
                 className="max-h-72 w-full rounded-xl border border-steel-100 object-cover"
               />
-              {coverAutoSaved && (
-                <p
-                  className="rounded-xl border p-3 text-xs font-bold leading-6"
-                  style={{ borderColor: "#bbf7d0", background: "#f0fdf4", color: "#15803d" }}
-                >
-                  ✓ اعتُمد الغلاف تلقائيًا: رُفع سحابيًا وارتبط بحقل صورة الغلاف،
-                  وسيظهر في المقال فور حفظك أو حتى دون حفظ (حُفظ على الخادم مباشرة).
-                </p>
+              {artPromptShown && (
+                <div className="rounded-xl border border-steel-100">
+                  <button
+                    type="button"
+                    onClick={() => setPromptPanelOpen((v) => !v)}
+                    className="flex w-full items-center justify-between px-3 py-2 text-[11px] font-bold text-steel-600"
+                  >
+                    {promptPanelOpen ? "إخفاء البرومبت الفني النهائي" : "عرض البرومبت الفني النهائي"}
+                    <span>{promptPanelOpen ? "▾" : "▸"}</span>
+                  </button>
+                  {promptPanelOpen && (
+                    <p dir="ltr" className="max-h-40 overflow-y-auto border-t border-steel-100 px-3 py-2 text-left text-[11px] leading-5 text-steel-500">
+                      {artPromptShown}
+                    </p>
+                  )}
+                </div>
               )}
               <div className="flex flex-wrap gap-2">
-                {!coverAutoSaved && (
-                  <Button size="sm" onClick={adoptCover} disabled={coverBusy !== null}>
-                    {coverBusy === "adopt" ? "جارٍ الاعتماد والرفع.." : "اعتماد الغلاف ورفعه وربطه بالمقال"}
-                  </Button>
-                )}
+                <Button size="sm" onClick={adoptCover} disabled={coverBusy !== null}>
+                  {coverBusy === "adopt" ? "جارٍ الاعتماد والرفع.." : "اعتماد الغلاف واستبدال الحالي"}
+                </Button>
                 <Button size="sm" variant="outline" onClick={generateCover} disabled={coverBusy !== null}>
                   توليد بديل
                 </Button>
                 <Button
                   size="sm"
                   variant="ghost"
-                  onClick={() => {
-                    setCoverPreview("");
-                    setCoverAutoSaved(false);
-                  }}
+                  onClick={() => setCoverPreview("")}
                   disabled={coverBusy !== null}
+                  title="تُقفل المعاينة وتبقى صورتك الحالية كما هي دون أي تغيير"
                 >
                   تجاهل
                 </Button>
               </div>
+              <p className="text-[11px] leading-5 text-steel-400">
+                الاعتماد يرفع الصورة سحابيًا ويملأ حقل صورة الغلاف في المحرر —
+                يثبت في المقال فعليًا عند «حفظ التغييرات / حفظ كمسودة / نشر الآن» كأي حقل آخر.
+              </p>
             </div>
           )}
         </div>

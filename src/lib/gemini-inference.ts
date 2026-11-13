@@ -281,6 +281,7 @@ export async function geminiImage(
 export async function geminiImagen(
   prompt: string,
   timeoutMs = 20_000,
+  aspectRatio = "16:9",
 ): Promise<{ base64: string; mimeType: string }> {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), timeoutMs);
@@ -293,7 +294,7 @@ export async function geminiImagen(
       },
       body: JSON.stringify({
         instances: [{ prompt }],
-        parameters: { sampleCount: 1, aspectRatio: "16:9" },
+        parameters: { sampleCount: 1, aspectRatio },
       }),
       signal: controller.signal,
     });
@@ -319,6 +320,7 @@ export async function geminiImagen(
 export async function pollinationsImage(
   prompt: string,
   timeoutMs = 35_000,
+  size?: { width: number; height: number },
 ): Promise<{ base64: string; mimeType: string }> {
   const clipped = prompt.replace(/\s+/g, " ").trim().slice(0, 900);
   const started = Date.now();
@@ -329,7 +331,7 @@ export async function pollinationsImage(
     const seed = Math.floor(Math.random() * 1_000_000);
     const url =
       `https://image.pollinations.ai/prompt/${encodeURIComponent(clipped)}` +
-      `?width=1200&height=630&nologo=true&model=flux&seed=${seed}`;
+      `?width=${size?.width ?? 1200}&height=${size?.height ?? 630}&nologo=true&model=flux&seed=${seed}`;
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), timeoutMs);
     try {
@@ -356,6 +358,14 @@ export async function pollinationsImage(
   );
 }
 
+/** نسب أبعاد الغلاف المدعومة — توجيه نصي لكل المحركات + أبعاد حقيقية لـPollinations */
+export type CoverAspect = "landscape" | "square" | "portrait";
+const ASPECT_MAP: Record<CoverAspect, { phrase: string; imagen: string; width: number; height: number }> = {
+  landscape: { phrase: "wide 16:9 landscape composition", imagen: "16:9", width: 1200, height: 630 },
+  square: { phrase: "square 1:1 composition", imagen: "1:1", width: 1024, height: 1024 },
+  portrait: { phrase: "vertical 2:3 portrait composition", imagen: "2:3", width: 832, height: 1248 },
+};
+
 /**
  * منسق سلسلة توليد أغلفة المقالات — يجرب المحركات بالترتيب وينتقل صمتًا
  * عند أي رفض صلاحية أو غياب حصة، مع سقف زمني (deadline) يحمي ميزانية
@@ -364,13 +374,16 @@ export async function pollinationsImage(
 export async function generateCoverArt(
   prompt: string,
   deadline = Date.now() + 50_000,
+  aspect: CoverAspect = "landscape",
 ): Promise<{ base64: string; mimeType: string; engine: string }> {
   const left = () => deadline - Date.now();
+  const a = ASPECT_MAP[aspect] ?? ASPECT_MAP.landscape;
+  const styled = `${prompt}, ${a.phrase}`;
 
   /* 1) Imagen 3 — إن امتلك المفتاح صلاحيات مفوترة */
   if (left() > 8_000) {
     try {
-      const r = await geminiImagen(prompt, Math.min(20_000, left() - 4_000));
+      const r = await geminiImagen(styled, Math.min(20_000, left() - 4_000), a.imagen);
       return { ...r, engine: "imagen-3" };
     } catch {}
   }
@@ -378,12 +391,15 @@ export async function generateCoverArt(
   /* 2) نماذج صور Gemini — إن توفرت حصتها */
   if (left() > 8_000) {
     try {
-      const r = await geminiImage(prompt, Math.min(40_000, left() - 4_000));
+      const r = await geminiImage(styled, Math.min(40_000, left() - 4_000));
       return { ...r, engine: "gemini-image" };
     } catch {}
   }
 
   /* 3) المحرك المجاني الفوري — الضمانة النهائية بلا مفتاح */
-  const r = await pollinationsImage(prompt, Math.max(12_000, Math.min(35_000, left())));
+  const r = await pollinationsImage(styled, Math.max(12_000, Math.min(35_000, left())), {
+    width: a.width,
+    height: a.height,
+  });
   return { ...r, engine: "pollinations-flux" };
 }
