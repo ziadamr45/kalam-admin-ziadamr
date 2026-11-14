@@ -7,6 +7,7 @@ import { ConfirmProvider, ToastProvider } from "@/components/ui";
 import { PushToggle } from "@/components/push-toggle";
 import { SovereignTerminal } from "@/components/sovereign-terminal";
 import { AdminNotificationBell, AdminUrgentBar } from "@/components/notification-center";
+import { AdminBrandMark } from "@/components/admin-brand-mark";
 import { SOCIAL_LINKS } from "@/lib/constants/socials";
 
 /**
@@ -112,15 +113,8 @@ export function DashboardShell({
           <div className="flex h-full flex-col">
             <div className="border-b border-steel-800 p-5">
               <div className="flex items-center gap-3">
-                {/* هوية اللوحة — حجم ناعم يندمج مع صفة الحساب دون حشو */}
-                {/* eslint-disable-next-line @next/next/no-img-element */}
-                <img
-                  src="/icons/icon-192.png"
-                  alt=""
-                  width={40}
-                  height={40}
-                  className="h-10 w-10 rounded-xl"
-                />
+                {/* هوية اللوحة — شعار الكاف + ترس الإعدادات */}
+                <AdminBrandMark className="h-10 w-10 rounded-xl" />
                 <div>
                   <p className="text-sm font-bold text-white">لوحة التحكم</p>
                   <p className="text-[10px] text-steel-300">كلام له لازمة</p>
@@ -251,8 +245,7 @@ export function DashboardShell({
               </button>
               {/* هوية اللوحة على الهاتف — الشريط يبقى صافيًا بلا حشر */}
               <div className="flex min-w-0 items-center gap-2 lg:hidden">
-                {/* eslint-disable-next-line @next/next/no-img-element */}
-                <img src="/icons/icon-192.png" alt="" width={28} height={28} className="h-7 w-7 rounded-lg" />
+                <AdminBrandMark className="h-7 w-7 rounded-lg" />
                 <span className="whitespace-nowrap text-sm font-bold text-steel-900">لوحة التحكم</span>
               </div>
               <div className="hidden items-center gap-2 lg:flex">
