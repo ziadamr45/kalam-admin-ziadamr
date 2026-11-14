@@ -102,11 +102,11 @@ function validate(params: AuthorizeParams):
       errorDesc: "PKCE إلزامي — code_challenge مفقود",
     };
   }
-  if (!["S256", "plain"].includes(params.method)) {
+  if (params.method !== "S256") {
     return {
       ok: false,
       errorCode: "invalid_request",
-      errorDesc: "طريقة code_challenge_method غير مدعومة",
+      errorDesc: "طريقة code_challenge_method غير مدعومة — يُقبل S256 فقط",
     };
   }
   return { ok: true, client };
