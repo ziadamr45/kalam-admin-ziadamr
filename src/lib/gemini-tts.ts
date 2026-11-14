@@ -4,7 +4,7 @@
  * - إعادة محاولة تلقائية بتراجع أُسّي على 429/5xx/انقطاع الشبكة مع احترام Retry-After.
  * - بدائل موديلات: إن تقاعد اسم preview ينتقل التالي تلقائيًا ويُتذكر العامل.
  * - رسائل عربية واضحة لأشهر الأعطال (الحظر الجغرافي، المفتاح، الحصة).
- * - المخرجات: PCM 16-bit mono 24kHz (base64) من inlineData.
+ * - المخرجات: PCM 16-bit mono 24kHz (base64) من inlineData (مع إزالة ترويسة WAV تلقائيًا إن وُجدت).
  */
 
 const API_ROOT = "https://generativelanguage.googleapis.com/v1beta/models";
@@ -22,12 +22,13 @@ const MODEL_CANDIDATES = [
 /* الصوت الافتراضي: نبرة هادئة فخمة رصينة تناسب مقالات الفكر والوعي */
 export const TTS_VOICE = process.env.GEMINI_TTS_VOICE || "Charon";
 
-/* تعليمات الأداء والمخرج الصوتي بالعربية الفصحى — لا تُنطق، توجّه النطق واللكنة فقط */
-const STYLE_PROMPT = `اقرأ النص العربي التالي بصوت مذيع عربي أصيل متمكّن من اللغة العربية الفصحى، بنبرة هادئة، رصينة، ودافئة تناسب المقالات الفكرية والتأملية.
-التزم تمامًا بمخارج الحروف العربية السليمة دون أي لكنة أجنبية، وراعِ التشكيل الظاهر في الكلمات بدقة، مع وقفات طبيعية قصيرة عند الفواصل وأطول قليلًا عند نهاية الجمل.
-لا تقرأ هذه التعليمات، وابدأ القراءة مباشرةً من النص التالي:
+/* توجيه الأداء لموديلات Gemini 3.8 TTS عبر speechMetadata.style (لا يُقرأ بصوتٍ عالٍ أبدًا) */
+const STYLE_38 =
+  "Warm, calm, dignified Modern Standard Arabic narrator; authentic Arabic articulation without foreign accent, clear diacritic pronunciation, natural pauses at punctuation.";
 
-`;
+/* توجيه الأداء للموديلات الأقدم (2.5 / 3.1) بصيغة قصيرة معتمدة */
+const LEGACY_STYLE_PROMPT =
+  "Read aloud in a warm, calm, dignified Modern Standard Arabic narrator voice with clear articulation and natural pauses:\n\n";
 
 let workingModel: string | null = null;
 
@@ -66,6 +67,12 @@ type GeminiAudioResponse = {
 };
 
 async function callOnce(model: string, text: string, voice?: string): Promise<{ pcm: Buffer; sampleRate: number }> {
+  const isGemini38 = model.startsWith("gemini-3.8");
+  /* في Gemini 3.8 يُعامل حقل text كنص حرفي للقراءة فقط، وتوضع تعليمات الأداء في speechMetadata.style */
+  const partPayload = isGemini38
+    ? { text, speechMetadata: { style: STYLE_38 } }
+    : { text: LEGACY_STYLE_PROMPT + text };
+
   const res = await fetch(`${API_ROOT}/${model}:generateContent`, {
     method: "POST",
     headers: {
@@ -73,7 +80,7 @@ async function callOnce(model: string, text: string, voice?: string): Promise<{ 
       "x-goog-api-key": process.env.GEMINI_API_KEY ?? "",
     },
     body: JSON.stringify({
-      contents: [{ parts: [{ text: STYLE_PROMPT + text }] }],
+      contents: [{ parts: [partPayload] }],
       generationConfig: {
         responseModalities: ["AUDIO"],
         speechConfig: {
@@ -101,9 +108,14 @@ async function callOnce(model: string, text: string, voice?: string): Promise<{ 
   if (!b64) {
     throw new TtsError("استجابة التوليد وصلت بلا بيانات صوتية — أعد المحاولة", 502);
   }
-  const rateMatch = mime.match(/rate=(\\d+)/);
+  const rateMatch = mime.match(/rate=(\d+)/);
   const sampleRate = rateMatch ? Number(rateMatch[1]) : 24000;
-  return { pcm: Buffer.from(b64, "base64"), sampleRate };
+  let pcm = Buffer.from(b64, "base64");
+  /* Gemini 3.8 يُرجع أحيانًا ملف WAV كامل بترويسة RIFF (44 بايت) عند الطلبات غير المتدفقة */
+  if (pcm.length > 44 && pcm.subarray(0, 4).toString("ascii") === "RIFF") {
+    pcm = pcm.subarray(44);
+  }
+  return { pcm, sampleRate };
 }
 
 /** أصوات Gemini TTS المسبقة التعريف — القائمة الرسمية القابلة للتمرير في
