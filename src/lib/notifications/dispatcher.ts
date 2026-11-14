@@ -8,13 +8,10 @@ import type { NotificationChannel, NotificationType } from "@prisma/client";
  * كل إشعار في المنظومة الرقمية بالكامل — المنصة العامة ولوحة الأدمن — يمر من هنا وحده:
  *
  *   1) إنشاء السجل الموحد في جدول Notification (جرس داخل الموقع).
- *   2) بث ويب فوري عبر الاشتراكات المسجلة (Web Push — البادج الأبيض المفرغ
- *      يحدده Service Worker لكل نطاق: badge-public للمنصة وbadge-admin للوحة).
- *   3) بريد إلكتروني معاملاتي عبر Gmail SMTP (Nodemailer) عندما تتطلب القناة ذلك.
- *   4) رنين هواتف الإدارة (بادج اللوحة) لأحداث السيادة الإدارية.
- *
- * تحترم التفضيلات في User.notificationPrefs ما عدا الأمان (بريد الأمان إلزامي)،
- * وكل طبقة معزولة بـ catch خاص — فشل بريد لا يُسقط إشعارًا، والعكس.
+ *   2) بث ويب فوري عبر الاشتراكات المسجلة (Web Push).
+ *   3) بريد إلكتروني معاملاتي عبر Gmail SMTP (Nodemailer) بقالب خفيف
+ *      متعدد الأجزاء (HTML + Plain Text) لتفادي فلاتر السبام.
+ *   4) رنين هواتف الإدارة لأحداث السيادة الإدارية.
  */
 
 export const OWNER_EMAIL = "ziad90216@gmail.com";
@@ -23,18 +20,18 @@ export const PLATFORM_EMAIL = "kalamlaholazma@gmail.com";
 export type DispatchChannels = "IN_APP" | "WEB_PUSH" | "EMAIL" | "ALL";
 
 export type DispatchInput = {
-  userId: string; // المستلم — قارئ أو حساب صاحب المنصة
+  userId: string;
   type: NotificationType;
   title: string;
   message: string;
   link?: string | null;
   metadata?: Record<string, unknown> | null;
-  channels?: DispatchChannels; // الافتراضي ALL وفق مصفوفة الإرسال
+  channels?: DispatchChannels;
   pushTag?: string;
-  adminDevicePush?: boolean; // رنين إضافي لهواتف الإدارة (بادج اللوحة badge-admin)
-  emailHtml?: string | null; // قالب بريد مخصص يغلف الرسالة
-  forceInApp?: boolean; // إشعار لا يخضع لتفضيلات المستخدم (أمن، سيادة)
-  forceEmail?: boolean; // بريد لا يُلغى بالإعدادات (الأمان)
+  adminDevicePush?: boolean;
+  emailHtml?: string | null;
+  forceInApp?: boolean;
+  forceEmail?: boolean;
 };
 
 export type DispatchResult = {
@@ -44,7 +41,6 @@ export type DispatchResult = {
   adminPushed: boolean;
 };
 
-/** الأنواع التي يحكمها مفتاح «إشعارات الأثر والردود» في مركز التفضيلات */
 const IMPACT_PREF_TYPES = new Set<string>([
   "IMPACT_POINTS_EARNED",
   "COMMENT_REPLY",
@@ -54,7 +50,6 @@ const IMPACT_PREF_TYPES = new Set<string>([
   "COMMENT_LIKED",
 ]);
 
-/** الأنواع التي يحكمها مفتاح «إشعارات المتصفح للمقالات الجديدة» */
 const ARTICLE_PUSH_TYPES = new Set<string>(["ARTICLE_PUBLISHED", "BROADCAST"]);
 
 type UserPrefs = {
@@ -92,38 +87,135 @@ async function loadPrefs(userId: string): Promise<UserPrefs> {
   }
 }
 
-/** قالب البريد المعاملاتي الموحد — عربي RTL فاخر ومتوافق مع عملاء البريد */
+function escapeHtml(s: string): string {
+  return s
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#39;");
+}
+
+function emailThemeFor(type?: string): {
+  badge: string;
+  accent: string;
+  softBg: string;
+  headerBg: string;
+  ctaLabel: string;
+} {
+  if (type === "SECURITY_NEW_LOGIN") {
+    return {
+      badge: "تنبيه أمني",
+      accent: "#DC2626",
+      softBg: "#FEF2F2",
+      headerBg: "#18181B",
+      ctaLabel: "مراجعة الأجهزة والجلسات",
+    };
+  }
+  if (
+    type === "USER_VERIFIED" ||
+    type === "AHL_AL_KALIMA_UNLOCKED" ||
+    type === "VIP_UPGRADE_GRANTED"
+  ) {
+    return {
+      badge: "توثيق وتمييز",
+      accent: "#A16A1F",
+      softBg: "#FDF8EE",
+      headerBg: "#1E293B",
+      ctaLabel: "عرض بطاقتك الفكرية",
+    };
+  }
+  if (type === "VIP_REVOKED" || type?.startsWith("ADMIN_")) {
+    return {
+      badge: type?.startsWith("ADMIN_") ? "إشعار إداري" : "تحديث الحساب",
+      accent: "#475569",
+      softBg: "#F1F5F9",
+      headerBg: "#0F172A",
+      ctaLabel: "عرض التفاصيل",
+    };
+  }
+  if (type === "COMMENT_FEATURED" || type === "IMPACT_POINTS_EARNED" || type === "COMMENT_APPROVED") {
+    return {
+      badge: "أثر وتفاعل",
+      accent: "#3C7A4E",
+      softBg: "#F0FDF4",
+      headerBg: "#1E293B",
+      ctaLabel: "الانتقال إلى المنصة",
+    };
+  }
+  return {
+    badge: "إشعار من المنصة",
+    accent: "#A16A1F",
+    softBg: "#FAF6EE",
+    headerBg: "#1E293B",
+    ctaLabel: "فتح في المنصة",
+  };
+}
+
+/**
+ * قالب البريد المعاملاتي الموحد — خفيف جدًا (~3KB)، متوافق مع كل عملاء البريد،
+ * بهوية «كلام له لازمة» الورقية الدافئة وشعارها الرسمي، وبألوان تتكيّف حسب نوع الحدث.
+ */
 export function notificationEmailHtml(
   title: string,
   message: string,
   link: string | null,
+  type?: string,
 ): string {
+  const theme = emailThemeFor(type);
+  const siteUrl = process.env.NEXT_PUBLIC_SITE_URL ?? "https://kalam-ziadamr.vercel.app";
+  const logoUrl = `${siteUrl}/icons/icon-192.png`;
+  const targetUrl = link
+    ? link.startsWith("http")
+      ? link
+      : `${siteUrl}${link.startsWith("/") ? link : `/${link}`}`
+    : null;
+
   const lines = message
     .split("\n")
     .map((l) => l.trim())
     .filter(Boolean)
-    .map((l) => `<p style="margin:0 0 12px;line-height:1.9;color:#3F3F46;font-size:15px;">${l}</p>`)
+    .map(
+      (l) =>
+        `<p style="margin:0 0 12px;line-height:1.95;color:#2B241A;font-size:15px;">${escapeHtml(l)}</p>`,
+    )
     .join("");
-  const siteUrl = process.env.NEXT_PUBLIC_SITE_URL ?? "https://kalam-ziadamr.vercel.app";
-  return `<!DOCTYPE html><html dir="rtl" lang="ar"><body style="margin:0;padding:24px;background:#FAFAF9;font-family:'Segoe UI',Tahoma,Arial,sans-serif;">
-<div style="max-width:560px;margin:0 auto;background:#FFFFFF;border:1px solid #E7E5E4;border-radius:16px;overflow:hidden;">
-  <div style="background:#1E293B;padding:20px 24px;">
-    <div style="color:#F5F5F4;font-size:18px;font-weight:700;">كلام له لازمة</div>
-    <div style="color:#94A3B8;font-size:12px;margin-top:4px;">منظومة الإشعارات الرسمية</div>
-  </div>
-  <div style="padding:24px;">
-    <h1 style="margin:0 0 16px;font-size:18px;color:#18181B;line-height:1.6;">${title}</h1>
-    ${lines}
-    ${
-      link
-        ? `<a href="${siteUrl}${link.startsWith("/") ? link : `/${link}`}" style="display:inline-block;margin-top:8px;background:#B45309;color:#FFFFFF;text-decoration:none;padding:10px 22px;border-radius:999px;font-size:14px;font-weight:700;">فتح في المنصة</a>`
-        : ""
-    }
-  </div>
-  <div style="padding:16px 24px;background:#FAFAF9;border-top:1px solid #E7E5E4;color:#A8A29E;font-size:11px;line-height:1.8;">
-    وصلتك هذه الرسالة لأنك حساب موثق في منصة «كلام له لازمة». بريد التنبيهات الأمنية إلزامي ولا يمكن إلغاؤه؛ ويمكنك ضبط بقية التفضيلات من صفحة ملفك الشخصي.
-  </div>
-</div>
+
+  return `<!DOCTYPE html><html dir="rtl" lang="ar"><body style="margin:0;padding:24px 12px;background:#F5EFE4;font-family:'Segoe UI',Tahoma,Arial,sans-serif;">
+<table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="max-width:560px;margin:0 auto;background:#FFFFFF;border:1px solid #E7DEC9;border-radius:16px;overflow:hidden;">
+  <tr>
+    <td style="background:${theme.headerBg};padding:18px 24px;border-bottom:3px solid ${theme.accent};">
+      <table role="presentation" width="100%" cellspacing="0" cellpadding="0">
+        <tr>
+          <td style="vertical-align:middle;width:44px;">
+            <img src="${logoUrl}" width="40" height="40" alt="كلام له لازمة" style="display:block;border-radius:10px;border:1px solid rgba(255,255,255,0.18);"/>
+          </td>
+          <td style="vertical-align:middle;padding-right:12px;">
+            <div style="color:#FAF6EE;font-size:17px;font-weight:700;line-height:1.3;">كلام له لازمة</div>
+            <div style="color:#CBD5E1;font-size:11.5px;margin-top:2px;">مش كل كلام لازم يتقال.. بس فيه كلام له لازمة.</div>
+          </td>
+        </tr>
+      </table>
+    </td>
+  </tr>
+  <tr>
+    <td style="padding:26px 24px 22px;">
+      <div style="display:inline-block;padding:4px 12px;border-radius:999px;background:${theme.softBg};color:${theme.accent};font-size:11.5px;font-weight:700;margin-bottom:14px;border:1px solid ${theme.accent}33;">${theme.badge}</div>
+      <h1 style="margin:0 0 16px;font-size:19px;color:#1F1A14;line-height:1.6;">${escapeHtml(title)}</h1>
+      ${lines}
+      ${
+        targetUrl
+          ? `<div style="margin-top:20px;"><a href="${targetUrl}" style="display:inline-block;background:${theme.accent};color:#FFFFFF;text-decoration:none;padding:11px 24px;border-radius:999px;font-size:14px;font-weight:700;">${theme.ctaLabel}</a></div>`
+          : ""
+      }
+    </td>
+  </tr>
+  <tr>
+    <td style="padding:15px 24px;background:#FAF6EE;border-top:1px solid #E7DEC9;color:#6B5F4D;font-size:11.5px;line-height:1.85;">
+      تصلك هذه الرسالة من منصة <a href="${siteUrl}" style="color:#A16A1F;text-decoration:none;font-weight:700;">كلام له لازمة</a> لتنبيهك بشأن حسابك. رسائل الأمان إلزامية لحماية الحساب، ويمكنك ضبط بقية التفضيلات من <a href="${siteUrl}/profile" style="color:#A16A1F;text-decoration:none;">ملفك الشخصي</a>.
+    </td>
+  </tr>
+</table>
 </body></html>`;
 }
 
@@ -134,12 +226,6 @@ export type EmailConfig = {
   from: string;
 };
 
-/**
- * مصدر إعدادات قناة البريد (Gmail SMTP):
- *  1) متغيرات البيئة (SMTP_USER / SMTP_PASS / SECURITY_EMAIL_FROM) إن وُجدت.
- *  2) احتياطًا: جدول SystemSetting المشترك — تُكتب من بطاقة «قناة البريد»
- *     في هذه اللوحة (لصق App Password من الهاتف دون طرفية أو إعادة نشر).
- */
 export async function resolveEmailConfig(): Promise<EmailConfig> {
   let user = process.env.SMTP_USER?.trim() || null;
   let pass = process.env.SMTP_PASS?.trim().replace(/\s+/g, "") || null;
@@ -176,6 +262,17 @@ export async function resolveEmailConfig(): Promise<EmailConfig> {
   };
 }
 
+function stripHtmlToText(html: string): string {
+  return html
+    .replace(/<style[\s\S]*?<\/style>/gi, " ")
+    .replace(/<br\s*\/?>/gi, "\n")
+    .replace(/<\/(p|div|h1|h2|h3|li|tr)>/gi, "\n")
+    .replace(/<[^>]+>/g, " ")
+    .replace(/[ \t]+/g, " ")
+    .replace(/\n{3,}/g, "\n\n")
+    .trim();
+}
+
 export async function sendRawEmail(input: {
   to: string | string[];
   subject: string;
@@ -195,13 +292,15 @@ export async function sendRawEmail(input: {
       secure: true,
       auth: { user, pass },
     });
+    const plainText =
+      input.text ?? (input.html ? stripHtmlToText(input.html) : undefined);
     const info = await transporter.sendMail({
       from: input.from ?? from,
       to: Array.isArray(input.to) ? input.to.join(", ") : input.to,
       subject: input.subject,
+      replyTo: input.replyTo ?? user,
       ...(input.html ? { html: input.html } : {}),
-      ...(input.text ? { text: input.text } : {}),
-      ...(input.replyTo ? { replyTo: input.replyTo } : {}),
+      ...(plainText ? { text: plainText } : {}),
     });
     try {
       const { bumpApiUsage } = await import("@/lib/api-usage");
@@ -221,16 +320,21 @@ async function sendEmail(input: {
   message: string;
   link: string | null;
   html?: string | null;
+  type?: string;
 }): Promise<boolean> {
+  const siteUrl = process.env.NEXT_PUBLIC_SITE_URL ?? "https://kalam-ziadamr.vercel.app";
+  const linkLine = input.link
+    ? `\n\nفتح في المنصة: ${input.link.startsWith("http") ? input.link : `${siteUrl}${input.link.startsWith("/") ? input.link : `/${input.link}`}`}`
+    : "";
   const res = await sendRawEmail({
     to: input.to,
     subject: input.title,
-    html: input.html ?? notificationEmailHtml(input.title, input.message, input.link),
+    text: `${input.title}\n\n${input.message}${linkLine}\n\n—\nكلام له لازمة`,
+    html: input.html ?? notificationEmailHtml(input.title, input.message, input.link, input.type),
   });
   return res.ok;
 }
 
-/** معرف حساب صاحب المنصة السيادي — مستلم أحداث السيادة الإدارية */
 export async function getOwnerUserId(): Promise<string | null> {
   try {
     const owner = await prisma.user.findUnique({
@@ -243,10 +347,6 @@ export async function getOwnerUserId(): Promise<string | null> {
   }
 }
 
-/**
- * دالة الإرسال الموحدة — المعاملة المتزامنة الكاملة:
- * سجل موحد + بث ويب + بريد + رنين إداري اختياري، وكلها معزولة عن بعضها.
- */
 export async function dispatchNotification(input: DispatchInput): Promise<DispatchResult> {
   const result: DispatchResult = {
     inApp: false,
@@ -262,7 +362,6 @@ export async function dispatchNotification(input: DispatchInput): Promise<Dispat
   const wantPush = channels === "ALL" || channels === "WEB_PUSH";
   const wantEmail = channels === "ALL" || channels === "EMAIL";
 
-  /* احترام مركز تفضيلات القارئ — الأمان والسيادة فوق التفضيلات دائمًا */
   const suppressImpact = !input.forceInApp && IMPACT_PREF_TYPES.has(input.type) && !prefs.impactAndReplies;
   const suppressArticlePush = ARTICLE_PUSH_TYPES.has(input.type) && !prefs.pushNewArticles;
 
@@ -288,7 +387,7 @@ export async function dispatchNotification(input: DispatchInput): Promise<Dispat
     }
   }
 
-  /* 2) بث الويب الفوري — البادج يحدده Service Worker لكل نطاق */
+  /* 2) بث الويب الفوري */
   if (wantPush && !suppressImpact && !suppressArticlePush) {
     try {
       const sent = await pushUsers(
@@ -306,7 +405,7 @@ export async function dispatchNotification(input: DispatchInput): Promise<Dispat
     }
   }
 
-  /* 3) البريد المعاملاتي عبر Gmail SMTP */
+  /* 3) البريد المعاملاتي عبر Gmail SMTP (معزول كليًا عن الجرس والـ Push) */
   if (wantEmail && (input.forceEmail || !suppressImpact) && prefs.email) {
     result.emailSent = await sendEmail({
       to: prefs.email,
@@ -314,10 +413,11 @@ export async function dispatchNotification(input: DispatchInput): Promise<Dispat
       message: input.message,
       link,
       html: input.emailHtml,
+      type: input.type,
     });
   }
 
-  /* 4) رنين هواتف الإدارة (بادج اللوحة) لأحداث السيادة */
+  /* 4) رنين هواتف الإدارة لأحداث السيادة */
   if (input.adminDevicePush) {
     try {
       await pushAdmins({
@@ -332,7 +432,6 @@ export async function dispatchNotification(input: DispatchInput): Promise<Dispat
     }
   }
 
-  /* توثيق موحد في نشاط حي — زينة رقابية لا تعطل أبدًا */
   try {
     await prisma.auditEvent.create({
       data: {
@@ -354,17 +453,13 @@ export async function dispatchNotification(input: DispatchInput): Promise<Dispat
   return result;
 }
 
-/**
- * البث الجماهيري الموحد — لكل القراء غير المحظورين أو قائمة مستهدفين.
- * fan-out فعّال بـ createMany واحتواء تفضيلات بث المقالات لكل مستخدم.
- */
 export async function dispatchBroadcast(input: {
   type: NotificationType;
   title: string;
   message: string;
   link?: string | null;
-  userIds?: string[]; // فارغة = كل غير المحظورين
-  channels?: DispatchChannels; // الافتراضي IN_APP + WEB_PUSH (البث لا يراسل بريدًا افتراضيًا)
+  userIds?: string[];
+  channels?: DispatchChannels;
   pushTag?: string;
   metadata?: Record<string, unknown> | null;
 }): Promise<{ inApp: number; pushSent: number }> {
@@ -443,10 +538,6 @@ export async function dispatchBroadcast(input: {
   }
 }
 
-/**
- * حدث سيادة إدارية — يستلمه حساب المالك جرسًا داخليًا في لوحة الأدمن
- * + رنين فوري لهواتف الإدارة (بادج اللوحة) + بريد طوارئ اختياري.
- */
 export async function dispatchAdminEvent(input: {
   type: NotificationType;
   title: string;
@@ -471,7 +562,6 @@ export async function dispatchAdminEvent(input: {
       forceEmail: input.emergencyEmail,
     }).catch(() => {});
   }
-  /* رنين هواتف الإدارة حتى لو غاب حساب المالك من جدول القراء */
   try {
     await pushAdmins({
       title: input.title.slice(0, 120),
