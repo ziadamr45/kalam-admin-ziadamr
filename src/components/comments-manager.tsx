@@ -9,6 +9,8 @@ type CommentReportRow = {
   reason: string;
   details: string | null;
   reporterFp: string | null;
+  reporterUserId: string | null;
+  reporterEmail: string | null;
   createdAt: string;
 };
 
@@ -355,33 +357,35 @@ export function CommentsManager() {
       >
         <div className="space-y-3">
           {reportsTarget && reportsTarget.reports.length > 0 ? (
-            <>
-              <p className="text-[11px] leading-5 text-steel-500">
-                الإبلاغ متاح للجميع بدون تسجيل دخول، لذا يُسجَّل مع كل بلاغ سببه وتفاصيله وبصمة متصفح المبلِّغ.
-              </p>
-              <div className="max-h-72 space-y-2.5 overflow-y-auto pr-1">
-                {reportsTarget.reports.map((r) => (
-                  <div
-                    key={r.id}
-                    className="rounded-xl border border-steel-200 bg-steel-50 p-3 text-xs leading-6"
-                  >
-                    <div className="flex flex-wrap items-center justify-between gap-2">
-                      <Badge tone="warn">{r.reason}</Badge>
-                      <span className="text-[11px] text-steel-400">{fmtDate(r.createdAt)}</span>
-                    </div>
-                    {r.details && (
-                      <p className="mt-2 whitespace-pre-line text-steel-700">
-                        <strong className="text-steel-900">التفاصيل: </strong>
-                        {r.details}
-                      </p>
-                    )}
-                    <p className="mt-1.5 text-[11px] text-steel-500" dir="ltr">
-                      FP: {r.reporterFp || "غير متوفر"}
+            <div className="max-h-72 space-y-2.5 overflow-y-auto pr-1">
+              {reportsTarget.reports.map((r) => (
+                <div
+                  key={r.id}
+                  className="rounded-xl border border-steel-200 bg-steel-50 p-3 text-xs leading-6"
+                >
+                  <div className="flex flex-wrap items-center justify-between gap-2">
+                    <Badge tone="warn">{r.reason}</Badge>
+                    <span className="text-[11px] text-steel-400">{fmtDate(r.createdAt)}</span>
+                  </div>
+                  {r.details && (
+                    <p className="mt-2 whitespace-pre-line text-steel-700">
+                      <strong className="text-steel-900">التفاصيل: </strong>
+                      {r.details}
+                    </p>
+                  )}
+                  <div className="mt-2 space-y-0.5 text-[11px] text-steel-600">
+                    <p>
+                      <strong className="text-steel-800">البريد الإلكتروني: </strong>
+                      <span dir="ltr">{r.reporterEmail || "زائر غير مسجل"}</span>
+                    </p>
+                    <p>
+                      <strong className="text-steel-800">بصمة المتصفح: </strong>
+                      <span dir="ltr">{r.reporterFp || "غير متوفرة"}</span>
                     </p>
                   </div>
-                ))}
-              </div>
-            </>
+                </div>
+              ))}
+            </div>
           ) : (
             <p className="text-sm text-steel-500">
               {reportsTarget?.flagReasons.length

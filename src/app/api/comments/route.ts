@@ -42,6 +42,8 @@ export async function GET(request: Request) {
             reason: true,
             details: true,
             reporterFp: true,
+            reporterUserId: true,
+            reporterEmail: true,
             createdAt: true,
           },
         },
