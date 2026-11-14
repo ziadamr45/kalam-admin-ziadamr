@@ -3,15 +3,6 @@
  * مصفوفة الروابط الرسمية المعتمدة — مصدر الحقيقة الموحد
  * لكل روابط التواصل الاجتماعي والهوية الرقمية في الموقعين
  * ============================================================
- * القيم هنا هي الافتراضيات الرسمية، ويُستبدل كافة الروابط القديمة
- * أو المعطلة بها في: تذييل الموقع، صفحة اتصل بنا، بطاقة الكاتب
- * والملف الشخصي، ولوحة الأدمن (الشريط الجانبي/التذييل).
- *
- * التوحد مع التكوين السيادي: الأدمن يستطيع تجاوز أي مفتاح لحظيًا
- * بمفاتيح social.<key> في جدول SiteConfig — من استوديو التكوين،
- * أو التيرمينال السيادي (config set social.whatsapp ..)، أو MCP.
- * الحفظ يستدعي revalidateTag('site-config') + revalidatePath('/', 'layout')
- * فتظهر الروابط الجديدة لكل الزوار فورًا بلا إعادة نشر.
  */
 
 export type SocialKey =
@@ -64,12 +55,12 @@ export const SOCIAL_LABELS: Record<SocialKey, string> = {
   linkedin: "لينكد إن",
 };
 
-/** الحزمة الرسمية المعتمدة — كل منصات صاحب المنصة في مكان واحد */
+/** الحزمة الرسمية المعتمدة — البريد الرسمي للمنصة kalamlaholazma@gmail.com */
 export const SOCIAL_LINKS: Record<SocialKey, string> = {
   facebook: "https://www.facebook.com/ziadamr.me",
   whatsapp: "https://wa.me/+201152978155",
   telegram: "https://t.me/ziadamr",
-  email: "mailto:ziad90216@gmail.com",
+  email: "mailto:kalamlaholazma@gmail.com",
   youtube: "https://youtube.com/@alhayat_ala_eltarek?si=pcsc_31Kcv3Jym14",
   instagram: "https://www.instagram.com/ziadamr.me/",
   threads: "https://www.threads.com/@ziadamr.me",

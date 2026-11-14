@@ -1,3 +1,4 @@
+import nodemailer from "nodemailer";
 import { prisma } from "@/lib/prisma";
 import { pushAdmins, pushUsers } from "@/lib/push";
 import type { NotificationChannel, NotificationType } from "@prisma/client";
@@ -9,7 +10,7 @@ import type { NotificationChannel, NotificationType } from "@prisma/client";
  *   1) إنشاء السجل الموحد في جدول Notification (جرس داخل الموقع).
  *   2) بث ويب فوري عبر الاشتراكات المسجلة (Web Push — البادج الأبيض المفرغ
  *      يحدده Service Worker لكل نطاق: badge-public للمنصة وbadge-admin للوحة).
- *   3) بريد إلكتروني معاملاتي عبر Resend عندما تتطلب القناة ذلك.
+ *   3) بريد إلكتروني معاملاتي عبر Gmail SMTP (Nodemailer) عندما تتطلب القناة ذلك.
  *   4) رنين هواتف الإدارة (بادج اللوحة) لأحداث السيادة الإدارية.
  *
  * تحترم التفضيلات في User.notificationPrefs ما عدا الأمان (بريد الأمان إلزامي)،
@@ -17,6 +18,7 @@ import type { NotificationChannel, NotificationType } from "@prisma/client";
  */
 
 export const OWNER_EMAIL = "ziad90216@gmail.com";
+export const PLATFORM_EMAIL = "kalamlaholazma@gmail.com";
 
 export type DispatchChannels = "IN_APP" | "WEB_PUSH" | "EMAIL" | "ALL";
 
@@ -125,32 +127,90 @@ export function notificationEmailHtml(
 </body></html>`;
 }
 
+export type EmailConfig = {
+  user: string | null;
+  pass: string | null;
+  from: string;
+};
+
 /**
- * مصدر إعدادات قناة البريد — مزدوج بذكاء:
- *  1) متغيرات البيئة (RESEND_API_KEY / SECURITY_EMAIL_FROM) إن وُجدت.
+ * مصدر إعدادات قناة البريد (Gmail SMTP):
+ *  1) متغيرات البيئة (SMTP_USER / SMTP_PASS / SECURITY_EMAIL_FROM) إن وُجدت.
  *  2) احتياطًا: جدول SystemSetting المشترك — تُكتب من بطاقة «قناة البريد»
- *     في هذه اللوحة (لصق المفتاح من الهاتف دون طرفية أو إعادة نشر).
+ *     في هذه اللوحة (لصق App Password من الهاتف دون طرفية أو إعادة نشر).
  */
-export async function resolveEmailConfig(): Promise<{ key: string | null; from: string }> {
-  let key = process.env.RESEND_API_KEY?.trim() || null;
+export async function resolveEmailConfig(): Promise<EmailConfig> {
+  let user = process.env.SMTP_USER?.trim() || null;
+  let pass = process.env.SMTP_PASS?.trim().replace(/\s+/g, "") || null;
   let from = process.env.SECURITY_EMAIL_FROM?.trim() || null;
-  if (key && from) return { key, from };
-  try {
-    const rows = await prisma.systemSetting.findMany({
-      where: { key: { in: ["RESEND_API_KEY", "SECURITY_EMAIL_FROM"] } },
-      select: { key: true, value: true },
-    });
-    for (const row of rows) {
-      const raw = row.value as unknown;
-      const val = typeof raw === "string" ? raw.trim() : ((raw as { value?: string })?.value ?? "").toString().trim();
-      if (!val) continue;
-      if (row.key === "RESEND_API_KEY" && !key) key = val;
-      if (row.key === "SECURITY_EMAIL_FROM" && !from) from = val;
+
+  if (!user || !pass || !from) {
+    try {
+      const rows = await prisma.systemSetting.findMany({
+        where: { key: { in: ["SMTP_USER", "SMTP_PASS", "SECURITY_EMAIL_FROM"] } },
+        select: { key: true, value: true },
+      });
+      for (const row of rows) {
+        const raw = row.value as unknown;
+        const val =
+          typeof raw === "string"
+            ? raw.trim()
+            : ((raw as { value?: string })?.value ?? "").toString().trim();
+        if (!val) continue;
+        if (row.key === "SMTP_USER" && !user) user = val;
+        if (row.key === "SMTP_PASS" && !pass) pass = val.replace(/\s+/g, "");
+        if (row.key === "SECURITY_EMAIL_FROM" && !from) from = val;
+      }
+    } catch {
+      /* قاعدة البيانات غائبة — البيئة تكفي إن وجدت */
     }
-  } catch {
-    /* قاعدة البيانات غائبة — البيئة تكفي إن وجدت */
   }
-  return { key, from: from ?? "كلام له لازمة <onboarding@resend.dev>" };
+
+  const effectiveUser = user ?? (pass ? PLATFORM_EMAIL : null);
+  return {
+    user: effectiveUser,
+    pass,
+    from: from ?? `كلام له لازمة <${effectiveUser ?? PLATFORM_EMAIL}>`,
+  };
+}
+
+export async function sendRawEmail(input: {
+  to: string | string[];
+  subject: string;
+  html?: string;
+  text?: string;
+  from?: string;
+  replyTo?: string;
+}): Promise<{ ok: boolean; messageId?: string; error?: string }> {
+  const { user, pass, from } = await resolveEmailConfig();
+  if (!user || !pass) {
+    return { ok: false, error: "قناة البريد غير مهيأة (SMTP_USER / SMTP_PASS)" };
+  }
+  try {
+    const transporter = nodemailer.createTransport({
+      host: "smtp.gmail.com",
+      port: 465,
+      secure: true,
+      auth: { user, pass },
+    });
+    const info = await transporter.sendMail({
+      from: input.from ?? from,
+      to: Array.isArray(input.to) ? input.to.join(", ") : input.to,
+      subject: input.subject,
+      ...(input.html ? { html: input.html } : {}),
+      ...(input.text ? { text: input.text } : {}),
+      ...(input.replyTo ? { replyTo: input.replyTo } : {}),
+    });
+    try {
+      const { bumpApiUsage } = await import("@/lib/api-usage");
+      void bumpApiUsage("RESEND_EMAIL");
+    } catch {
+      /* عداد رقابي اختياري */
+    }
+    return { ok: true, messageId: info.messageId };
+  } catch (err) {
+    return { ok: false, error: err instanceof Error ? err.message : String(err) };
+  }
 }
 
 async function sendEmail(input: {
@@ -160,31 +220,12 @@ async function sendEmail(input: {
   link: string | null;
   html?: string | null;
 }): Promise<boolean> {
-  const { key, from } = await resolveEmailConfig();
-  if (!key) return false;
-  try {
-    const res = await fetch("https://api.resend.com/emails", {
-      method: "POST",
-      headers: { Authorization: `Bearer ${key}`, "Content-Type": "application/json" },
-      body: JSON.stringify({
-        from,
-        to: [input.to],
-        subject: input.title,
-        html: input.html ?? notificationEmailHtml(input.title, input.message, input.link),
-      }),
-    });
-    if (res.ok) {
-      try {
-        const { bumpApiUsage } = await import("@/lib/api-usage");
-        void bumpApiUsage("RESEND_EMAIL");
-      } catch {
-        /* عداد رقابي اختياري */
-      }
-    }
-    return res.ok;
-  } catch {
-    return false;
-  }
+  const res = await sendRawEmail({
+    to: input.to,
+    subject: input.title,
+    html: input.html ?? notificationEmailHtml(input.title, input.message, input.link),
+  });
+  return res.ok;
 }
 
 /** معرف حساب صاحب المنصة السيادي — مستلم أحداث السيادة الإدارية */
@@ -263,7 +304,7 @@ export async function dispatchNotification(input: DispatchInput): Promise<Dispat
     }
   }
 
-  /* 3) البريد المعاملاتي عبر Resend */
+  /* 3) البريد المعاملاتي عبر Gmail SMTP */
   if (wantEmail && (input.forceEmail || !suppressImpact) && prefs.email) {
     result.emailSent = await sendEmail({
       to: prefs.email,
