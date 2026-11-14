@@ -246,11 +246,11 @@ export function ConfirmProvider({ children }: { children: React.ReactNode }) {
         createPortal(
           <div className="fixed inset-0 z-90 flex items-center justify-center p-4" role="dialog" aria-modal="true" aria-label={request.title}>
             <div className="absolute inset-0 animate-fade-in bg-[#0d1626]/72 backdrop-blur-sm" onClick={() => settle(false)} />
-            <div className="relative w-full max-w-sm animate-fade-up overflow-hidden rounded-2xl border border-steel-200 bg-white shadow-lift">
+            <div className="relative flex max-h-[calc(100dvh_-_2rem)] w-full max-w-sm animate-fade-up flex-col overflow-hidden rounded-2xl border border-steel-200 bg-white shadow-lift">
               {/* الكشيدة النحاسية العلوية — توقيع الهوية الإدارية */}
-              <div className="h-1 w-full bg-gradient-to-l from-copper-600 via-copper-500 to-copper-600" aria-hidden />
+              <div className="h-1 w-full shrink-0 bg-gradient-to-l from-copper-600 via-copper-500 to-copper-600" aria-hidden />
 
-              <div className="px-6 pb-6 pt-7 text-center">
+              <div className="flex-1 overflow-y-auto overscroll-contain px-6 pb-6 pt-7 text-center">
                 <div
                   className="mx-auto mb-4 flex h-12 w-12 items-center justify-center rounded-2xl"
                   style={{ background: isDanger ? "#FEE2E2" : "#F5EBD3", color: isDanger ? "#B91C1C" : "#84531B" }}

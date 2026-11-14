@@ -259,7 +259,7 @@ function AdminNotificationDetailModal({
           لا يمكن أبدًا أن يتجاوز 92% من الشاشة فلا يُقص أي حرف على أي جهاز،
           وتتسع على الكمبيوتر والتابلت لقراءة مريحة */}
       <div
-        className="flex max-h-[92vh] w-full max-w-md flex-col overflow-hidden rounded-2xl border border-steel-200 bg-white shadow-lg animate-fade-up sm:max-w-lg md:max-w-2xl"
+        className="flex max-h-[92dvh] w-full max-w-md flex-col overflow-hidden rounded-2xl border border-steel-200 bg-white shadow-lg animate-fade-up sm:max-w-lg md:max-w-2xl"
         onClick={(e) => e.stopPropagation()}
       >
         <div className="flex shrink-0 items-center justify-between gap-2 border-b border-steel-100 px-4 py-3">
