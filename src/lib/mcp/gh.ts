@@ -1,12 +1,14 @@
 /**
- * أدوات البنية التحتية السيادية — GitHub (v4.0.0)
+ * أدوات البنية التحتية السيادية — GitHub (v4.1.0)
  * تحكم كامل (قراءة + إنشاء + تعديل + حذف) في مستودعي المنصة:
  * الموقع العام kalam-ziadamr واللوحة kalam-admin-ziadamr.
  * عبر REST API الرسمي بتوكن GITHUB_TOKEN (صلاحية repo).
+ * يدعم الآن أيضًا sourceUrl (جلب مباشر) وsvg + sharp (تحويل متجهي إلى PNG/ICO على الخادم).
  * كل عملية مغيّرة تُوثَّق في سجل التدقيق (AuditLog).
  */
 
 import * as zlib from "node:zlib";
+import sharp from "sharp";
 import { writeAudit } from "@/lib/guard";
 import {
   McpToolError,
@@ -39,6 +41,136 @@ function resolveRepo(repo?: string): string {
     throw new McpToolError(`مستودع غير معروف: «${repo}» — المقبول: public الموقع العام | admin لوحة الأدمن`);
   }
   return `${OWNER}/${name}`;
+}
+
+function buildPngIco(items: { size: number; data: Buffer }[]): Buffer {
+  const header = Buffer.alloc(6);
+  header.writeUInt16LE(0, 0);
+  header.writeUInt16LE(1, 2);
+  header.writeUInt16LE(items.length, 4);
+
+  const dirs: Buffer[] = [];
+  let offset = 6 + items.length * 16;
+  for (const item of items) {
+    const dir = Buffer.alloc(16);
+    dir.writeUInt8(item.size >= 256 ? 0 : item.size, 0);
+    dir.writeUInt8(item.size >= 256 ? 0 : item.size, 1);
+    dir.writeUInt8(0, 2);
+    dir.writeUInt8(0, 3);
+    dir.writeUInt16LE(1, 4);
+    dir.writeUInt16LE(32, 6);
+    dir.writeUInt32LE(item.data.length, 8);
+    dir.writeUInt32LE(offset, 12);
+    dirs.push(dir);
+    offset += item.data.length;
+  }
+  return Buffer.concat([header, ...dirs, ...items.map((i) => i.data)]);
+}
+
+function assertSafeExternalUrl(raw: string): URL {
+  let u: URL;
+  try {
+    u = new URL(raw);
+  } catch {
+    throw new McpToolError(`رابط sourceUrl غير صالح: ${raw}`);
+  }
+  if (u.protocol !== "https:") {
+    throw new McpToolError("sourceUrl يقبل روابط https:// الآمنة فقط");
+  }
+  const host = u.hostname.toLowerCase();
+  if (
+    host === "localhost" ||
+    host === "::1" ||
+    host === "[::1]" ||
+    host.startsWith("127.") ||
+    host.startsWith("10.") ||
+    host.startsWith("192.168.") ||
+    host.startsWith("169.254.") ||
+    /^172\.(1[6-9]|2\d|3[01])\./.test(host)
+  ) {
+    throw new McpToolError("sourceUrl مرفوض لأسباب أمنية (عنوان داخلي)");
+  }
+  return u;
+}
+
+async function resolveGhFileInput(opts: {
+  path: string;
+  content?: string | null;
+  encoding?: string;
+  sourceUrl?: string | null;
+  svg?: string | null;
+  width?: number;
+  height?: number;
+  format?: string | null;
+}): Promise<{ content: string; encoding: "utf8" | "base64"; bytes: number }> {
+  const { path, content, encoding = "utf8", sourceUrl, svg, width, height, format } = opts;
+
+  if (sourceUrl) {
+    const safeUrl = assertSafeExternalUrl(sourceUrl);
+    const res = await fetch(safeUrl.toString(), {
+      cache: "no-store",
+      signal: AbortSignal.timeout(15_000),
+    });
+    if (!res.ok) {
+      throw new McpToolError(`تعذر جلب sourceUrl (${res.status}): ${safeUrl.toString()}`);
+    }
+    const buf = Buffer.from(await res.arrayBuffer());
+    if (buf.length === 0 || buf.length > 3_000_000) {
+      throw new McpToolError(`حجم ملف sourceUrl غير صالح (${buf.length} بايت)`);
+    }
+    return { content: buf.toString("base64"), encoding: "base64", bytes: buf.length };
+  }
+
+  if (svg) {
+    const svgBuf = Buffer.from(svg, "utf8");
+    const targetFmt = (format ?? (path.toLowerCase().endsWith(".ico") ? "ico" : "png")).toLowerCase();
+    if (targetFmt === "ico") {
+      const sizes = [16, 32, 48];
+      const pngs = await Promise.all(
+        sizes.map(async (s) => ({
+          size: s,
+          data: await sharp(svgBuf, { density: 300 })
+            .resize(s, s, { fit: "contain", background: { r: 0, g: 0, b: 0, alpha: 0 } })
+            .png()
+            .toBuffer(),
+        })),
+      );
+      const ico = buildPngIco(pngs);
+      return { content: ico.toString("base64"), encoding: "base64", bytes: ico.length };
+    }
+    const w = Math.min(Math.max(Math.round(width ?? 192), 16), 2048);
+    const h = Math.min(Math.max(Math.round(height ?? w), 16), 2048);
+    const png = await sharp(svgBuf, { density: 300 })
+      .resize(w, h, { fit: "contain", background: { r: 0, g: 0, b: 0, alpha: 0 } })
+      .png()
+      .toBuffer();
+    if (png.length > 3_000_000) {
+      throw new McpToolError(`الناتج أكبر من سقف 3MB (${png.length} بايت)`);
+    }
+    return { content: png.toString("base64"), encoding: "base64", bytes: png.length };
+  }
+
+  if (content === undefined || content === null) {
+    throw new McpToolError(`الملف ${path} يحتاج content أو sourceUrl أو svg`);
+  }
+  if (encoding !== "utf8" && encoding !== "base64") {
+    throw new McpToolError("encoding يقبل utf8 (نص) | base64 (صور وأيقونات وملفات ثنائية) فقط");
+  }
+  if (encoding === "base64") {
+    const decoded = Buffer.from(content, "base64");
+    if (decoded.toString("base64").replace(/=+$/, "") !== content.replace(/=+$/, "")) {
+      throw new McpToolError("محتوى base64 غير صالح — تأكد من الترميز الكامل بلا أسطر جديدة");
+    }
+    if (decoded.length > 3_000_000) {
+      throw new McpToolError(`الملف أكبر من سقف البوابة (${decoded.length} بايت > 3MB) — ارفعه يدويًا أو قسّمه`);
+    }
+    return { content, encoding: "base64", bytes: decoded.length };
+  }
+  const bytes = Buffer.byteLength(content, "utf8");
+  if (bytes > 3_000_000) {
+    throw new McpToolError(`الملف أكبر من سقف البوابة (${bytes} بايت > 3MB)`);
+  }
+  return { content, encoding: "utf8", bytes };
 }
 
 async function ghApi(
@@ -142,33 +274,22 @@ async function ghGetFile(args: McpArgs) {
 async function ghSaveFile(args: McpArgs, meta: McpRequestMeta) {
   const repo = resolveRepo(str(args, "repo"));
   const path = str(args, "path");
-  const content = str(args, "content");
+  if (!path) {
+    throw new McpToolError("path إلزامي — مع content أو sourceUrl أو svg");
+  }
   const message = str(args, "message") ?? "تعديل عبر البوابة السيادية MCP";
   const branch = str(args, "branch") ?? "main";
-  const encoding = str(args, "encoding") ?? "utf8";
-  if (!path || content === undefined) {
-    throw new McpToolError("path وcontent إلزاميان — content هو النص الكامل الجديد للملف");
-  }
-  if (encoding !== "utf8" && encoding !== "base64") {
-    throw new McpToolError("encoding يقبل utf8 (نص) | base64 (صور وأيقونات وملفات ثنائية) فقط");
-  }
-  /* base64: المحتوى الوارد مرمَّز مسبقًا — تحقق من سلامته وقس البايتات الفعلية */
-  let rawBytes: number;
-  if (encoding === "base64") {
-    const decoded = Buffer.from(content, "base64");
-    if (decoded.toString("base64").replace(/=+$/, "") !== content.replace(/=+$/, "")) {
-      throw new McpToolError("محتوى base64 غير صالح — تأكد من الترميز الكامل بلا أسطر جديدة");
-    }
-    rawBytes = decoded.length;
-    if (rawBytes > 3_000_000) {
-      throw new McpToolError(`الملف أكبر من سقف البوابة (${rawBytes} بايت > 3MB) — ارفعه يدويًا أو قسّمه`);
-    }
-  } else {
-    rawBytes = Buffer.byteLength(content, "utf8");
-    if (rawBytes > 3_000_000) {
-      throw new McpToolError(`الملف أكبر من سقف البوابة (${rawBytes} بايت > 3MB)`);
-    }
-  }
+  const resolved = await resolveGhFileInput({
+    path,
+    content: str(args, "content"),
+    encoding: str(args, "encoding") ?? "utf8",
+    sourceUrl: str(args, "sourceUrl"),
+    svg: str(args, "svg"),
+    width: num(args, "width"),
+    height: num(args, "height"),
+    format: str(args, "format"),
+  });
+
   /* sha الملف القائم تلقائيًا — وجوده يعني تحديثًا وغيابه إنشاءً */
   let sha: string | undefined = str(args, "sha");
   if (!sha) {
@@ -182,7 +303,10 @@ async function ghSaveFile(args: McpArgs, meta: McpRequestMeta) {
   const { data } = await ghApi("PUT", repo, `contents/${path}`, {
     message,
     branch,
-    content: encoding === "base64" ? content : Buffer.from(content, "utf8").toString("base64"),
+    content:
+      resolved.encoding === "base64"
+        ? resolved.content
+        : Buffer.from(resolved.content, "utf8").toString("base64"),
     ...(sha ? { sha } : {}),
   });
   const r = data as { commit: { sha: string; html_url: string }; content: { html_url: string } };
@@ -191,7 +315,7 @@ async function ghSaveFile(args: McpArgs, meta: McpRequestMeta) {
     action: "mcp.gh_save_file",
     entity: "GitHub",
     entityId: `${repo}:${path}`,
-    meta: { via: "gemini-spark-mcp", branch, created: !sha, encoding, commit: r.commit?.sha, bytes: rawBytes },
+    meta: { via: "gemini-spark-mcp", branch, created: !sha, encoding: resolved.encoding, commit: r.commit?.sha, bytes: resolved.bytes },
     ip: meta.ip,
   });
   return {
@@ -200,8 +324,8 @@ async function ghSaveFile(args: McpArgs, meta: McpRequestMeta) {
     repo,
     path,
     branch,
-    encoding,
-    bytes: rawBytes,
+    encoding: resolved.encoding,
+    bytes: resolved.bytes,
     commit: { sha: r.commit?.sha, url: r.commit?.html_url },
   };
 }
@@ -433,6 +557,7 @@ async function ghDeleteBranch(args: McpArgs, meta: McpRequestMeta) {
  * كوميت ذرّي واحد لعدة ملفات عبر Git Data API (blobs → tree → commit → ref):
  * عدة تعديلات مترابطة تهبط دفعة واحدة فلا تُطلق إلا نشرة واحدة على Vercel،
  * بدل كوميت متتابع لكل ملف يسبق كل منها بناء كامل.
+ * يدعم الآن أيضًا sourceUrl وsvg + sharp لتوليد PNG/ICO على الخادم بلا تمرير base64 ضخمة.
  */
 async function ghCommitFiles(args: McpArgs, meta: McpRequestMeta) {
   const repo = resolveRepo(str(args, "repo"));
@@ -441,27 +566,35 @@ async function ghCommitFiles(args: McpArgs, meta: McpRequestMeta) {
   const branch = str(args, "branch") ?? "main";
   const rawFiles = Array.isArray(args.files) ? (args.files as Record<string, unknown>[]) : [];
   if (rawFiles.length === 0) {
-    throw new McpToolError("files إلزامية — مصفوفة [{ path, content, encoding?, op? }] على الأقل ملفًا واحدًا");
+    throw new McpToolError("files إلزامية — مصفوفة [{ path, content?, sourceUrl?, svg?, width?, height?, format?, encoding?, op? }] على الأقل ملفًا واحدًا");
   }
   if (rawFiles.length > 25) {
     throw new McpToolError("سقف البوابة 25 ملفًا في الكوميت الواحد — قسّم الدفعة");
   }
 
-  const files = rawFiles.map((f) => {
+  const files: { path: string; content: string | null; encoding: "utf8" | "base64"; op: "upsert" | "delete" }[] = [];
+  for (const f of rawFiles) {
     const path = String(f.path ?? "").trim();
-    const content = f.content === undefined || f.content === null ? null : String(f.content);
-    const encoding = String(f.encoding ?? "utf8");
-    const op = String(f.op ?? (content === null ? "delete" : "upsert"));
     if (!path) throw new McpToolError("كل ملف يحتاج path صالحًا");
+    const hasPayload = f.content != null || f.sourceUrl != null || f.svg != null;
+    const op = String(f.op ?? (hasPayload ? "upsert" : "delete")) as "upsert" | "delete";
     if (!["upsert", "delete"].includes(op)) throw new McpToolError(`op غير معروف للملف ${path} — upsert | delete`);
-    if (!["utf8", "base64"].includes(encoding)) throw new McpToolError(`encoding غير معروف للملف ${path} — utf8 | base64`);
-    if (op === "upsert" && content === null) throw new McpToolError(`الملف ${path} بحاجة content مع op=upsert`);
-    if (op === "upsert" && content !== null) {
-      const bytes = encoding === "base64" ? Buffer.from(content, "base64").length : Buffer.byteLength(content, "utf8");
-      if (bytes > 3_000_000) throw new McpToolError(`الملف ${path} يتجاوز سقف 3MB`);
+    if (op === "delete") {
+      files.push({ path, content: null, encoding: "utf8", op: "delete" });
+      continue;
     }
-    return { path, content, encoding, op };
-  });
+    const resolved = await resolveGhFileInput({
+      path,
+      content: f.content == null ? null : String(f.content),
+      encoding: f.encoding == null ? "utf8" : String(f.encoding),
+      sourceUrl: f.sourceUrl == null ? null : String(f.sourceUrl),
+      svg: f.svg == null ? null : String(f.svg),
+      width: typeof f.width === "number" ? f.width : undefined,
+      height: typeof f.height === "number" ? f.height : undefined,
+      format: f.format == null ? null : String(f.format),
+    });
+    files.push({ path, content: resolved.content, encoding: resolved.encoding, op: "upsert" });
+  }
 
   /* 1) قمة الفرع المستهدف */
   const { data: refData } = await ghApi("GET", repo, `git/ref/heads/${encodeURIComponent(branch)}`);
