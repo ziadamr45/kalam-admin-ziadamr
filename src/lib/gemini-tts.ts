@@ -12,18 +12,22 @@ const API_ROOT = "https://generativelanguage.googleapis.com/v1beta/models";
 /* أسماء موديلات TTS بالترتيب — الأولى قابلة للتجاوز بمتغير البيئة */
 const MODEL_CANDIDATES = [
   process.env.GEMINI_TTS_MODEL,
-  "gemini-3.1-flash-tts-preview", // النموذج المعتمد رسميًا للقراءة الصوتية المتزامنة كلمة بكلمة
+  "gemini-3.8-flash-tts",
+  "gemini-3.1-flash-tts-preview", // بديل تلقائي للقراءة الصوتية المتزامنة كلمة بكلمة
   "gemini-2.5-flash-tts",
   "gemini-2.5-flash-preview-tts",
   "gemini-2.5-pro-preview-tts",
 ].filter(Boolean) as string[];
 
 /* الصوت الافتراضي: نبرة هادئة فخمة رصينة تناسب مقالات الفكر والوعي */
-export const TTS_VOICE = process.env.GEMINI_TTS_VOICE || "Kore";
+export const TTS_VOICE = process.env.GEMINI_TTS_VOICE || "Charon";
 
-/* تعليمات الأسلوب — لا تُنطق، توجّه الأداء فقط */
-const STYLE_PROMPT =
-  "Read the following Arabic text aloud in a calm, dignified, measured voice with warm clarity, like a contemplative narrator of thoughtful essays. Respect Arabic diacritics (tashkeel) for precise pronunciation:\n\n";
+/* تعليمات الأداء والمخرج الصوتي بالعربية الفصحى — لا تُنطق، توجّه النطق واللكنة فقط */
+const STYLE_PROMPT = `اقرأ النص العربي التالي بصوت مذيع عربي أصيل متمكّن من اللغة العربية الفصحى، بنبرة هادئة، رصينة، ودافئة تناسب المقالات الفكرية والتأملية.
+التزم تمامًا بمخارج الحروف العربية السليمة دون أي لكنة أجنبية، وراعِ التشكيل الظاهر في الكلمات بدقة، مع وقفات طبيعية قصيرة عند الفواصل وأطول قليلًا عند نهاية الجمل.
+لا تقرأ هذه التعليمات، وابدأ القراءة مباشرةً من النص التالي:
+
+`;
 
 let workingModel: string | null = null;
 
@@ -97,7 +101,7 @@ async function callOnce(model: string, text: string, voice?: string): Promise<{ 
   if (!b64) {
     throw new TtsError("استجابة التوليد وصلت بلا بيانات صوتية — أعد المحاولة", 502);
   }
-  const rateMatch = mime.match(/rate=(\d+)/);
+  const rateMatch = mime.match(/rate=(\\d+)/);
   const sampleRate = rateMatch ? Number(rateMatch[1]) : 24000;
   return { pcm: Buffer.from(b64, "base64"), sampleRate };
 }
