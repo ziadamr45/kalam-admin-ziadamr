@@ -3,6 +3,7 @@
 import { Suspense, useCallback, useEffect, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { computeDeviceFingerprint } from "@/components/ui";
+import { AdminBrandMark } from "@/components/admin-brand-mark";
 
 export default function LoginPage() {
   return (
@@ -109,14 +110,7 @@ function LoginForm() {
       <div className="w-full max-w-sm">
         {/* الهوية — شعار اللوحة الموحّد فوق النموذج: طابع أمان واحترافية */}
         <div className="mb-8 text-center">
-          {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img
-            src="/icons/icon-192.png?v=3"
-            alt="شعار لوحة التحكم"
-            width={56}
-            height={56}
-            className="mx-auto mb-4 h-14 w-14 rounded-2xl shadow-lift"
-          />
+          <AdminBrandMark className="mx-auto mb-4 h-14 w-14 rounded-2xl shadow-lift" />
           <h1 className="text-xl font-bold text-white">لوحة التحكم السيادية</h1>
           <p className="mt-1 text-xs text-steel-300">كلام له لازمة — دخول محمي بطبقتين</p>
         </div>
