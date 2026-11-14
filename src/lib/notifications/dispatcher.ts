@@ -130,6 +130,7 @@ export function notificationEmailHtml(
 export type EmailConfig = {
   user: string | null;
   pass: string | null;
+  key: string | null;
   from: string;
 };
 
@@ -170,6 +171,7 @@ export async function resolveEmailConfig(): Promise<EmailConfig> {
   return {
     user: effectiveUser,
     pass,
+    key: pass,
     from: from ?? `كلام له لازمة <${effectiveUser ?? PLATFORM_EMAIL}>`,
   };
 }
