@@ -4,6 +4,14 @@ import { useCallback, useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { Badge, Button, Card, Modal, useToast } from "@/components/ui";
 
+type CommentReportRow = {
+  id: string;
+  reason: string;
+  details: string | null;
+  reporterFp: string | null;
+  createdAt: string;
+};
+
 type CommentRow = {
   id: string;
   content: string;
@@ -12,6 +20,7 @@ type CommentRow = {
   flagReasons: string[];
   riskScore: number;
   reportCount: number;
+  reports: CommentReportRow[];
   editedByAdmin: boolean;
   isInspiring: boolean;
   createdAt: string;
@@ -60,6 +69,7 @@ export function CommentsManager() {
   const [banTarget, setBanTarget] = useState<CommentRow | null>(null);
   const [banReason, setBanReason] = useState("مخالفة أدب الحوار والقيم");
   const [deleteTarget, setDeleteTarget] = useState<CommentRow | null>(null);
+  const [reportsTarget, setReportsTarget] = useState<CommentRow | null>(null);
   /* نافذة التمييز الإلزامية — السبب موثق في سجل أثر القارئ وإشعاره */
   const [inspireTarget, setInspireTarget] = useState<{ row: CommentRow; featured: boolean } | null>(null);
   const [inspireReason, setInspireReason] = useState("");
@@ -80,6 +90,7 @@ export function CommentsManager() {
           flagReasons: (c.flagReasons as string[]) ?? [],
           riskScore: c.riskScore as number,
           reportCount: c.reportCount as number,
+          reports: (c.reports as CommentReportRow[]) ?? [],
           editedByAdmin: c.editedByAdmin as boolean,
           createdAt: c.createdAt as string,
           articleTitle: (c.article as { title?: string } | null)?.title ?? "",
@@ -238,7 +249,16 @@ export function CommentsManager() {
                     {c.status === "APPROVED" ? "معتمد" : c.status === "REJECTED" ? "مرفوض" : "قيد المراجعة"}
                   </Badge>
                   {(c.flagged || c.reportCount > 0) && (
-                    <Badge tone="warn">مبلَّغ عنه {c.reportCount > 0 ? `(${c.reportCount})` : ""}</Badge>
+                    <button
+                      type="button"
+                      onClick={() => setReportsTarget(c)}
+                      className="cursor-pointer transition-transform hover:scale-105"
+                      title="اضغط لعرض أسباب وتفاصيل البلاغات"
+                    >
+                      <Badge tone="warn">
+                        مبلَّغ عنه {c.reportCount > 0 ? `(${c.reportCount})` : ""} ▾
+                      </Badge>
+                    </button>
                   )}
                   {c.riskScore >= 0.4 && <Badge tone={riskTone(c.riskScore)}>خطورة {Math.round(c.riskScore * 100)}%</Badge>}
                   {c.editedByAdmin && <Badge tone="steel">عُدّل إداريًا</Badge>}
@@ -326,6 +346,54 @@ export function CommentsManager() {
           ))}
         </div>
       )}
+
+      {/* مودال تفاصيل البلاغات */}
+      <Modal
+        open={Boolean(reportsTarget)}
+        onClose={() => setReportsTarget(null)}
+        title={`تفاصيل البلاغات (${reportsTarget?.reports.length ?? reportsTarget?.reportCount ?? 0})`}
+      >
+        <div className="space-y-3">
+          {reportsTarget && reportsTarget.reports.length > 0 ? (
+            <>
+              <p className="text-[11px] leading-5 text-steel-500">
+                الإبلاغ متاح للجميع بدون تسجيل دخول، لذا يُسجَّل مع كل بلاغ سببه وتفاصيله وبصمة متصفح المبلِّغ.
+              </p>
+              <div className="max-h-72 space-y-2.5 overflow-y-auto pr-1">
+                {reportsTarget.reports.map((r) => (
+                  <div
+                    key={r.id}
+                    className="rounded-xl border border-steel-200 bg-steel-50 p-3 text-xs leading-6"
+                  >
+                    <div className="flex flex-wrap items-center justify-between gap-2">
+                      <Badge tone="warn">{r.reason}</Badge>
+                      <span className="text-[11px] text-steel-400">{fmtDate(r.createdAt)}</span>
+                    </div>
+                    {r.details && (
+                      <p className="mt-2 whitespace-pre-line text-steel-700">
+                        <strong className="text-steel-900">التفاصيل: </strong>
+                        {r.details}
+                      </p>
+                    )}
+                    <p className="mt-1.5 text-[11px] text-steel-500" dir="ltr">
+                      FP: {r.reporterFp || "غير متوفر"}
+                    </p>
+                  </div>
+                ))}
+              </div>
+            </>
+          ) : (
+            <p className="text-sm text-steel-500">
+              {reportsTarget?.flagReasons.length
+                ? `مرصود آليًا بأسباب: ${reportsTarget.flagReasons.join(" · ")}`
+                : "لا توجد بلاغات مفصلة مسجلة لهذا التعليق."}
+            </p>
+          )}
+          <div className="pt-2">
+            <Button variant="ghost" onClick={() => setReportsTarget(null)}>إغلاق</Button>
+          </div>
+        </div>
+      </Modal>
 
       {/* مودالات */}
       <Modal open={Boolean(deleteTarget)} onClose={() => setDeleteTarget(null)} title="حذف التعليق نهائيًا">

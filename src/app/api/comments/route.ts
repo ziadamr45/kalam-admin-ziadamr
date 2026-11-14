@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { requireSession, isRejected } from "@/lib/guard";
 
-/** قائمة تعليقات لوحة الإشراف بفلترة الحالة */
+/** قائمة تعليقات لوحة الإشراف بفلترة الحالة مع تفاصيل البلاغات */
 export async function GET(request: Request) {
   const guard = await requireSession(request);
   if (isRejected(guard)) return guard;
@@ -35,6 +35,16 @@ export async function GET(request: Request) {
           },
         },
         article: { select: { title: true, slug: true } },
+        reports: {
+          orderBy: { createdAt: "desc" },
+          select: {
+            id: true,
+            reason: true,
+            details: true,
+            reporterFp: true,
+            createdAt: true,
+          },
+        },
       },
     });
 
