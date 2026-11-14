@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { requireSession, isRejected } from "@/lib/guard";
 import { synthesizeChunk, TtsError, TTS_VOICE } from "@/lib/gemini-tts";
 import { encodeNarration, pcmDurationSec } from "@/lib/audio-encode";
+import { secretMatches } from "@/lib/secure-compare";
 
 /*
  * تشخيص خدمة التوليد الصوتي — يُستدعى بسرّ CRON أو بجلسة أدمن.
@@ -13,9 +14,8 @@ export const maxDuration = 60;
 
 export async function GET(request: Request) {
   const url = new URL(request.url);
-  const cronOk =
-    process.env.CRON_SECRET &&
-    url.searchParams.get("secret") === process.env.CRON_SECRET;
+  /* مقارنة ثابتة الزمن — سد هجمات التوقيت على سر الـCron */
+  const cronOk = secretMatches(url.searchParams.get("secret"), process.env.CRON_SECRET);
 
   if (!cronOk) {
     const guard = await requireSession(request);

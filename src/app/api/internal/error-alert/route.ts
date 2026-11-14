@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { recordServerError } from "@/lib/error-alert";
+import { secretMatches } from "@/lib/secure-compare";
 
 /**
  * بوابة استقبال أخطاء الخادم من instrumentation — محمية بالسر الداخلي.
@@ -14,8 +15,8 @@ import { recordServerError } from "@/lib/error-alert";
 
 export async function POST(request: Request) {
   try {
-    const secret = request.headers.get("x-traffic-secret");
-    if (!secret || secret !== (process.env.REVALIDATE_SECRET ?? "")) {
+    /* مقارنة ثابتة الزمن — سد هجمات التوقيت على السر الداخلي */
+    if (!secretMatches(request.headers.get("x-traffic-secret"), process.env.REVALIDATE_SECRET)) {
       return NextResponse.json({ ok: false }, { status: 403 });
     }
 

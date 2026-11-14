@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { after } from "next/server";
 import { runAudioJobStep, workerBase, type AudioJob } from "@/lib/audio-job";
 import { writeAudit } from "@/lib/guard";
+import { secretMatches } from "@/lib/secure-compare";
 
 /*
  * العامل الخلفي الذاتي — قلب المعمارية غير المتزامنة.
@@ -19,8 +20,8 @@ import { writeAudit } from "@/lib/guard";
 export const maxDuration = 300;
 
 export async function POST(request: Request) {
-  const secret = request.headers.get("x-worker-secret");
-  if (!process.env.REVALIDATE_SECRET || secret !== process.env.REVALIDATE_SECRET) {
+  /* مقارنة ثابتة الزمن — سد هجمات التوقيت على سر العامل الخلفي */
+  if (!secretMatches(request.headers.get("x-worker-secret"), process.env.REVALIDATE_SECRET)) {
     return NextResponse.json({ error: "غير مصرح" }, { status: 401 });
   }
 

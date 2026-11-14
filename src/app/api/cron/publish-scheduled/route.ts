@@ -3,6 +3,7 @@ import { prisma } from "@/lib/prisma";
 import { articleRevalidatePaths, revalidatePublicPaths } from "@/lib/revalidate";
 import { writeAudit } from "@/lib/guard";
 import { notifyArticlePublished } from "@/lib/notify-publish";
+import { secretMatches } from "@/lib/secure-compare";
 
 export const maxDuration = 60;
 
@@ -16,7 +17,8 @@ export async function GET(request: Request) {
   const authHeader = request.headers.get("authorization");
   const secret = authHeader?.replace("Bearer ", "") || url.searchParams.get("secret");
 
-  if (!secret || secret !== process.env.CRON_SECRET) {
+  /* مقارنة ثابتة الزمن — سد هجمات التوقيت على سر الـCron */
+  if (!secretMatches(secret, process.env.CRON_SECRET)) {
     return NextResponse.json({ error: "غير مصرح" }, { status: 401 });
   }
 

@@ -102,10 +102,19 @@ async function dbInspectSchema(args: McpArgs): Promise<unknown> {
       `SELECT column_name, data_type, is_nullable, column_default FROM information_schema.columns WHERE table_name = $1 ORDER BY ordinal_position`,
       table,
     )) as unknown[];
-    const counts = (await prisma.$queryRawUnsafe(
-      `SELECT COUNT(*)::int AS rows FROM "${table.replace(/"/g, "")}"`,
-    )) as { rows: number }[];
-    return { table, rows: counts[0]?.rows ?? null, columns: cols };
+    /* حاجز الحقن: الاسم يُتحقق منه أولًا معاملًا ضد مخطط public فعليًا —
+       لا interpolation لاسم جدول غير موجود، فاسم الجدول في العدّاد يبقى
+       اسمًا من المخطط نفسه مهما حاول الوسيط إدخال SQL */
+    const known = (await prisma.$queryRawUnsafe(
+      `SELECT COUNT(*)::int AS n FROM information_schema.tables WHERE table_schema = 'public' AND table_name = $1`,
+      table,
+    )) as { n: number }[];
+    const rows = known[0]?.n
+      ? ((await prisma.$queryRawUnsafe(
+          `SELECT COUNT(*)::int AS rows FROM "${table.replace(/"/g, "")}"`,
+        )) as { rows: number }[])
+      : [];
+    return { table, rows: rows[0]?.rows ?? null, columns: cols };
   }
   const tables = (await prisma.$queryRawUnsafe(
     `SELECT t.table_name,

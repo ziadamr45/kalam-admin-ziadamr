@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { deviceFromUserAgent } from "@/lib/traffic";
+import { secretMatches } from "@/lib/secure-compare";
 
 /**
  * نقطة استقبال سجل الحركة الداخلي — يستدعيها middleware (عبر after)
@@ -23,9 +24,8 @@ type Entry = {
 };
 
 export async function POST(request: Request) {
-  const secret = process.env.REVALIDATE_SECRET;
-  const provided = request.headers.get("x-traffic-secret");
-  if (!secret || provided !== secret) {
+  /* مقارنة ثابتة الزمن — سد هجمات التوقيت على سر استقبال الحركة */
+  if (!secretMatches(request.headers.get("x-traffic-secret"), process.env.REVALIDATE_SECRET)) {
     return NextResponse.json({ error: "غير مصرح" }, { status: 403 });
   }
 

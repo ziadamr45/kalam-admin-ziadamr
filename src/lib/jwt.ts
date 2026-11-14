@@ -9,8 +9,30 @@ import { SignJWT, jwtVerify } from "jose";
  *  - setup   : تفعيل 2FA لأول مرة (10 دقائق)
  */
 
-const SECRET = process.env.ADMIN_SESSION_SECRET || "dev-only-insecure-secret";
-const key = new TextEncoder().encode(SECRET);
+/**
+ * مفتاح الجلسات — Fail-Closed:
+ * في الإنتاج لا سرّ افتراضي أبدًا؛ غياب ADMIN_SESSION_SECRET يعني
+ * رفض التوقيع والتحقق نهائيًا (رمي خطأ في التوقيع، وفشل التحقق لكل
+ * الكوكيز) بدل التوقيع بسرّ معلوم يفتح اللوحة للجميع. قيمة التطوير
+ * الافتراضية تعمل في التطوير فقط ولا تصل الإنتاج أبدًا.
+ */
+let cachedKey: Uint8Array | null = null;
+
+export function sessionSecretKey(): Uint8Array {
+  if (cachedKey) return cachedKey;
+  const secret = process.env.ADMIN_SESSION_SECRET?.trim();
+  if (secret) {
+    cachedKey = new TextEncoder().encode(secret);
+    return cachedKey;
+  }
+  if (process.env.NODE_ENV === "production") {
+    throw new Error(
+      "ADMIN_SESSION_SECRET غير مضبوط في الإنتاج — رفض توقيع والتحقق من جلسات الإدارة (Fail-Closed)",
+    );
+  }
+  /* تطوير فقط */
+  return new TextEncoder().encode("dev-only-insecure-secret");
+}
 
 export const SESSION_COOKIE = "kalam_admin_session";
 export const PREAUTH_COOKIE = "kalam_admin_preauth";
@@ -37,7 +59,7 @@ export async function signScopedToken(
     .setJti(jti)
     .setIssuedAt()
     .setExpirationTime(`${ttlSeconds}s`)
-    .sign(key);
+    .sign(sessionSecretKey());
   return { token, jti };
 }
 
@@ -46,7 +68,7 @@ export async function verifyScopedToken(
   expectedScope: Scope,
 ): Promise<SessionPayload | null> {
   try {
-    const { payload } = await jwtVerify(token, key);
+    const { payload } = await jwtVerify(token, sessionSecretKey());
     if (payload.scope !== expectedScope) return null;
     return {
       sub: String(payload.sub),

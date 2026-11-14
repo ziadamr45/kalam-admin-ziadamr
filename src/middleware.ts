@@ -1,5 +1,6 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { jwtVerify } from "jose";
+import { sessionSecretKey } from "@/lib/jwt";
 
 /**
  * Middleware لوحة التحكم — الخط الدفاعي الأول على الحافة (Edge)
@@ -7,10 +8,11 @@ import { jwtVerify } from "jose";
  * 2. فحص CSRF (Origin) لكل طلبات API المتغيرة
  * 3. ترويسات أمان صارمة + CSP مضبوطة المصادر
  * 4. منع الكاش نهائيًا (no-store) — لا أثر للوحة في سجل/كاش المتصفح
+ *
+ * المفتاح Fail-Closed من lib/jwt: في الإنتاج غياب ADMIN_SESSION_SECRET
+ * يرمي خطأ فحص التوقيع فيفشل فيتحقق كل كوكي (401/تحويل للدخول) —
+ * لا سرّ افتراضي معلوم يفتح اللوحة أبدًا.
  */
-
-const SECRET = process.env.ADMIN_SESSION_SECRET || "dev-only-insecure-secret";
-const key = new TextEncoder().encode(SECRET);
 
 const SESSION_COOKIE = "kalam_admin_session";
 const SETUP_COOKIE = "kalam_admin_setup";
@@ -82,7 +84,7 @@ const CSP = [
 
 async function verifySessionToken(token: string): Promise<boolean> {
   try {
-    const { payload } = await jwtVerify(token, key);
+    const { payload } = await jwtVerify(token, sessionSecretKey());
     return payload.scope === "session";
   } catch {
     return false;
@@ -125,7 +127,7 @@ export async function middleware(request: NextRequest) {
     let ok = false;
     if (setupToken) {
       try {
-        const { payload } = await jwtVerify(setupToken, key);
+        const { payload } = await jwtVerify(setupToken, sessionSecretKey());
         ok = payload.scope === "setup";
       } catch {}
     }
