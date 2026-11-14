@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import { requireSession, isRejected, writeAudit, getClientIp } from "@/lib/guard";
 import { slugify } from "@/lib/slugify";
@@ -7,12 +8,12 @@ import { getSystemSettings } from "@/lib/settings";
 import { articleRevalidatePaths, revalidatePublicPaths } from "@/lib/revalidate";
 import { fixNunation } from "@/lib/nunation";
 import { notifyArticlePublished } from "@/lib/notify-publish";
+import { destroyAudio } from "@/lib/cloudinary";
 
 export const maxDuration = 60;
 
 type Params = { params: Promise<{ id: string }> };
 
-/** قراءة مقال واحد للتحرير */
 export async function GET(request: Request, { params }: Params) {
   const guard = await requireSession(request);
   if (isRejected(guard)) return guard;
@@ -26,7 +27,6 @@ export async function GET(request: Request, { params }: Params) {
   return NextResponse.json({ article });
 }
 
-/** تحديث مقال (محتوى، جدولة، نشر، أرشفة) */
 export async function PATCH(request: Request, { params }: Params) {
   const guard = await requireSession(request);
   if (isRejected(guard)) return guard;
@@ -55,8 +55,6 @@ export async function PATCH(request: Request, { params }: Params) {
     const existing = await prisma.article.findUnique({ where: { id } });
     if (!existing) return NextResponse.json({ error: "غير موجود" }, { status: 404 });
 
-    /* فرض قائمة الفحص الأخلاقي قبل النشر — عند الانتقال من حالة أخرى إلى منشور فقط.
-       إعادة حفظ مقال منشور أصلًا (زر «حفظ التغييرات») لا تطالب بقائمة الفحص من جديد */
     if (body.status === "PUBLISHED" && existing.status !== "PUBLISHED") {
       const settings = await getSystemSettings();
       if (settings.REQUIRE_CHECKLIST) {
@@ -73,7 +71,6 @@ export async function PATCH(request: Request, { params }: Params) {
 
     const data: Record<string, unknown> = {};
 
-    /* قاعدة ضبط التنوين الصارمة — تصحيح إلزامي على مستوى الخادم أيضًا */
     if (body.title !== undefined) data.title = fixNunation(body.title.trim());
     if (body.summary !== undefined) data.summary = fixNunation(body.summary.trim());
     if (body.content !== undefined) data.content = fixNunation(body.content);
@@ -81,11 +78,27 @@ export async function PATCH(request: Request, { params }: Params) {
       data.contentWithTashkeel = fixNunation(body.contentWithTashkeel.trim() || body.content || existing.content);
     if (body.sectionId !== undefined) data.sectionId = body.sectionId || null;
     if (body.coverImage !== undefined) data.coverImage = body.coverImage || null;
-    if (body.audioUrl !== undefined) data.audioUrl = body.audioUrl || null;
-    if (body.audioDurationSec !== undefined) data.audioDurationSec = body.audioDurationSec;
+
+    /* إزالة الصوت عند الحفظ الفعلي للمقال — مع تنظيف الأصل السحابي */
+    const removingAudio = body.audioUrl !== undefined && !body.audioUrl && Boolean(existing.audioUrl);
+    if (body.audioUrl !== undefined) {
+      data.audioUrl = body.audioUrl || null;
+      if (!body.audioUrl) {
+        data.audioPublicId = null;
+        data.audioDurationSec = null;
+        data.audioWords = Prisma.DbNull;
+        data.audioVoice = null;
+        data.audioGeneratedAt = null;
+        data.audioStatus = "NONE";
+        data.audioProgress = 0;
+        data.audioTotal = 0;
+      }
+    }
+    if (body.audioDurationSec !== undefined && body.audioUrl !== "") {
+      data.audioDurationSec = body.audioDurationSec;
+    }
     if (body.audioCues !== undefined) data.audioCues = body.audioCues as never;
     if (typeof body.tashkeelEnabled === "boolean") data.tashkeelEnabled = body.tashkeelEnabled;
-    /* التغذية الفكرية السرية — سرّية على مستوى الخادم أيضًا: لا تُعاد في أي استجابة عامة */
     if (body.authorIntent !== undefined)
       data.authorIntent = body.authorIntent?.trim() ? fixNunation(body.authorIntent.trim()) : null;
 
@@ -97,7 +110,6 @@ export async function PATCH(request: Request, { params }: Params) {
       }
     }
 
-    /* حساب وقت القراءة عند تغير النصوص */
     const contentForTime = (data.content as string) ?? existing.content;
     const tashkeelForTime = (data.contentWithTashkeel as string) ?? existing.contentWithTashkeel;
     data.readingTimeSec = Math.max(
@@ -105,7 +117,6 @@ export async function PATCH(request: Request, { params }: Params) {
       readingSeconds(tashkeelForTime),
     );
 
-    /* منطق الحالات والجدولة */
     if (body.status) {
       data.status = body.status;
       if (body.status === "PUBLISHED" && existing.status !== "PUBLISHED") {
@@ -132,8 +143,10 @@ export async function PATCH(request: Request, { params }: Params) {
 
     const article = await prisma.article.update({ where: { id }, data: data as never });
 
-    /* إشعار القراء بنشر مقال جديد — جرس المنصة + بث ويب (فقط عند الانتقال
-       الفعلي إلى منشور؛ حفظ منشور أصلًا لا يعيد الإشعار) */
+    if (removingAudio && existing.audioPublicId) {
+      await destroyAudio(existing.audioPublicId).catch(() => {});
+    }
+
     const publishNotified =
       body.status === "PUBLISHED" && existing.status !== "PUBLISHED"
         ? await notifyArticlePublished({
@@ -157,8 +170,7 @@ export async function PATCH(request: Request, { params }: Params) {
       ip: getClientIp(request),
     });
 
-    /* إعادة توليد صفحات المنصة فورًا عند النشر أو خروجه من النشر */
-    if (body.status === "PUBLISHED" || (existing.status === "PUBLISHED" && body.status !== undefined)) {
+    if (body.status === "PUBLISHED" || existing.status === "PUBLISHED") {
       const section = body.sectionId
         ? await prisma.section.findUnique({ where: { id: body.sectionId }, select: { slug: true } })
         : await prisma.section.findUnique({ where: { id: existing.sectionId ?? "" }, select: { slug: true } });
@@ -174,7 +186,6 @@ export async function PATCH(request: Request, { params }: Params) {
   }
 }
 
-/** حذف نهائي */
 export async function DELETE(request: Request, { params }: Params) {
   const guard = await requireSession(request);
   if (isRejected(guard)) return guard;

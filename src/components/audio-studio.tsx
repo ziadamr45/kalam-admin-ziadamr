@@ -3,17 +3,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Button, useToast } from "@/components/ui";
 
-/*
- * استوديو الصوت الذكي — واجهة مهمة خلفية غير متزامنة.
- * الضغطة الواحدة ترسل طلب بدء ويحلّ الـ 202 خلال لحظات، والمعالجة
- * تعيش في خلفية الخادم (سلسلة عامل ذاتي): يمكن للأدمن حفظ المقال أو
- * نشره أو مغادرة الصفحة تمامًا، وهنا يكتفي المكوّن باستعلام خفيف
- * كل 5 ثوانٍ فقط أثناء حالة «جارٍ المعالجة» حتى يظهر المشغّل تلقائيًا
- * عند الاكتمال. يقبل أيضًا رفعًا يدويًا استثنائيًا (MP3/WAV).
- */
-
-type WordTiming = { w: string; s: number; e: number };
-
 type StatusPayload = {
   audioStatus?: "NONE" | "PROCESSING" | "READY" | "FAILED";
   audioUrl?: string | null;
@@ -39,7 +28,6 @@ export function AudioStudio({
   durationSec,
   audioVoice,
   audioGeneratedAt,
-  audioWordsCount,
   onAudioChange,
   onDurationChange,
 }: {
@@ -61,6 +49,8 @@ export function AudioStudio({
   const [starting, setStarting] = useState(false);
   const [lastResult, setLastResult] = useState<{ durationSec: number; wordsCount: number } | null>(null);
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  /* عند إزالة الصوت محليًا قبل الحفظ لا يعيد الاستعلام الأول فرض القديم */
+  const locallyRemovedRef = useRef(false);
 
   const stopPoll = useCallback(() => {
     if (pollRef.current) {
@@ -69,11 +59,11 @@ export function AudioStudio({
     }
   }, []);
 
-  /* تطبيق حالة قادمة من الخادم على الواجهة */
   const applyStatus = useCallback(
     (d: StatusPayload) => {
       const s = d.audioStatus ?? "NONE";
       if (s === "PROCESSING") {
+        locallyRemovedRef.current = false;
         setStatus("PROCESSING");
         setProgress({ done: Number(d.done ?? 0), total: Number(d.total ?? 0) });
         setNote(typeof d.error === "string" ? d.error : "");
@@ -84,6 +74,7 @@ export function AudioStudio({
       setStale(false);
       setNote("");
       if (s === "READY") {
+        if (locallyRemovedRef.current) return;
         setStatus("READY");
         setProgress(null);
         setErrorText("");
@@ -95,7 +86,6 @@ export function AudioStudio({
         });
       } else if (s === "FAILED") {
         setStatus("FAILED");
-        /* التقدم المحفوظ يبقى معروضًا — إعادة المحاولة تكمل من أول مقطع ناقص */
         const done = Number(d.done ?? 0);
         const total = Number(d.total ?? 0);
         setProgress(total > 0 ? { done, total } : null);
@@ -116,17 +106,13 @@ export function AudioStudio({
       if (!res.ok) return;
       const d = (await res.json()) as StatusPayload;
       applyStatus(d);
-    } catch {
-      /* انقطاع عابر — الاستعلام القادم يعيد المحاولة */
-    }
+    } catch {}
   }, [articleId, applyStatus]);
 
-  /* مزامنة أولى عند التركيب: تعالج معالجة بدأت من جلسة سابقة فورًا */
   useEffect(() => {
     void fetchStatus();
   }, [fetchStatus]);
 
-  /* الاستعلام الخفيف — كل 5 ثوانٍ وفقط أثناء حالة المعالجة */
   useEffect(() => {
     if (status !== "PROCESSING" || !articleId) {
       stopPoll();
@@ -144,6 +130,7 @@ export function AudioStudio({
         toast("احفظ المقال أولًا (مسودة تكفي) ثم ولّد الصوت", "error");
         return;
       }
+      locallyRemovedRef.current = false;
       setStarting(true);
       setErrorText("");
       try {
@@ -171,29 +158,47 @@ export function AudioStudio({
     [articleId, toast],
   );
 
+  /* مبدأ عدم التطبيق قبل الحفظ:
+     - إن كانت المعالجة جارية: تُوقف فورًا عبر DELETE.
+     - إن كان الصوت منشورًا: يُزال من حالة المحرر فقط ولا يُحذف من المنصة العامة
+       إلا عند ضغط زر «حفظ التغييرات»! */
   const removeAudio = useCallback(async () => {
     if (!articleId) return;
-    try {
-      const res = await fetch(`/api/articles/${articleId}/audio`, { method: "DELETE" });
-      if (!res.ok) {
-        const d = (await res.json().catch(() => ({}))) as { error?: string };
-        toast(d.error || "تعذر الإزالة", "error");
-        return;
+    if (status === "PROCESSING") {
+      try {
+        const res = await fetch(`/api/articles/${articleId}/audio`, { method: "DELETE" });
+        if (!res.ok) {
+          const d = (await res.json().catch(() => ({}))) as { error?: string };
+          toast(d.error || "تعذر إيقاف المعالجة", "error");
+          return;
+        }
+        stopPoll();
+        setStatus("NONE");
+        setProgress(null);
+        setNote("");
+        setStale(false);
+        setErrorText("");
+        setLastResult(null);
+        onAudioChange("");
+        onDurationChange(null);
+        toast("أُوقفت المعالجة الصوتية الجارية", "info");
+      } catch {
+        toast("تعذر الاتصال بالخادم", "error");
       }
-      stopPoll();
-      setStatus("NONE");
-      setProgress(null);
-      setNote("");
-      setStale(false);
-      setErrorText("");
-      setLastResult(null);
-      onAudioChange("");
-      onDurationChange(null);
-      toast("أُوقفت المعالجة وأُزيل الصوت من المقال", "success");
-    } catch {
-      toast("تعذر الاتصال بالخادم", "error");
+      return;
     }
-  }, [articleId, onAudioChange, onDurationChange, toast, stopPoll]);
+
+    locallyRemovedRef.current = true;
+    setStatus("NONE");
+    setProgress(null);
+    setNote("");
+    setStale(false);
+    setErrorText("");
+    setLastResult(null);
+    onAudioChange("");
+    onDurationChange(null);
+    toast("أُزيل الصوت من المحرر — اضغط «حفظ» لتطبيق التغيير على المنصة", "info");
+  }, [articleId, onAudioChange, onDurationChange, status, stopPoll, toast]);
 
   const manualUpload = useCallback(
     async (file: File) => {
@@ -211,9 +216,10 @@ export function AudioStudio({
           toast(data.error || "تعذر رفع الملف الصوتي", "error");
           return;
         }
+        locallyRemovedRef.current = false;
         onAudioChange(String(data.url ?? ""));
         setLastResult(null);
-        toast("رُفع الملف الصوتي وارتبط بالمقال — المزامنة اللحظية غير متاحة في الرفع اليدوي", "info");
+        toast("رُفع الملف الصوتي مؤقتًا — اضغط «حفظ» لتطبيقه على المقال", "info");
       } catch {
         toast("تعذر الاتصال بالخادم", "error");
       }
@@ -268,13 +274,10 @@ export function AudioStudio({
         <audio controls preload="metadata" src={audioUrl} ref={detectDuration} className="w-full" />
       ) : (
         <p className="rounded-xl bg-steel-50 p-3 text-[11px] leading-6 text-steel-400">
-          لا صوت مرتبط بعد. التوليد الآلي يقرأ النسخة المشكولة لضمان النطق العربي السليم،
-          ويستخرج طابعًا زمنيًا لكل كلمة، ويرفع الناتج إلى التخزين السحابي تلقائيًا —
-          والمعالجة تجري في خلفية الخادم فلا تنقطع لو غادرت الصفحة.
+          لا صوت مرتبط في المسودة الحالية. أي تعديل أو إزالة لا يظهر على المنصة العامة إلا بعد ضغط زر «حفظ».
         </p>
       )}
 
-      {/* لوحة المعالجة الحية — تقدم + طمأنة الانفصال الآمن */}
       {processing && (
         <div className="rounded-xl border border-copper-500/30 bg-copper-500/5 p-3">
           <div className="mb-2 flex items-center justify-between text-[11px] font-bold text-copper-600">
@@ -310,7 +313,6 @@ export function AudioStudio({
         </div>
       )}
 
-      {/* لوحة الفشل — سبب واضح + متابعة من حيث التوقف (التقدم محفوظ في الخادم) */}
       {status === "FAILED" && (
         <div className="rounded-xl border border-danger-400/30 bg-danger-400/5 p-3">
           <p className="text-[11px] font-bold leading-6 text-danger-600">{errorText}</p>
@@ -328,7 +330,6 @@ export function AudioStudio({
         </div>
       )}
 
-      {/* الإجراءات */}
       <div className="flex flex-wrap items-center gap-2">
         <Button onClick={() => start(false)} disabled={processing || starting} className="transition-all">
           {processing || starting ? "جارٍ التوليد في الخلفية.." : "توليد الصوت والمزامنة تلقائيًا بالذكاء الاصطناعي"}
@@ -352,7 +353,8 @@ export function AudioStudio({
         </label>
         {(audioUrl || processing) && (
           <button
-            onClick={removeAudio}
+            type="button"
+            onClick={() => void removeAudio()}
             className="rounded-xl px-3 py-2.5 text-xs font-bold text-danger-600 transition-colors hover:bg-danger-400/10"
           >
             {processing ? "إيقاف المعالجة وإزالة الصوت" : "إزالة الصوت"}
