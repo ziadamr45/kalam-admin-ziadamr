@@ -46,14 +46,14 @@ export const metadata: Metadata = {
   robots: { index: false, follow: false },
   /* PWA — شرط إشعارات iOS Safari: إضافة اللوحة للشاشة الرئيسية */
   manifest: "/manifest.json",
-  /* الهوية الإدارية — شعار حرف الكاف والخط على الكحلي */
+  /* الهوية الإدارية — شعار حرف الكاف والترس على الكحلي */
   icons: {
     icon: [
-      { url: "/favicon.ico?v=3", sizes: "48x48", type: "image/x-icon" },
-      { url: "/icons/icon-192.png?v=3", sizes: "192x192", type: "image/png" },
-      { url: "/icons/icon-512.png?v=3", sizes: "512x512", type: "image/png" },
+      { url: "/favicon.ico?v=4", sizes: "48x48", type: "image/x-icon" },
+      { url: "/icons/icon-192.png?v=4", sizes: "192x192", type: "image/png" },
+      { url: "/icons/icon-512.png?v=4", sizes: "512x512", type: "image/png" },
     ],
-    apple: "/icons/apple-touch-icon.png?v=3",
+    apple: "/icons/apple-touch-icon.png?v=4",
   },
 };
 
