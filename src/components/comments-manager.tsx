@@ -46,7 +46,13 @@ const TABS = [
 export function CommentsManager() {
   const router = useRouter();
   const { toast } = useToast();
-  const [tab, setTab] = useState<(typeof TABS)[number]["key"]>("PENDING");
+  const [tab, setTab] = useState<(typeof TABS)[number]["key"]>(() => {
+    if (typeof window !== "undefined") {
+      const sp = new URLSearchParams(window.location.search);
+      if (sp.get("flagged") === "1") return "flagged";
+    }
+    return "PENDING";
+  });
   const [comments, setComments] = useState<CommentRow[]>([]);
   const [loading, setLoading] = useState(true);
   const [editingId, setEditingId] = useState<string | null>(null);
@@ -231,7 +237,9 @@ export function CommentsManager() {
                   <Badge tone={c.status === "APPROVED" ? "success" : c.status === "REJECTED" ? "danger" : "warn"}>
                     {c.status === "APPROVED" ? "معتمد" : c.status === "REJECTED" ? "مرفوض" : "قيد المراجعة"}
                   </Badge>
-                  {c.flagged && <Badge tone="warn">مبلَّغ عنه {c.reportCount > 0 ? `(${c.reportCount})` : ""}</Badge>}
+                  {(c.flagged || c.reportCount > 0) && (
+                    <Badge tone="warn">مبلَّغ عنه {c.reportCount > 0 ? `(${c.reportCount})` : ""}</Badge>
+                  )}
                   {c.riskScore >= 0.4 && <Badge tone={riskTone(c.riskScore)}>خطورة {Math.round(c.riskScore * 100)}%</Badge>}
                   {c.editedByAdmin && <Badge tone="steel">عُدّل إداريًا</Badge>}
                 </div>

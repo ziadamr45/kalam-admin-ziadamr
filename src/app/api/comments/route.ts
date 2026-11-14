@@ -17,7 +17,7 @@ export async function GET(request: Request) {
         ...(status !== "ALL" && ["PENDING", "APPROVED", "REJECTED"].includes(status)
           ? { status: status as "PENDING" | "APPROVED" | "REJECTED" }
           : {}),
-        ...(flagged ? { flagged: true } : {}),
+        ...(flagged ? { OR: [{ flagged: true }, { reportCount: { gt: 0 } }] } : {}),
       },
       orderBy: [{ isInspiring: "desc" }, { createdAt: "desc" }],
       take: 150,
