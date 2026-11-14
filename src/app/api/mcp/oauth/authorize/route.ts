@@ -14,7 +14,7 @@ import { rateLimit } from "@/lib/rate-limit";
 import { decideIpAccess } from "@/lib/iprules";
 import { getClientIp, raiseAlert, writeAudit } from "@/lib/guard";
 import { pushAdmins } from "@/lib/push";
-import { resolveEmailConfig, OWNER_EMAIL } from "@/lib/notifications/dispatcher";
+import { sendRawEmail, OWNER_EMAIL } from "@/lib/notifications/dispatcher";
 import { decryptSecret } from "@/lib/crypto";
 import { verifyTotpToken } from "@/lib/totp";
 
@@ -22,23 +22,6 @@ import { verifyTotpToken } from "@/lib/totp";
  * ============================================================
  * نقطة التفويض (RFC 6749 §3.1) — واجهة عربية سيادية بصرية لصاحب المنصة
  * ============================================================
- * تُفتح هذه الصفحة في نافذة عند ربط أي أداة ذكاء اصطناعي أو نظام خارجي
- * أو شخص مفوّض بالخادم أول مرة. البوابة تتحكم في المنصة والكود بالكامل،
- * لذا التفويض محصّن بخمس طبقات متكاملة:
- *   1. كلمة مرور التفويض (سرّ حصري لصاحب المنصة)
- *   2. التحقق الثنائي TOTP من سرّ الأدمن المفعّل في AdminUser — حتى لو
- *      سُربت كلمة المرور لا يمر اتصال بلا تطبيق المصادقة على الموبايل
- *   3. درع تخمين دائم في قاعدة البيانات (LoginAttempt + قواعد IpRule +
- *      درع اندفاع خالٍ من الاستعلامات) — لا يُصفَّر مع أي Cold Start
- *   4. جدار IP الصارم نفسه الذي يحمي دخول اللوحة
- *   5. عند النجاح: إشعار Web Push فوري + بريد أمني للمالك (اسم الجهة
- *      والـIP والوقت بتوقيت القاهرة) + رمز تفويض يحمل رقم الإلغاء tv —
- *      وأي زيادة لرقم الإلغاء (mcp revoke-tokens في التيرمينال السيادي)
- *      تنهي كل الرموز المفتوحة فورًا
- *
- * الهوية البصرية موحّدة مع صفحة دخول اللوحة السيادية (/login):
- * خط Readex Pro، خلفية الكحلي الفولاذي المتدرج، شعار الريشة الرسمي،
- * وزر النحاسي الفخم.
  */
 
 export const runtime = "nodejs";
@@ -133,7 +116,6 @@ async function recordFail(ip: string, reason: string): Promise<void> {
     .catch(() => {});
 }
 
-/* الهوية السيادية المشتركة بين صفحتي التفويض والخطأ — موحّدة مع لوحة التحكم */
 const IDENTITY_HEAD = `<link rel="preconnect" href="https://fonts.googleapis.com"/>
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin/>
 <link href="https://fonts.googleapis.com/css2?family=Readex+Pro:wght@300;400;600;700&display=swap" rel="stylesheet"/>`;
@@ -257,7 +239,7 @@ ${IDENTITY_HEAD}
       <li><b>المحتوى والذكاء الاصطناعي</b>إدارة كاملة للمقالات والأقسام، توليد الأغلفة بالذكاء الاصطناعي، التوليد الصوتي المتعدد الأصوات، ومحاور المقالات الذكي</li>
       <li><b>المجتمع والهوية والرقابة</b>إدارة القراء، التوثيق الرسمي والعضويات المميزة (VIP)، رصيد الأثر، التعليقات، البث الجماهيري والإشعارات</li>
       <li><b>السيادة والأمن والتكوين</b>تعديل إعدادات وهوية المنصة لحظيًا (Zero-Deploy)، مركز الأمن، التيرمينال السيادي، التقارير الرقابية (PDF) والمحو الشامل</li>
-      <li><b>البنية التحتية الكاملة</b>قراءة وتعديل الكود والفروع (GitHub)، إدارة النشر ومتغيرات البيئة والنطاقات (Vercel)، قاعدة البيانات التنفيذية (Neon)، وخدمات البريد والوسائط (Resend &amp; Cloudinary)</li>
+      <li><b>البنية التحتية الكاملة</b>قراءة وتعديل الكود والفروع (GitHub)، إدارة النشر ومتغيرات البيئة والنطاقات (Vercel)، قاعدة البيانات التنفيذية (Neon)، وخدمات البريد والوسائط (Gmail SMTP &amp; Cloudinary)</li>
     </ul>
     <p class="hint">${MCP_TOOLS.length} أداة سيادية تغطي كل ذرة في المنصة — كل عملية تُوثَّق في سجل التدقيق</p>
     ${errBlock}
@@ -296,36 +278,27 @@ ${IDENTITY_HEAD}
 /** بريد أمني فوري للمالك لحظة إصدار رمز تفويض — طبقة تزيين لا تعطل المسار أبدًا */
 async function sendSecurityEmail(clientName: string, ip: string): Promise<void> {
   try {
-    const { key, from } = await resolveEmailConfig();
-    if (!key) return;
     const when = new Date().toLocaleString("ar-EG", {
       timeZone: "Africa/Cairo",
       dateStyle: "long",
       timeStyle: "short",
     });
-    await fetch("https://api.resend.com/emails", {
-      method: "POST",
-      headers: { Authorization: `Bearer ${key}`, "Content-Type": "application/json" },
-      body: JSON.stringify({
-        from,
-        to: [OWNER_EMAIL],
-        subject: "تفويض MCP جديد — اتصال سيادي مُنح للتو",
-        html: `<div style="font-family:Tahoma,Arial,sans-serif;direction:rtl;text-align:right;padding:24px;color:#1f2937">
-          <h2 style="color:#a16a1f;margin:0 0 12px">تم تفويض اتصال جديد بالبوابة السيادية</h2>
-          <p style="line-height:2;font-size:14px">الجهة المفوَّضة: <b>${escapeHtml(clientName)}</b><br/>
-          عنوان IP: <b dir="ltr">${escapeHtml(ip)}</b><br/>
-          الوقت (توقيت القاهرة): <b>${when}</b></p>
-          <p style="line-height:2;font-size:13px;color:#6b7280">إن لم تكن أنت من منح هذا التفويض، نفّذ فورًا في التيرمينال السيادي الأمر
-          <b dir="ltr">mcp revoke-tokens</b> لإنهاء كل الرموز المفتوحة، وراجع مركز الأمن.</p>
-        </div>`,
-      }),
+    await sendRawEmail({
+      to: OWNER_EMAIL,
+      subject: "تفويض MCP جديد — اتصال سيادي مُنح للتو",
+      html: `<div style="font-family:Tahoma,Arial,sans-serif;direction:rtl;text-align:right;padding:24px;color:#1f2937">
+        <h2 style="color:#a16a1f;margin:0 0 12px">تم تفويض اتصال جديد بالبوابة السيادية</h2>
+        <p style="line-height:2;font-size:14px">الجهة المفوَّضة: <b>${escapeHtml(clientName)}</b><br/>
+        عنوان IP: <b dir="ltr">${escapeHtml(ip)}</b><br/>
+        الوقت (توقيت القاهرة): <b>${when}</b></p>
+        <p style="line-height:2;font-size:13px;color:#6b7280">إن لم تكن أنت من منح هذا التفويض، نفّذ فورًا في التيرمينال السيادي الأمر
+        <b dir="ltr">mcp revoke-tokens</b> لإنهاء كل الرموز المفتوحة، وراجع مركز الأمن.</p>
+      </div>`,
     });
   } catch {
     /* صامت — البريد طبقة تزيين */
   }
 }
-
-/* ============================ GET — رسم صفحة التفويض ============================ */
 
 export async function GET(request: Request) {
   const origin = getOrigin(request);
@@ -346,8 +319,6 @@ export async function GET(request: Request) {
   const hasTotp = Boolean(await totpAdmin());
   return consentHtml(origin, params, verdict.client.name, "", hasTotp);
 }
-
-/* ============================ POST — التحقق وإصدار رمز التفويض ============================ */
 
 export async function POST(request: Request) {
   const origin = getOrigin(request);
@@ -373,7 +344,6 @@ export async function POST(request: Request) {
     return errorHtml("طلب تفويض مرفوض", verdict.errorDesc);
   }
 
-  /* الإلغاء — يُعاد العميل بخطأ access_denied وفق المعيار (مسار بريء لا يخضع للدروع) */
   if (get("action") === "cancel") {
     const cancelUrl = new URL(params.redirectUri);
     cancelUrl.searchParams.set("error", "access_denied");
@@ -383,7 +353,6 @@ export async function POST(request: Request) {
 
   const shieldPage = (title: string, detail: string) => errorHtml(title, detail);
 
-  /* الدرع 0 — درع الاندفاع السريع: رفض فوري بلا أي استعلام قاعدة بيانات */
   if (!rateLimit(`mcp-oauth:${ip}`, BURST_PER_MIN, 60_000).ok) {
     await raiseAlert({
       type: "OAUTH_BURST",
@@ -394,7 +363,6 @@ export async function POST(request: Request) {
     return shieldPage("محاولات كثيرة", "تجاوزت حد محاولات التفويض المسموح — انتظر دقيقة ثم أعد المحاولة");
   }
 
-  /* الدرع 1 — جدار IP الصارم نفسه الذي يحمي دخول اللوحة */
   const ipDecision = await decideIpAccess(ip);
   if (!ipDecision.access) {
     await raiseAlert({
@@ -406,8 +374,6 @@ export async function POST(request: Request) {
     return shieldPage("وصول مرفوض", "هذا العنوان محظور بجدار قواعد IP — لا يمكن التفويض منه");
   }
 
-  /* الدرع 2 — عداد التخمين الدائم في قاعدة البيانات (لا يُصفَّر مع Cold Start):
-     نفس عتبات درع الدخول — 5 فشل/15 دقيقة أو 12 فشل/ساعة لكل IP أو للفاعل كله */
   const since15 = new Date(Date.now() - 15 * 60_000);
   const since1h = new Date(Date.now() - 60 * 60_000);
   const [fails15, fails1h] = await Promise.all([
@@ -429,7 +395,6 @@ export async function POST(request: Request) {
     return shieldPage("محاولات كثيرة", "تم حظر محاولات التفويض مؤقتًا لأسباب أمنية — أعد المحاولة بعد 15 دقيقة");
   }
 
-  /* الطبقة 1 — كلمة مرور التفويض */
   if (!oauthPasswordOk(get("password"))) {
     await recordFail(ip, "OAUTH_WRONG_PASSWORD");
     if (fails15 >= MAX_FAILS_15MIN - 2) {
@@ -444,7 +409,6 @@ export async function POST(request: Request) {
     return consentHtml(origin, params, verdict.client.name, "كلمة المرور غير صحيحة — أعد المحاولة", hasTotp);
   }
 
-  /* الطبقة 2 — التحقق الثنائي TOTP من سرّ الأدمن المفعّل (إن كان مفعّلًا) */
   const admin = await totpAdmin();
   if (admin) {
     const totpOk = (() => {
@@ -472,7 +436,6 @@ export async function POST(request: Request) {
     }
   }
 
-  /* النجاح — توثيق كامل ثم إشعارات فورية ورمز يحمل رقم الإلغاء tv */
   await prisma.loginAttempt
     .create({ data: { username: OAUTH_ACTOR, ip, success: true, reason: "OAUTH_OK" } })
     .catch(() => {});

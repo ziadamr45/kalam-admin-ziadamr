@@ -1,14 +1,12 @@
 import "server-only";
 import { prisma } from "@/lib/prisma";
 import { cloudinaryUsage } from "@/lib/cloudinary";
+import { resolveEmailConfig } from "@/lib/notifications/dispatcher";
 
 /**
  * ============================================================
  * محرك المراقبة الشاملة — Total System Observability Engine
  * ============================================================
- * صحة Neon PostgreSQL لحظيًا (زمن الاستجابة، الاتصالات النشطة،
- * حجم القاعدة)، لقطات الحركة، الأخطاء التشغيلية، وحصص الواجهات
- * الخارجية (Gemini/Resend/Cloudinary) بعدّادات يومية في Neon.
  */
 
 export type DbHealth = {
@@ -198,28 +196,11 @@ export async function externalQuotas(): Promise<ExternalQuotas> {
   const today = cairoDayKey();
   const todayOf = (p: string) => rows.get(p)?.find((r) => r.day === today)?.count ?? 0;
 
-  /* Gemini — المفتاح مُحمَّل في المنصة العامة؛ الفحص هنا عبر عدادات الاستهلاك المشتركة */
   const geminiConfigured = Boolean(process.env.GEMINI_API_KEY || process.env.GOOGLE_API_KEY);
 
-  /* Resend — جلب حالة النطاقات مباشرة من API إن توفر المفتاح */
-  let resendExtra: Record<string, unknown> | undefined;
-  let resendConfigured = Boolean(process.env.RESEND_API_KEY);
-  if (resendConfigured) {
-    try {
-      const res = await fetch("https://api.resend.com/domains", {
-        headers: { Authorization: `Bearer ${process.env.RESEND_API_KEY}` },
-        signal: AbortSignal.timeout(4000),
-      });
-      if (res.ok) {
-        const data = (await res.json()) as { data?: { name: string; status: string }[] };
-        resendExtra = { domains: data.data ?? [] };
-      }
-    } catch {
-      /* استقصاء الحصص لا يرفع أخطاء */
-    }
-  }
+  const emailCfg = await resolveEmailConfig().catch(() => ({ user: null, pass: null, from: "" }));
+  const smtpConfigured = Boolean(emailCfg.user && emailCfg.pass);
 
-  /* Cloudinary — واجهة الاستخدام الرسمية مع خطة وحصص التخزين والنطاق الترددي */
   let cloudinaryExtra: Record<string, unknown> | undefined;
   let cloudinaryConfigured = false;
   try {
@@ -253,12 +234,12 @@ export async function externalQuotas(): Promise<ExternalQuotas> {
       last7Days: rows.get("GEMINI_TTS") ?? [],
     },
     resend: {
-      provider: "RESEND_EMAIL",
-      label: "تسليم البريد Resend",
-      configured: resendConfigured,
+      provider: "SMTP_EMAIL",
+      label: "تسليم البريد (Gmail SMTP)",
+      configured: smtpConfigured,
       today: todayOf("RESEND_EMAIL"),
       last7Days: rows.get("RESEND_EMAIL") ?? [],
-      extra: resendExtra,
+      extra: { from: emailCfg.from, dailyLimit: 500 },
     },
     cloudinary: {
       provider: "CLOUDINARY_UPLOAD",
@@ -311,7 +292,6 @@ export async function dbStats(): Promise<DbStats> {
 
 /* ==================== التقليم الدوري ==================== */
 
-/** تقليم سجلات المراقبة القديمة — يحفظ آخر n يومًا (يستدعيه run_maintenance) */
 export async function pruneLogs(keepDays = 14): Promise<{ requestLogs: number; serverErrors: number }> {
   const cutoff = new Date(Date.now() - keepDays * 86_400_000);
   const [requestLogs, serverErrors] = await Promise.all([
