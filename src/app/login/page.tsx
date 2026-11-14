@@ -107,11 +107,11 @@ function LoginForm() {
   return (
     <main className="flex min-h-screen items-center justify-center bg-linear-to-b from-steel-900 via-steel-800 to-steel-950 p-4">
       <div className="w-full max-w-sm">
-        {/* الهوية — شعار اللوحة المولَّد فوق النموذج: طابع أمان واحترافية */}
+        {/* الهوية — شعار اللوحة الموحّد فوق النموذج: طابع أمان واحترافية */}
         <div className="mb-8 text-center">
           {/* eslint-disable-next-line @next/next/no-img-element */}
           <img
-            src="/icons/icon-192.png"
+            src="/icons/icon-192.png?v=3"
             alt="شعار لوحة التحكم"
             width={56}
             height={56}
