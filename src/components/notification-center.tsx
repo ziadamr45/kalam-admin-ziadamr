@@ -58,13 +58,26 @@ function typeColor(type: string): string {
  * محوّل الروابط: إشعارات المالك تُصنع أصلًا للمنصة العامة (روابطها /me و/profile
  * و/article/<slug>)، واللوحة لا تملك هذه المسارات أصلًا فكان «الانتقال إلى الحدث»
  * يهبط في 404. تُترجم هنا لمقابلاتها الإدارية: الملف الشخصي ← المستخدمون،
- * والمقال ← إدارة المقالات. الروابط الإدارية الأصلية تمر كما هي.
+ * والمقال ← إدارة المقالات. الروابط الإدارية الأصلية تمر كمسار نسبي سريع
+ * مع توجيه بلاغات التعليقات إلى تبويب «مبلَّغة» (/comments?flagged=1) مباشرة.
  */
-function adminLink(link: string | null | undefined): string | null {
+function adminLink(link: string | null | undefined, type?: string): string | null {
+  if (type === "ADMIN_COMMENT_REPORTED") {
+    if (!link || /\/comments\/?$/i.test(link)) return "/comments?flagged=1";
+  }
   if (!link) return null;
-  if (link.startsWith("/me") || link.startsWith("/profile")) return "/users";
-  if (link.startsWith("/article/")) return "/articles";
-  return link;
+  let normalized = link;
+  if (/^https?:\/\//i.test(normalized)) {
+    try {
+      const u = new URL(normalized);
+      normalized = `${u.pathname}${u.search}`;
+    } catch {
+      /* يترك كما هو */
+    }
+  }
+  if (normalized.startsWith("/me") || normalized.startsWith("/profile")) return "/users";
+  if (normalized.startsWith("/article/")) return "/articles";
+  return normalized;
 }
 
 function useAdminNotifications() {
@@ -209,10 +222,6 @@ function AdminNotificationDetailModal({
   onDismiss?: (item: AdminNotificationItem) => void;
 }) {
   const [copied, setCopied] = useState(false);
-  /* البوابة إلى جسم الصفحة إلزامية: النافذة تُستدعى من داخل الجرس/شريط الطوارئ
-     وهما داخل هيدر عليه backdrop-blur-sm — وأي عنصر بـbackdrop-filter يصير حاوية
-     إسناد لأبنائه fixed، فتنحبس النافذة في صندوق الهيدر (56px) وتُقص من فوق.
-     البوابة تخرجها من ذلك السياق إلى الشاشة كلها على كل الأجهزة. */
   const [mounted, setMounted] = useState(false);
   useEffect(() => {
     setMounted(true);
@@ -255,9 +264,6 @@ function AdminNotificationDetailModal({
       aria-modal="true"
       aria-label={item.title}
     >
-      {/* بطاقة مرنة عموديًا: الرأس والتذييل ثابتان والمحتوى يتمدد ويمرّر —
-          لا يمكن أبدًا أن يتجاوز 92% من الشاشة فلا يُقص أي حرف على أي جهاز،
-          وتتسع على الكمبيوتر والتابلت لقراءة مريحة */}
       <div
         className="flex max-h-[92dvh] w-full max-w-md flex-col overflow-hidden rounded-2xl border border-steel-200 bg-white shadow-lg animate-fade-up sm:max-w-lg md:max-w-2xl"
         onClick={(e) => e.stopPropagation()}
@@ -326,7 +332,7 @@ function AdminNotificationDetailModal({
 
         <div className="flex shrink-0 items-center justify-between gap-2 border-t border-steel-100 px-4 py-3">
           {(() => {
-            const dest = adminLink(item.link);
+            const dest = adminLink(item.link, item.type);
             return dest ? (
               <Link
                 href={dest}
@@ -363,7 +369,6 @@ export function AdminUrgentBar() {
   const { items, urgent, markOne, openDetail, detail, closeDetail, dismiss } = useAdminNotifications();
   if (!urgent) return null;
   const isAlert = urgent.type === "ADMIN_SYSTEM_ALERT";
-  /* العنصر الكامل من القائمة (يحمل isRead وcreatedAt اللذين تعرضهما النافذة) */
   const fullItem = items.find((n) => n.id === urgent.id) ?? (urgent as AdminNotificationItem);
   return (
     <div
@@ -375,8 +380,6 @@ export function AdminUrgentBar() {
       }}
       role="alert"
     >
-      {/* ضغطة على نص التنبيه نفسه تفتح التفاصيل الكاملة — الشريط ملخص 90 حرفًا
-          بحكم موقعه، والنص الكامل يُعرض في نافذة التفاصيل بلا أي اقتطاع */}
       <button
         onClick={() => openDetail(fullItem)}
         className="flex min-w-0 flex-1 items-center gap-2 text-right"
@@ -394,7 +397,7 @@ export function AdminUrgentBar() {
         >
           عرض كاملًا
         </button>
-        <Link href={adminLink(urgent.link) ?? "/system?tab=errors"} className="underline underline-offset-4 hover:opacity-80">
+        <Link href={adminLink(urgent.link, urgent.type) ?? "/system?tab=errors"} className="underline underline-offset-4 hover:opacity-80">
           فتح
         </Link>
         <button onClick={() => markOne(urgent.id)} className="underline underline-offset-4 hover:opacity-80">

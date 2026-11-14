@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
-import { useRouter } from "next/navigation";
+import { useSearchParams } from "next/navigation";
 import { Badge, Button, Card, Modal, useToast } from "@/components/ui";
 
 type CommentReportRow = {
@@ -55,15 +55,18 @@ const TABS = [
 ] as const;
 
 export function CommentsManager() {
-  const router = useRouter();
+  const searchParams = useSearchParams();
   const { toast } = useToast();
-  const [tab, setTab] = useState<(typeof TABS)[number]["key"]>(() => {
-    if (typeof window !== "undefined") {
-      const sp = new URLSearchParams(window.location.search);
-      if (sp.get("flagged") === "1") return "flagged";
+  const [tab, setTab] = useState<(typeof TABS)[number]["key"]>(() =>
+    searchParams.get("flagged") === "1" ? "flagged" : "PENDING",
+  );
+
+  useEffect(() => {
+    if (searchParams.get("flagged") === "1") {
+      setTab("flagged");
     }
-    return "PENDING";
-  });
+  }, [searchParams]);
+
   const [comments, setComments] = useState<CommentRow[]>([]);
   const [loading, setLoading] = useState(true);
   const [editingId, setEditingId] = useState<string | null>(null);
