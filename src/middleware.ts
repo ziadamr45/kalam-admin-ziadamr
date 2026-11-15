@@ -5,7 +5,7 @@ import { sessionSecretKey } from "@/lib/jwt";
 /**
  * Middleware لوحة التحكم — الخط الدفاعي الأول على الحافة (Edge)
  * 1. تحقق توقيع JWT لكل الصفحات الإدارية (بدون DB)
- * 2. فحص CSRF (Origin) لكل طلبات API المتغيرة
+ * 2. فحص CSRF (Origin/Referer) لكل طلبات API المتغيرة
  * 3. ترويسات أمان صارمة + CSP مضبوطة المصادر
  * 4. منع الكاش نهائيًا (no-store) — لا أثر للوحة في سجل/كاش المتصفح
  *
@@ -22,7 +22,7 @@ const PUBLIC_PATHS = [
   "/login",
   "/api/auth/login",
   /* المرحلة الثانية من الدخول: التحقق من الرمز المتغير — الجلسة الكاملة
-     لم تُصدر بعد بطبيعة الحال، وحمايته الحقيقية هي كوكي preauth الموقّع
+     لم تُصدر بعد بطبيعت الحال، وحمايته الحقيقية هي كوكي preauth الموقّع
      (SameSite=Strict، 5 دقائق) + الرمز نفسه أمام المسار مباشرة.
      إقامة الجلسة عليه كانت تُرجع كل محاولة دخول بـ«جلسة غير صالحة» */
   "/api/auth/verify-2fa",
@@ -62,6 +62,7 @@ const NOTIFICATION_ASSETS = [
 /**
  * سياسة أمان المحتوى الصارمة للوحة:
  * - كل المصادر محصورة بالأصل — لا سكربت ولا إطار خارجي إطلاقًا
+ * - script-src-attr 'none' — حظر سمات الأحداث المضمنة (onclick/onerror)
  * - object-src 'none' + base-uri/form-action 'self' — سد حقن XSS
  * - frame-ancestors 'none' — اللوحة لا تُضمَّن في أي iframe خارجي
  * (الصور https: لأغلفة المقالات من مصادر التحرير، وblob: لمعاينات الرفع)
@@ -69,6 +70,7 @@ const NOTIFICATION_ASSETS = [
 const CSP = [
   "default-src 'self'",
   "script-src 'self' 'unsafe-inline'",
+  "script-src-attr 'none'",
   "style-src 'self' 'unsafe-inline'",
   "img-src 'self' data: blob: https:",
   "media-src 'self' https: blob:",
@@ -99,21 +101,20 @@ export async function middleware(request: NextRequest) {
   if (pathname.startsWith("/api/") && !["GET", "HEAD", "OPTIONS"].includes(method)) {
     const isPublic = PUBLIC_PATHS.some((p) => pathname === p || pathname.startsWith(p + "/"));
     const isCron = pathname.startsWith("/api/cron/");
-    if (!isPublic || isCron) {
-      // cron يُصادق بسر خاص وليس Origin
-      if (!isCron) {
-        const origin = request.headers.get("origin");
-        if (origin) {
-          try {
-            const originHost = new URL(origin).host;
-            const host = request.headers.get("host");
-            if (!host || originHost !== host) {
-              return NextResponse.json({ error: "طلب مرفوض (CSRF)" }, { status: 403 });
-            }
-          } catch {
-            return NextResponse.json({ error: "طلب مرفوض (CSRF)" }, { status: 403 });
-          }
+    if (!isPublic && !isCron) {
+      const host = request.headers.get("host");
+      const origin = request.headers.get("origin");
+      const referer = request.headers.get("referer");
+      const source = origin || referer;
+      if (!source || !host) {
+        return NextResponse.json({ error: "طلب مرفوض (CSRF)" }, { status: 403 });
+      }
+      try {
+        if (new URL(source).host !== host) {
+          return NextResponse.json({ error: "طلب مرفوض (CSRF)" }, { status: 403 });
         }
+      } catch {
+        return NextResponse.json({ error: "طلب مرفوض (CSRF)" }, { status: 403 });
       }
     }
   }
