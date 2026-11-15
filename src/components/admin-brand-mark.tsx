@@ -1,6 +1,6 @@
 /**
  * شعار لوحة التحكم السيادية — حرف الكاف الهندسي الأصلي المحدد + ترس الإعدادات.
- * SVG متجهي حاد لا يتأثر بكاش الصور ويحافظ على نفس المقاسات في كل موضع.
+ * SVG متجهي حاد بحواف squircle ناعمة مطابقة للشعار المعتمد.
  */
 export function AdminBrandMark({ className = "h-10 w-10 rounded-xl" }: { className?: string }) {
   return (
@@ -11,9 +11,12 @@ export function AdminBrandMark({ className = "h-10 w-10 rounded-xl" }: { classNa
       role="img"
       aria-label="شعار لوحة التحكم — كلام له لازمة"
     >
-      <rect width="128" height="128" rx="28" fill="#0D1626" />
+      <path
+        d="M64 0 C110 0 128 18 128 64 C128 110 110 128 64 128 C18 128 0 110 0 64 C0 18 18 0 64 0 Z"
+        fill="#0D1626"
+      />
       {/* ترس الإعدادات في الزاوية اليسرى العليا */}
-      <g transform="translate(27 30)" stroke="#B9832F" strokeWidth="3.2" strokeLinecap="round" strokeLinejoin="round">
+      <g transform="translate(29 33)" stroke="#B9832F" strokeWidth="3.2" strokeLinecap="round" strokeLinejoin="round">
         <circle cx="0" cy="0" r="6.2" fill="none" />
         <path d="M0 -11 L0 -8 M0 8 L0 11 M-11 0 L-8 0 M8 0 L11 0 M-7.8 -7.8 L-5.7 -5.7 M5.7 5.7 L7.8 7.8 M-7.8 7.8 L-5.7 5.7 M5.7 -5.7 L7.8 -7.8" />
       </g>

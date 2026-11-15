@@ -49,11 +49,11 @@ export const metadata: Metadata = {
   /* الهوية الإدارية — شعار حرف الكاف والترس على الكحلي */
   icons: {
     icon: [
-      { url: "/favicon.ico?v=5", sizes: "48x48", type: "image/x-icon" },
-      { url: "/icons/icon-192.png?v=5", sizes: "192x192", type: "image/png" },
-      { url: "/icons/icon-512.png?v=5", sizes: "512x512", type: "image/png" },
+      { url: "/favicon.ico?v=6", sizes: "48x48", type: "image/x-icon" },
+      { url: "/icons/icon-192.png?v=6", sizes: "192x192", type: "image/png" },
+      { url: "/icons/icon-512.png?v=6", sizes: "512x512", type: "image/png" },
     ],
-    apple: "/icons/apple-touch-icon.png?v=5",
+    apple: "/icons/apple-touch-icon.png?v=6",
   },
 };
 
