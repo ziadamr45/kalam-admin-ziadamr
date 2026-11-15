@@ -51,7 +51,7 @@ export const SITE_CONFIG_SCHEMA: SiteConfigKeyDef[] = [
     type: "text",
     label: "وصف المنصة (Meta Description)",
     default:
-      "مش كل كلام لازم يتقال.. بس فيه كلام له لازمة. منصة فكرية ومعرفية عربية: مقالات رصينة، بلا ضجيج، بلا إعلانات — كلام يستحق وقّتك.",
+      "مش كل كلام لازم يتقال.. بس فيه كلام له لازمة. منصة فكرية ومعرفية عربية: مقالات رصينة، بلا ضجيج، بلا إعلانات — كلام يستحق وقتك.",
   },
   {
     key: "FOOTER_TEXT",
@@ -343,7 +343,7 @@ export function coerceConfigValue(def: SiteConfigKeyDef, raw: unknown): unknown 
   }
 }
 
-/** حفظ دفعة مفاتيح — يتحقق من كل مفتاح قبل الكتابة، ذريًّا في معاملة واحدة */
+/** حفظ دفعة مفاتيح — يتحقق من كل مفتاح قبل الكتابة، ذريًا في معاملة واحدة */
 export async function saveSiteConfigEntries(
   entries: { key: string; value: unknown }[],
   updatedBy: string,
