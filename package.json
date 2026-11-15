@@ -9,6 +9,7 @@
     "start": "next start -p 3001",
     "postinstall": "prisma generate",
     "lint": "next lint",
+    "test": "node scripts/run-tests.mjs",
     "admin:create": "tsx scripts/create-admin.ts",
     "seed:sections": "tsx scripts/seed-sections.ts",
     "seed:demo": "tsx scripts/seed-demo-article.ts"
@@ -39,7 +40,7 @@
     "@types/fontkit": "^2.0.9",
     "@types/node": "22.10.5",
     "@types/nodemailer": "^7.0.0",
-    "@types/qrcode": "1.5.5",
+    "@types/qrcode": "^1.5.5",
     "@types/react": "19.1.0",
     "@types/react-dom": "19.1.0",
     "@types/web-push": "^3.6.4",
