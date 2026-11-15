@@ -173,12 +173,14 @@ model User {
 }
 
 /* حصة نقاش الذكاء الاصطناعي الدائمة — سجل استهلاك صارم لكل قارئ مسجل
-   في كل مقال: يتحقق منه الخادم قبل أي نداء لـ Gemini ولا يُصفَّر بالتحديث */
+   في كل مقال: يتحقق منه الخادم قبل أي نداء لـ Gemini ولا يُصفَّر بالتحديث،
+   ويحفظ آخر 40 رسالة لمزامنة الحوار عبر كل أجهزة القارئ */
 model AiDiscussionUsage {
   id            String   @id @default(cuid())
   userId        String
   articleId     String
   messageCount  Int      @default(0)
+  messages      Json?    // آخر رسائل الحوار [{ role: "user" | "model", text: string }] للمزامنة عبر الأجهزة
   lastMessageAt DateTime @default(now())
 
   user    User    @relation(fields: [userId], references: [id], onDelete: Cascade)
