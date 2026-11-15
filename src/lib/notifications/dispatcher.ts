@@ -154,7 +154,7 @@ function emailThemeFor(type?: string): {
 
 /**
  * قالب البريد المعاملاتي الموحد — خفيف جدًا (~3KB)، متوافق مع كل عملاء البريد،
- * بهوية «كلام له لازمة» الورقية الدافئة وشعارها الرسمي، وبألوان تتكيّف حسب نوع الحدث.
+ * بهوية «كلام له لازمة» الورقية الدافئة مع تثبيت RTL على كل عنصر داخلي.
  */
 export function notificationEmailHtml(
   title: string,
@@ -177,45 +177,47 @@ export function notificationEmailHtml(
     .filter(Boolean)
     .map(
       (l) =>
-        `<p style="margin:0 0 12px;line-height:1.95;color:#2B241A;font-size:15px;">${escapeHtml(l)}</p>`,
+        `<p dir="rtl" style="margin:0 0 12px;line-height:1.95;color:#2B241A;font-size:15px;direction:rtl;text-align:right;">${escapeHtml(l)}</p>`,
     )
     .join("");
 
-  return `<!DOCTYPE html><html dir="rtl" lang="ar"><body style="margin:0;padding:24px 12px;background:#F5EFE4;font-family:'Segoe UI',Tahoma,Arial,sans-serif;">
-<table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="max-width:560px;margin:0 auto;background:#FFFFFF;border:1px solid #E7DEC9;border-radius:16px;overflow:hidden;">
+  return `<!DOCTYPE html><html dir="rtl" lang="ar"><body style="margin:0;padding:24px 12px;background:#F5EFE4;font-family:'Segoe UI',Tahoma,Arial,sans-serif;direction:rtl;text-align:right;">
+<div dir="rtl" style="direction:rtl;text-align:right;">
+<table dir="rtl" align="center" role="presentation" width="100%" cellspacing="0" cellpadding="0" style="max-width:560px;margin:0 auto;background:#FFFFFF;border:1px solid #E7DEC9;border-radius:16px;overflow:hidden;direction:rtl;text-align:right;">
   <tr>
-    <td style="background:${theme.headerBg};padding:18px 24px;border-bottom:3px solid ${theme.accent};">
-      <table role="presentation" width="100%" cellspacing="0" cellpadding="0">
+    <td dir="rtl" align="right" style="background:${theme.headerBg};padding:18px 24px;border-bottom:3px solid ${theme.accent};direction:rtl;text-align:right;">
+      <table dir="rtl" role="presentation" width="100%" cellspacing="0" cellpadding="0" style="direction:rtl;text-align:right;">
         <tr>
           <td style="vertical-align:middle;width:44px;">
             <img src="${logoUrl}" width="40" height="40" alt="كلام له لازمة" style="display:block;border-radius:10px;border:1px solid rgba(255,255,255,0.18);"/>
           </td>
-          <td style="vertical-align:middle;padding-right:12px;">
-            <div style="color:#FAF6EE;font-size:17px;font-weight:700;line-height:1.3;">كلام له لازمة</div>
-            <div style="color:#CBD5E1;font-size:11.5px;margin-top:2px;">مش كل كلام لازم يتقال.. بس فيه كلام له لازمة.</div>
+          <td dir="rtl" align="right" style="vertical-align:middle;padding-right:12px;direction:rtl;text-align:right;">
+            <div style="color:#FAF6EE;font-size:17px;font-weight:700;line-height:1.3;text-align:right;">كلام له لازمة</div>
+            <div style="color:#CBD5E1;font-size:11.5px;margin-top:2px;text-align:right;">مش كل كلام لازم يتقال.. بس فيه كلام له لازمة.</div>
           </td>
         </tr>
       </table>
     </td>
   </tr>
   <tr>
-    <td style="padding:26px 24px 22px;">
+    <td dir="rtl" align="right" style="padding:26px 24px 22px;direction:rtl;text-align:right;">
       <div style="display:inline-block;padding:4px 12px;border-radius:999px;background:${theme.softBg};color:${theme.accent};font-size:11.5px;font-weight:700;margin-bottom:14px;border:1px solid ${theme.accent}33;">${theme.badge}</div>
-      <h1 style="margin:0 0 16px;font-size:19px;color:#1F1A14;line-height:1.6;">${escapeHtml(title)}</h1>
+      <h1 dir="rtl" style="margin:0 0 16px;font-size:19px;color:#1F1A14;line-height:1.6;direction:rtl;text-align:right;">${escapeHtml(title)}</h1>
       ${lines}
       ${
         targetUrl
-          ? `<div style="margin-top:20px;"><a href="${targetUrl}" style="display:inline-block;background:${theme.accent};color:#FFFFFF;text-decoration:none;padding:11px 24px;border-radius:999px;font-size:14px;font-weight:700;">${theme.ctaLabel}</a></div>`
+          ? `<div dir="rtl" style="margin-top:20px;text-align:right;"><a href="${targetUrl}" style="display:inline-block;background:${theme.accent};color:#FFFFFF;text-decoration:none;padding:11px 24px;border-radius:999px;font-size:14px;font-weight:700;">${theme.ctaLabel}</a></div>`
           : ""
       }
     </td>
   </tr>
   <tr>
-    <td style="padding:15px 24px;background:#FAF6EE;border-top:1px solid #E7DEC9;color:#6B5F4D;font-size:11.5px;line-height:1.85;">
+    <td dir="rtl" align="right" style="padding:15px 24px;background:#FAF6EE;border-top:1px solid #E7DEC9;color:#6B5F4D;font-size:11.5px;line-height:1.85;direction:rtl;text-align:right;">
       تصلك هذه الرسالة من منصة <a href="${siteUrl}" style="color:#A16A1F;text-decoration:none;font-weight:700;">كلام له لازمة</a> لتنبيهك بشأن حسابك. رسائل الأمان إلزامية لحماية الحساب، ويمكنك ضبط بقية التفضيلات من <a href="${siteUrl}/profile" style="color:#A16A1F;text-decoration:none;">ملفك الشخصي</a>.
     </td>
   </tr>
 </table>
+</div>
 </body></html>`;
 }
 
@@ -566,8 +568,8 @@ export async function dispatchAdminEvent(input: {
     await pushAdmins({
       title: input.title.slice(0, 120),
       body: input.message.slice(0, 160),
-      url: input.link ?? "/",
-      tag: input.pushTag ?? `admin-${input.type.toLowerCase()}`,
+      url: link ?? "/",
+      tag: input.pushTag ? `admin-${input.pushTag}` : `admin-${input.type.toLowerCase()}`,
     });
   } catch {
     /* صامت */
