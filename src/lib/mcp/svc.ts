@@ -1,24 +1,106 @@
 /**
- * أدوات الخدمات السيادية — Cloudinary + Gmail SMTP + إشعارات الإدارة (v4.0.0)
- * Cloudinary: رفع وإعادة تسمية وتنظيم عبر REST الموقّع SHA1.
+ * أدوات الخدمات السيادية — Cloudinary + Gmail SMTP + إشعارات الإدارة (v4.1.0)
+ * Cloudinary: رفع مباشر (رابط https / base64 / كود SVG خام يُرسم تلقائيًا لـ PNG عالي الدقة عبر Resvg) + إعادة تسمية وتنظيم عبر REST الموقّع SHA1.
  * Email: إرسال بريد مخصص عبر Gmail SMTP (Nodemailer).
  * Push: إشعار إداري مخصص لأجهزة صاحب المنصة.
  * كل عملية مغيّرة تُوثَّق في سجل التدقيق.
  */
 
 import { createHash } from "crypto";
+import path from "path";
+import { Resvg } from "@resvg/resvg-js";
 import { prisma } from "@/lib/prisma";
 import { writeAudit } from "@/lib/guard";
 import { pushAdmins } from "@/lib/push";
 import { resolveEmailConfig, sendRawEmail } from "@/lib/notifications/dispatcher";
 import {
   McpToolError,
+  bool,
+  num,
   str,
   type McpArgs,
   type McpRequestMeta,
 } from "@/lib/mcp/base";
 
 /* ============================ Cloudinary ============================ */
+
+const BUNDLED_FONT_FILES = [
+  "Amiri-Regular.ttf",
+  "Amiri-Bold.ttf",
+  "Tajawal-Regular.ttf",
+  "Tajawal-Bold.ttf",
+];
+
+function extractSvgInput(raw: string): string | null {
+  const trimmed = raw.trim();
+  if (/^<svg[\s>]/i.test(trimmed) || (trimmed.startsWith("<?xml") && /<svg[\s>]/i.test(trimmed))) {
+    return trimmed;
+  }
+  if (/^data:image\/svg\+xml/i.test(trimmed)) {
+    const commaIdx = trimmed.indexOf(",");
+    if (commaIdx === -1) {
+      throw new McpToolError("بيانات data:image/svg+xml غير صالحة");
+    }
+    const header = trimmed.slice(0, commaIdx).toLowerCase();
+    const payload = trimmed.slice(commaIdx + 1);
+    const decoded = header.includes(";base64")
+      ? Buffer.from(payload, "base64").toString("utf8")
+      : decodeURIComponent(payload);
+    if (!/<svg[\s>]/i.test(decoded)) {
+      throw new McpToolError("محتوى SVG المفكوك لا يحتوي على وسم <svg>");
+    }
+    return decoded.trim();
+  }
+  return null;
+}
+
+function renderSvgToPng(
+  svgSource: string,
+  opts: { width?: number; scale?: number; background?: string }
+): { dataUri: string; width: number; height: number; pngBytes: number } {
+  if (svgSource.length > 512 * 1024) {
+    throw new McpToolError("حجم كود SVG يتجاوز الحد المسموح (512 كيلوبايت)");
+  }
+  if (!/<svg[\s>]/i.test(svgSource) || !/<\/svg>/i.test(svgSource)) {
+    throw new McpToolError("كود SVG غير مكتمل — تأكد من وجود وسم البداية <svg> والنهاية </svg>");
+  }
+
+  let fitTo: { mode: "original" } | { mode: "width"; value: number } | { mode: "zoom"; value: number } = {
+    mode: "original",
+  };
+  if (opts.width !== undefined) {
+    const clampedWidth = Math.min(4096, Math.max(16, Math.round(opts.width)));
+    fitTo = { mode: "width", value: clampedWidth };
+  } else if (opts.scale !== undefined) {
+    const clampedScale = Math.min(4, Math.max(0.5, opts.scale));
+    fitTo = { mode: "zoom", value: clampedScale };
+  }
+
+  const fontFiles = BUNDLED_FONT_FILES.map((f) => path.join(process.cwd(), "src/assets/fonts", f));
+
+  try {
+    const resvg = new Resvg(svgSource, {
+      ...(opts.background ? { background: opts.background } : {}),
+      fitTo,
+      font: {
+        fontFiles,
+        loadSystemFonts: false,
+        defaultFontFamily: "Amiri",
+      },
+    });
+    const rendered = resvg.render();
+    const pngBuffer = Buffer.from(rendered.asPng());
+    return {
+      dataUri: `data:image/png;base64,${pngBuffer.toString("base64")}`,
+      width: rendered.width,
+      height: rendered.height,
+      pngBytes: pngBuffer.length,
+    };
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    throw new McpToolError(`تعذّر رسم SVG إلى PNG: ${msg}`);
+  }
+}
 
 function cloudinaryCreds(): { cloud: string; key: string; secret: string } {
   const cloud = process.env.CLOUDINARY_CLOUD_NAME;
@@ -64,14 +146,33 @@ async function cldForm(endpoint: string, params: Record<string, string>, fileFie
 }
 
 async function cloudinaryUpload(args: McpArgs, meta: McpRequestMeta): Promise<unknown> {
-  const file = str(args, "file");
-  if (!file) {
-    throw new McpToolError("file إلزامي — إما رابط مباشر https:// أو بيانات data:image/png;base64,...");
+  const rawFile = str(args, "file");
+  const rawSvgArg = str(args, "svg");
+  const input = rawSvgArg ?? rawFile;
+  if (!input) {
+    throw new McpToolError("file أو svg إلزامي — رابط مباشر https:// أو data:image/... أو كود <svg> خام");
   }
   const resource = str(args, "resource") ?? "image";
   const endpointMap: Record<string, string> = { image: "image/upload", raw: "raw/upload", video: "video/upload" };
   const endpoint = endpointMap[resource];
   if (!endpoint) throw new McpToolError("resource يقبل image | raw | video فقط");
+
+  const svgSource = extractSvgInput(input);
+  const shouldRasterize = Boolean(svgSource) && resource === "image" && bool(args, "rasterize_svg") !== false;
+
+  let uploadValue = input;
+  let rasterMeta: { width: number; height: number; pngBytes: number } | null = null;
+  if (shouldRasterize && svgSource) {
+    const rendered = renderSvgToPng(svgSource, {
+      width: num(args, "width"),
+      scale: num(args, "scale"),
+      background: str(args, "background"),
+    });
+    uploadValue = rendered.dataUri;
+    rasterMeta = { width: rendered.width, height: rendered.height, pngBytes: rendered.pngBytes };
+  } else if (svgSource && !input.trim().toLowerCase().startsWith("data:")) {
+    uploadValue = `data:image/svg+xml;base64,${Buffer.from(svgSource, "utf8").toString("base64")}`;
+  }
 
   const params: Record<string, string> = {};
   const publicId = str(args, "public_id");
@@ -80,13 +181,20 @@ async function cloudinaryUpload(args: McpArgs, meta: McpRequestMeta): Promise<un
   if (folder) params.folder = folder;
   if (args.invalidate === true) params.invalidate = "true";
 
-  const data = await cldForm(endpoint, params, { name: "file", value: file });
+  const data = await cldForm(endpoint, params, { name: "file", value: uploadValue });
   await writeAudit({
     adminId: null,
     action: "mcp.cloudinary_upload",
     entity: "Cloudinary",
     entityId: String(data.public_id ?? "?"),
-    meta: { via: "gemini-spark-mcp", resource, folder: folder ?? null, bytes: Number(data.bytes ?? 0) },
+    meta: {
+      via: "gemini-spark-mcp",
+      resource,
+      folder: folder ?? null,
+      bytes: Number(data.bytes ?? 0),
+      rasterizedFromSvg: Boolean(rasterMeta),
+      ...(rasterMeta ? { width: rasterMeta.width, height: rasterMeta.height } : {}),
+    },
     ip: meta.ip,
   });
   const rawUrl = String(data.secure_url ?? "");
@@ -97,6 +205,7 @@ async function cloudinaryUpload(args: McpArgs, meta: McpRequestMeta): Promise<un
     delivery_url: resource === "image" && rawUrl ? rawUrl.replace("/upload/", "/upload/f_auto,q_auto/") : rawUrl,
     bytes: Number(data.bytes ?? 0),
     format: data.format ?? null,
+    ...(rasterMeta ? { rasterized_from_svg: true, rendered_width: rasterMeta.width, rendered_height: rasterMeta.height } : {}),
   };
 }
 
