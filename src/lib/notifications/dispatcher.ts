@@ -568,7 +568,7 @@ export async function dispatchAdminEvent(input: {
     await pushAdmins({
       title: input.title.slice(0, 120),
       body: input.message.slice(0, 160),
-      url: link ?? "/",
+      url: input.link ?? "/",
       tag: input.pushTag ? `admin-${input.pushTag}` : `admin-${input.type.toLowerCase()}`,
     });
   } catch {
