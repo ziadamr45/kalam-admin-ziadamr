@@ -153,7 +153,7 @@ ${IDENTITY_HEAD}
 </head>
 <body>
   <div class="card">
-    <img class="logo" src="/icons/icon-192.png" alt="شعار كلام له لازمة"/>
+    <img class="logo" src="/icons/icon-192.png?v=5" alt="شعار كلام له لازمة"/>
     <span class="badge">خادم MCP — كلام له لازمة</span>
     <h1>${escapeHtml(title)}</h1>
     <p style="text-align:center">${escapeHtml(detail)}</p>
@@ -230,7 +230,7 @@ ${IDENTITY_HEAD}
 </head>
 <body>
   <div class="card">
-    <img class="logo" src="/icons/icon-192.png" alt="شعار كلام له لازمة"/>
+    <img class="logo" src="/icons/icon-192.png?v=5" alt="شعار كلام له لازمة"/>
     <span class="badge">بوابة MCP السيادية — الإصدار ${MCP_SERVER_VERSION}</span>
     <h1>تفويض الاتصال بالبوابة السيادية — كلام له لازمة</h1>
     <p class="sub">الجهة <span class="client">${escapeHtml(clientName)}</span> يطلب اتصالًا سياديًا كاملًا ببوابة الإدارة والمنصة (MCP v${MCP_SERVER_VERSION}) — لا تمنح التفويض إلا لجهة أو أداة تثق بها تمامًا</p>

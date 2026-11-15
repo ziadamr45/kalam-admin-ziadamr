@@ -55,7 +55,7 @@ const PRIVILEGE_OPTIONS: { key: string; label: string; hint: string }[] = [
   { key: "bypassRateLimits", label: "تجاوز محددات المعدل", hint: "نشر فوري للتعليقات دون الخضوع لمحددات السرعة" },
   { key: "bypassCooldowns", label: "تجاوز فترات التهدئة", hint: "إعفاء كامل من الانتظار بين التعليقات" },
   { key: "ahlAlKalimaAccess", label: "قناة «أهل الكلمة» فورية", hint: "فتح القناة والمشاركة فيها بغض النظر عن رصيد الأثر" },
-  { key: "selfPinComment", label: "تثبيت التعليقات ذاتياً", hint: "تثبيت تعليقه الشخصي في قمة التعليقات لأي مقال" },
+  { key: "selfPinComment", label: "تثبيت التعليقات ذاتيًا", hint: "تثبيت تعليقه الشخصي في قمة التعليقات لأي مقال" },
   { key: "vipCommentBorder", label: "إطار تعليق فخم ومميز", hint: "ظهور تعليقاته بإطار بلون الشارة في كافة المقالات" },
   { key: "betaFeatures", label: "وصول مبكر للميزات التجريبية", hint: "تجربة المزايا الجديدة قبل النشر العام" },
 ];
@@ -216,7 +216,7 @@ export function UsersTable({ users }: { users: UserRow[] }) {
       });
       const data = await res.json().catch(() => ({}));
       if (res.ok && data?.ok) {
-        toast(`مُحيا الحساب وكل بياناته نهائيًا — قيد التدقيق رقم ${data.auditId?.slice(-6,).toUpperCase()}`);
+        toast(`مُحي الحساب وكل بياناته نهائيًا — قيد التدقيق رقم ${data.auditId?.slice(-6,).toUpperCase()}`);
         setDeleteTarget(null);
         router.refresh();
       } else {
