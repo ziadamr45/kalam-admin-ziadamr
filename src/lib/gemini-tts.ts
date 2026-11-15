@@ -20,15 +20,11 @@ const MODEL_CANDIDATES = [
 ].filter(Boolean) as string[];
 
 /* الصوت الافتراضي: نبرة هادئة فخمة رصينة تناسب مقالات الفكر والوعي */
-export const TTS_VOICE = process.env.GEMINI_TTS_VOICE || "Charon";
+export const TTS_VOICE = process.env.GEMINI_TTS_VOICE || "Orus";
 
 /* توجيه الأداء لموديلات Gemini 3.8 TTS عبر speechMetadata.style (لا يُقرأ بصوتٍ عالٍ أبدًا) */
 const STYLE_38 =
   "Warm, calm, dignified Modern Standard Arabic narrator; authentic Arabic articulation without foreign accent, clear diacritic pronunciation, natural pauses at punctuation.";
-
-/* توجيه الأداء للموديلات الأقدم (2.5 / 3.1) بصيغة قصيرة معتمدة */
-const LEGACY_STYLE_PROMPT =
-  "Read aloud in a warm, calm, dignified Modern Standard Arabic narrator voice with clear articulation and natural pauses:\n\n";
 
 let workingModel: string | null = null;
 
@@ -66,12 +62,26 @@ type GeminiAudioResponse = {
   error?: { code?: number; message?: string; status?: string };
 };
 
-async function callOnce(model: string, text: string, voice?: string): Promise<{ pcm: Buffer; sampleRate: number }> {
+async function callOnce(
+  model: string,
+  text: string,
+  voice?: string,
+  includeLanguageCode = true,
+): Promise<{ pcm: Buffer; sampleRate: number }> {
   const isGemini38 = model.startsWith("gemini-3.8");
-  /* في Gemini 3.8 يُعامل حقل text كنص حرفي للقراءة فقط، وتوضع تعليمات الأداء في speechMetadata.style */
+  /* إرسال النص العربي المشكول صافيًا دون حقن أي تعليمات داخل حقل text —
+     حقن التعليمات النصية في الموديلات (2.5 / 3.1) يجعلها تقرأ البرومبت بصوت عالٍ
+     وتُفسد النطق العربي بلكنة إنجليزية. */
   const partPayload = isGemini38
     ? { text, speechMetadata: { style: STYLE_38 } }
-    : { text: LEGACY_STYLE_PROMPT + text };
+    : { text };
+
+  const speechConfig: Record<string, unknown> = {
+    voiceConfig: { prebuiltVoiceConfig: { voiceName: voice ?? TTS_VOICE } },
+  };
+  if (includeLanguageCode) {
+    speechConfig.languageCode = "ar-XA";
+  }
 
   const res = await fetch(`${API_ROOT}/${model}:generateContent`, {
     method: "POST",
@@ -83,14 +93,15 @@ async function callOnce(model: string, text: string, voice?: string): Promise<{ 
       contents: [{ parts: [partPayload] }],
       generationConfig: {
         responseModalities: ["AUDIO"],
-        speechConfig: {
-          voiceConfig: { prebuiltVoiceConfig: { voiceName: voice ?? TTS_VOICE } },
-        },
+        speechConfig,
       },
     }),
   });
 
   const raw = await res.text();
+  if (!res.ok && res.status === 400 && includeLanguageCode && raw.includes("languageCode")) {
+    return callOnce(model, text, voice, false);
+  }
   let json: GeminiAudioResponse = {};
   try {
     json = JSON.parse(raw) as GeminiAudioResponse;
