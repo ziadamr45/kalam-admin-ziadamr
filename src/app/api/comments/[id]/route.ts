@@ -117,6 +117,8 @@ export async function PATCH(request: Request, { params }: Params) {
       select: {
         status: true,
         userId: true,
+        parentId: true,
+        content: true,
         articleId: true,
         article: { select: { slug: true, title: true, section: { select: { slug: true } } } },
       },
@@ -125,7 +127,7 @@ export async function PATCH(request: Request, { params }: Params) {
     const comment = await prisma.comment.update({
       where: { id },
       data: data as never,
-      include: { user: { select: { email: true, name: true } }, article: { select: { slug: true } } },
+      include: { user: { select: { email: true, name: true, customName: true } }, article: { select: { slug: true } } },
     });
 
     /* ============ اعتماد تعليق معلق → +2 نقطة أثر لصاحبه ============
@@ -150,15 +152,35 @@ export async function PATCH(request: Request, { params }: Params) {
       void dispatchNotification({
         userId: before.userId,
         type: "COMMENT_APPROVED",
-        title: "تم اعتماد تعليقك ونشره على المنصة",
+        title: before.parentId ? "تم اعتماد ردّك ونشره على المنصة" : "تم اعتماد تعليقك ونشره على المنصة",
         message: impact?.awarded
-          ? `وصل تعليقك إلى القراء بمقال «${before.article.title}» وأُضيفت +2 نقطة إلى رصيد أثرك.`
-          : `وصل تعليقك إلى القراء بمقال «${before.article.title}».`,
+          ? `وصل ${before.parentId ? "ردّك" : "تعليقك"} إلى القراء بمقال «${before.article.title}» وأُضيفت +2 نقطة إلى رصيد أثرك.`
+          : `وصل ${before.parentId ? "ردّك" : "تعليقك"} إلى القراء بمقال «${before.article.title}».`,
         link: `/article/${before.article.slug}#comments`,
         pushTag: "comment-approved",
         metadata: { commentId: id, points: impact?.awarded ? impact.points : 0 },
         channels: "ALL",
       }).catch(() => {});
+
+      /* إذا كان ردًا على تعليق قارئ آخر: نُشعِر صاحب التعليق الأصلي فور اعتماد الرد */
+      if (before.parentId) {
+        const parent = await prisma.comment
+          .findUnique({ where: { id: before.parentId }, select: { userId: true } })
+          .catch(() => null);
+        if (parent?.userId && parent.userId !== before.userId) {
+          const replierName = comment.user?.customName || comment.user?.name || "قارئ";
+          const snippet = (before.content || "").trim();
+          void dispatchNotification({
+            userId: parent.userId,
+            type: "COMMENT_REPLY",
+            title: "رد جديد على تعليقك",
+            message: `${replierName} ردّ على تعليقك في مقال «${before.article.title}»: ${snippet.slice(0, 100)}${snippet.length > 100 ? "…" : ""}`,
+            link: `/article/${before.article.slug}#comments`,
+            pushTag: `comment-reply-${before.parentId}`,
+            channels: "ALL",
+          }).catch(() => {});
+        }
+      }
 
       /* تحديث صفحة المقال فورًا — التعليق يظهر للقراء لحظة الاعتماد */
       await revalidatePublicPaths(

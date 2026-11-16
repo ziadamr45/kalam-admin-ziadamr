@@ -215,6 +215,9 @@ model Comment {
   article       Article       @relation(fields: [articleId], references: [id], onDelete: Cascade)
   userId        String?
   user          User?         @relation(fields: [userId], references: [id])
+  parentId      String?
+  parent        Comment?      @relation("CommentReplies", fields: [parentId], references: [id], onDelete: Cascade)
+  replies       Comment[]     @relation("CommentReplies")
   guestName     String?
   guestFp       String?
   content       String        @db.Text
@@ -224,6 +227,7 @@ model Comment {
   riskScore     Float         @default(0)
   reportCount   Int           @default(0)
   editedByAdmin Boolean       @default(false)
+  editedAt      DateTime?
   isInspiring   Boolean       @default(false) // تمييز «تعليق فكري ملهم» بيد الأدمن — +30 نقطة أثر وثبوت أعلى المقال
   selfPinnedAt  DateTime? // تثبيت ذاتي من كاتبه — حصري لحاملي صلاحية selfPinComment، واحد لكل كاتب في كل مقال
   createdAt     DateTime      @default(now())
@@ -233,6 +237,7 @@ model Comment {
 
   @@index([articleId, status])
   @@index([status, createdAt(sort: Desc)])
+  @@index([parentId])
 }
 
 model CommentReport {
@@ -846,7 +851,7 @@ model UserDevice {
   deviceHash   String   // تجزئة فريدة مشتقة من (userId + User-Agent)
   browser      String?  // مثل: Chrome, Safari
   os           String?  // مثل: Android 14, Windows 11, iOS
-  deviceType   String?  // mobile | tablet | desktop
+  deviceType   String?  // mobile | desktop | tablet
   lastIp       String?
   location     String?  // المدينة والدولة (من ترويسات Vercel الطرفية)
   lastActiveAt DateTime @default(now())
