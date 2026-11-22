@@ -4,6 +4,8 @@
  * كل أداة لها اسم واضح ووصف عربي دقيق ومخطط JSON Schema صارم للمدخلات.
  */
 
+import { INLINE_UPLOAD_GUIDANCE } from "./inline-upload-limits";
+
 export type McpToolSchema = {
   name: string;
   description: string;
@@ -2120,11 +2122,11 @@ export const MCP_TOOLS: McpToolSchema[] = [
     title: "[الخزنة السحابية] رفع ملف إلى Cloudinary",
     annotations: {title: "[الخزنة السحابية] رفع ملف إلى Cloudinary", readOnlyHint: false, destructiveHint: false},
     description:
-      "رفع ملف إلى Cloudinary مباشرة: صورة (image) أو ملف خام (raw) أو فيديو — بقرار file إما رابط مباشر أو بيانات base64، مع مجلد ومعرف عام اختياريين. يُرجع الرابط الآمن ورابط التسليم المحسّن للصور. يُوثق في سجل التدقيق.",
+      "رفع ملف إلى Cloudinary مباشرة: صورة (image) أو ملف خام (raw) أو فيديو، عبر رابط مباشر أو base64. يُرجع الرابط الآمن ويُوثق في سجل التدقيق. " + INLINE_UPLOAD_GUIDANCE,
     inputSchema: {
       type: "object",
       properties: {
-        file: { type: "string", description: "رابط مباشر https:// أو data:image/png;base64,.... — إلزامي" },
+        file: { type: "string", description: "رابط HTTPS مباشر أو data:...;base64,... أو SVG كما هو مدعوم. " + INLINE_UPLOAD_GUIDANCE },
         resource: { type: "string", enum: ["image", "raw", "video"], description: "نوع المورد — افتراضي image" },
         public_id: { type: "string", description: "المعرف العام النهائي (بدون الامتداد)" },
         folder: { type: "string", description: "المجلد — يُنشأ تلقائيًا عند أول رفع" },

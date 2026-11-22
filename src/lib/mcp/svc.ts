@@ -6,6 +6,7 @@
  * كل عملية مغيّرة تُوثَّق في سجل التدقيق.
  */
 
+import { inlineUploadSizeIssue } from "@/lib/mcp/inline-upload-limits";
 import { createHash } from "crypto";
 import path from "path";
 import { Resvg } from "@resvg/resvg-js";
@@ -156,6 +157,9 @@ async function cloudinaryUpload(args: McpArgs, meta: McpRequestMeta): Promise<un
   const endpointMap: Record<string, string> = { image: "image/upload", raw: "raw/upload", video: "video/upload" };
   const endpoint = endpointMap[resource];
   if (!endpoint) throw new McpToolError("resource يقبل image | raw | video فقط");
+
+  const sizeIssue = inlineUploadSizeIssue(input, args);
+  if (sizeIssue) throw new McpToolError(sizeIssue);
 
   const svgSource = extractSvgInput(input);
   const shouldRasterize = Boolean(svgSource) && resource === "image" && bool(args, "rasterize_svg") !== false;
