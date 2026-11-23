@@ -24,7 +24,7 @@
     "jose": "5.9.6",
     "next": "15.5.29",
     "nextjs-toploader": "^3.9.17",
-    "nodemailer": "^8.0.11",
+    "nodemailer": "^10.1.4",
     "otplib": "12.0.1",
     "qrcode": "1.5.4",
     "react": "19.1.0",
