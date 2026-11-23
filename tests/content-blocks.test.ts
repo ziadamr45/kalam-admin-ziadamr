@@ -84,3 +84,10 @@ test("parseBlocks parses legacy quran/hadith and directives, ignoring empty ones
 test("toArabicDigits converts ASCII digits to Eastern Arabic", () => {
   assert.equal(toArabicDigits("255"), "٢٥٥");
 });
+
+
+test("empty directives never repeat a previous nonempty directive", () => {
+  const md = ":::note\nأول\n:::\n\n:::note\n \n:::\n\n:::question\nثان\n:::\n\n:::hadith\n\n:::";
+  assert.deepEqual(parseBlocks(md).map(b => b.kind), ["note", "question"]);
+  assert.deepEqual(parseBlocks(":::note\n \n:::"), []);
+});

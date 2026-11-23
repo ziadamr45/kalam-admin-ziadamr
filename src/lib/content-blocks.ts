@@ -186,7 +186,7 @@ function extractDirectives(raw: string): {
         dirBlocks.push({ kind: "question", id, text });
       }
       /* علامة موضعة فقط عند وجود كتلة فعلية — الوسوم الفارغة تُزال بلا أثر */
-      if (dirBlocks.length > 0 && kept[kept.length - 1] !== `@@dir-${dirBlocks.length - 1}@@`) {
+      if (dirBlocks.at(-1)?.id === id) {
         kept.push(`@@dir-${dirBlocks.length - 1}@@`);
       }
       continue;
